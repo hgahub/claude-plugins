@@ -123,6 +123,8 @@ issue, the counter and the elapsed time, below it a progress bar per section; ea
 (`5/5 ›`, `1/2 · 1 skipped ›`), and only the running section is open, with its steps and evidence. Clicking a
 section's name opens or closes it.
 
+![The issue pane mid-run: four sections, the running Review section open with its evidence](docs/issue-panel.png)
+
 - Steps: ✓ done (green) · ◐ in progress · ! skipped, with the reason · ○ not yet. Section icons: ☰ Prepare,
   ✎ Build, ⌕ Review, ⚑ Finish. One accent color (the running step and the bar), green checks and a warning
   color — everything else dim; colors are theme keys.
@@ -130,6 +132,9 @@ section's name opens or closes it.
   `verb`, `started_at`); `/hga:issue`'s checklist section requires a call at every state change.
 - A button on the right of the footer (`🎫 web-app#142 8/13`, dim while the pane is closed) toggles the pane;
   so does `/issue-pane`. The first report opens the pane; once you close it, only a new issue reopens it.
+
+  ![The footer button: the issue and its progress](docs/footer-button.png)
+
 - Every report writes its state to `~/.claude/hga/issue/<owner>-<repo>-<n>.json`: from there the triage panel
   sees the implementations running in parallel. After a plugin update or restart the pane restores the session's
   own issue from that file.
@@ -139,6 +144,8 @@ section's name opens or closes it.
 In the same style: the running implementations of the repository (with a slot counter against
 `parallel.max_per_repo`), the finished ones, the current triage branch with the five verdicts, and the issue
 groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In progress, In review, Untriaged).
+
+![The triage panel: branch B with the five verdicts, one running implementation, the issue groups](docs/triage-panel.png)
 
 - **Activation:** loading `/hga:triage` (or the Skill tool), `/triage-pane`, a `next` run, or a `phase` call. The
   repository comes from the session's git remote; `/triage-pane owner/repo` switches.

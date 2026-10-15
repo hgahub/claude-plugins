@@ -49,6 +49,11 @@ const GROUPS: { key: Bucket; title: string; mark: string; color?: string }[] = [
 // The branch icon: vet, finalize (edit), next issue (list), launch.
 const BRANCH_ICON: Record<Branch, string> = { A: '⌕', B: '✎', C: '☰', D: '▶' }
 const MINI = 6
+// A block character is about two columns wide in the desktop app's font: the bar's box must leave room for it,
+// or it runs over the counter next to it.
+const MINI_COLUMNS = MINI * 2 + 2
+// Room for repo#number; longer names are cut with an ellipsis.
+const NAME_COLUMNS = 14
 const PHASE_TOOL = 'mcp__hga__phase'
 const BRANCHES: Record<Branch, string> = { A: 'Vet', B: 'Finalize', C: 'Next issue', D: 'Launch' }
 // Branch A's five questions (skills/triage/SKILL.md, A.2–A.6). "preceded" is inverted: there "yes" is unfavorable.
@@ -466,7 +471,7 @@ export const register: Register = on => {
           <Box width={3}>
             <Text color={state.color} dimColor={state.color === undefined}>{` ${state.mark}`}</Text>
           </Box>
-          <Box width={11}>
+          <Box width={NAME_COLUMNS}>
             {/* The issue name jumps to its session if the issue pane recorded the desktop id. */}
             {f.desktop !== undefined && DESKTOP.test(f.desktop) ? (
               <Button key={`jump-${numberOf(f)}`} plain dimColor={!occupies(f, t)} onPress={async () => { await jumpTo($, f.desktop!) }}>
@@ -476,7 +481,7 @@ export const register: Register = on => {
               <Text bold={occupies(f, t)} dimColor={!occupies(f, t)} wrap="truncate-end">{short(f.issue)}</Text>
             )}
           </Box>
-          <Box width={MINI + 2} flexDirection="row">
+          <Box width={MINI_COLUMNS} flexDirection="row">
             <Text color={all13 ? 'success' : ACCENT}>{'█'.repeat(full)}</Text>
             <Text dimColor>{'█'.repeat(MINI - full)}</Text>
           </Box>
