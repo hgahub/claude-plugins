@@ -13,6 +13,9 @@ is missing. It never overwrites a non-empty folder or an existing configuration 
 
 `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows `python`).
 `INIT` = `${CLAUDE_PLUGIN_ROOT}/skills/init`, `KB` = `${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts`.
+Write it out in full in every Bash call, or define a shell function first —
+`hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
+not work (zsh does not split it into words).
 
 Configuration has two layers (`HGA config` prints the merged result, with the files it came from):
 
@@ -27,7 +30,8 @@ or `check` (steps 1 and 6 only).
 
 ## 1. Prerequisites
 
-Run `HGA doctor` and show its table. Required: Python 3.9+, git, `gh` logged in with the `repo` scope. Optional:
+Run `HGA doctor` and show its table. Before the first setup, the knowledge base and the configuration rows say
+"not set up yet — run /hga:init": that is expected, steps 2–4 create them. Required: Python 3.9+, git, `gh` logged in with the `repo` scope. Optional:
 `uv` (live tests of Python apps), the `project` scope (only with a project board: `gh auth refresh -s project`),
 `tzdata` on Windows (`pip install tzdata`, for a named time zone). Also check, and report as optional:
 
@@ -122,7 +126,7 @@ go here only if the user asks for them.
   --color <hex> --description "<…>"`, skipping existing ones.
 - **A first app page:** if the user names an application, create `apps/<app>.md` from the template in
   `apps/README.md` with what you can verify now (repository, default branch, how to run the tests), and a
-  `workflow/<app>.md` stub — then validate and commit as in step 6.
+  `workflow/<app>.md` stub — step 6 validates and commits them.
 
 ## 6. Check
 
@@ -133,7 +137,16 @@ HGA config
 HGA doctor
 ```
 
-All must succeed (warnings allowed). Then summarize in a short table: knowledge base (folder, remote), team
+All must succeed (warnings allowed). If step 5 wrote pages, commit them (only those files), and push if the
+knowledge base has a remote:
+
+```bash
+git -C <dir> add apps/<app>.md workflow/<app>.md map/
+git -C <dir> commit -m "<app>: first app and workflow pages (hga)"
+[ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
+```
+
+Then summarize in a short table: knowledge base (folder, remote), team
 configuration (language, board or labels, Slack or GitHub comments, review provider, limits), machine
 configuration, what was skipped and why. End with the next step: "Try `/hga:triage <owner/repo>` or
 `/hga:issue <issue URL>`." Mention that `/hga:init` can be re-run to change any of this.

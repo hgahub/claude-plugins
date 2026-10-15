@@ -64,8 +64,8 @@ is. If the evidence is missing, the item is not done.
 | 7 | PR | ✅ | PR URL, head SHA; follow-up issue numbers (7a), if any |
 | 8 | Review | ✅ | local review result; bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI |
 | 9 | Done | ✅ | read-back: `Status: Done · issue: OPEN` |
-| 10 | Cleanup | ✅ | `launch.json` restored; worktree + local branch deleted; the remote branch stays until merge |
-| 11 | Knowledge | ✅ | the note's path; `validate_kb` 0 errors; commit SHA after push |
+| 10 | Cleanup | ✅ | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
+| 11 | Knowledge | ✅ | the note's path; `validate_kb` 0 errors; commit SHA after push (or the commit SHA, if the knowledge base has no remote) |
 | 12 | Report | ✅ | link to the report message or comment |
 
 Marks: ✅ done, with evidence · ⏳ in progress · ⬜ not started · ⚠️ skipped (only on explicit exclusion or a
@@ -112,7 +112,9 @@ Helper script (standard library + `gh`):
 `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`, `tokens --since <iso-start>`,
 `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
 `review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr>`, `deps <owner/repo> <n>`. In the examples
-below `HGA` means this command. `elapsed` and `tokens` measure from the session transcript (via
+below `HGA` means this command. Write it out in full in every Bash call, or define a shell function first —
+`hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
+not work (zsh does not split it into words). `elapsed` and `tokens` measure from the session transcript (via
 `CLAUDE_CODE_SESSION_ID`); if the work spanned several sessions, pass each with `--session <id>` (repeatable).
 
 The `workflow/` pages use two placeholders, because nothing is substituted there: `<SCRIPTS>` =
@@ -142,7 +144,9 @@ repositories' main checkouts (the worktrees go next to them).
 3. **Repo check:** `HGA repo-check <owner/repo>` in the main checkout. On a mismatch (exit 4), do not claim and
    do not open a worktree: tell the user, and restart from the checkout the script names. (Working in the wrong
    checkout wastes the whole run.)
-4. **The issue:** `gh issue view <n> --repo <owner/repo> --comments`, and `HGA status <owner/repo> <n>`. Also
+4. **The issue:** `gh issue view <n> --repo <owner/repo> --json title,body,state,labels,assignees,updatedAt,comments`
+   (not `--comments`: outside a terminal it prints only the comments, never the body), and
+   `HGA status <owner/repo> <n>`. Also
    look for **another issue with the same title** (`gh issue list --repo … --search "<title>" --state all`):
    duplicates filed minutes apart are common.
    **Prerequisites:** `HGA deps <owner/repo> <n>`. If an open prerequisite exists (exit 3), do not claim: tell
@@ -172,8 +176,11 @@ repositories' main checkouts (the worktrees go next to them).
 
 1. `gh issue view <n> --repo <owner/repo> --json assignees,comments`: if someone else is assigned, or claimed
    it in a comment today, **do not start** — tell the user, and stop.
-2. Claim it: `gh issue edit <n> --repo <owner/repo> --add-assignee @me`, then a comment in the same one-line
-   format (`claimed · fix`). The comment's URL is the evidence; the report goes to the same issue.
+2. Claim it: `gh issue edit <n> --repo <owner/repo> --add-assignee @me`, then a one-line comment:
+   ```
+   Claimed · fix · <your name or agent name>
+   ```
+   (the verb as above). The comment's URL is the evidence; the report goes to the same issue.
 
 ## 2. In Progress
 
@@ -182,8 +189,9 @@ HGA status-set acme/web-app 142 "In Progress"
 ```
 
 With a board, the script reads the Status field and its options from the project and checks by reading back.
-Without a board, it sets `labels.in_progress` (creating the label if missing). If the issue is not on the board
-yet, `HGA track <owner/repo> <n>` first.
+Without a board, it sets `labels.in_progress` (creating the label if missing). Either way it removes the triage
+label (`ready-for-agent`, …): once work starts, the issue should not look ready and in progress at once. If the
+issue is not on the board yet, `HGA track <owner/repo> <n>` first.
 
 ## 3. Worktree — your own work, separate from the shared checkout
 
@@ -230,8 +238,10 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
 ## 6. Live user test
 
 1. **Start** first with `preview_start`. Add a temporary configuration to the main checkout's
-   `.claude/launch.json`, with the command from the workflow page. For Python apps, the optional helper runs the
-   worktree's venv with the main checkout's `.env`:
+   `.claude/launch.json`, with the command from the workflow page. Note first whether the file (and `.claude/`)
+   existed: step 10 restores exactly that. If the file is new, it needs the whole shape:
+   `{"version": "0.0.1", "configurations": [ … ]}`. For Python apps, the optional helper runs the worktree's
+   venv and code, with the main checkout's `.env` if it has one:
    ```json
    {
      "name": "<app>-<n>-live",
@@ -247,6 +257,15 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
    values (auth off, relative secret paths) come from the workflow page or the repo's `CLAUDE.md`. Check the
    start in `preview_logs`.
 
+   **The server must run the worktree's code.** `preview_start` runs the command in the main checkout, so a
+   plain start command (`uvicorn app:app`, `npm run dev`) silently serves the **unfixed** main checkout. Point it
+   at the worktree (the helper does; otherwise `--app-dir <worktree>`, `--prefix <worktree>`, `cd <worktree> &&
+   …`, or the stack's equivalent), and make the first live evidence prove it: the log's import path, or a
+   request whose answer the fix changed.
+
+   **Use the port `preview_start` reports.** If the configured port is taken, it assigns another one and says
+   so; the browser and the port check in 6.5 use the reported port.
+
    **If `preview_start` comes back declined, do not give up** ("The user declined starting the … server": in an
    unattended, auto-mode run — a scheduled start — the app declines server starts by itself, no human saw it).
    Then start the same command with the **Bash tool, in the background** (`run_in_background: true`), from the
@@ -255,12 +274,13 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
    a timeout). In the browser, navigate to `http://localhost:<port>/` directly; the server log is the background
    process's output (instead of `preview_logs`). The step may be **skipped** only if this fails too: the evidence
    is both paths' error messages.
-2. **Browser — Chrome, or the built-in browser as an equal fallback.**
-   - First Chrome: `mcp__claude-in-chrome__*`, loaded with a single ToolSearch, `tabs_context_mcp` with
-     `createIfEmpty`, navigate to `http://localhost:<port>/`.
-   - If the extension does not connect after one retry, or its tools are not in the session, switch to the
-     **built-in browser** (`mcp__Claude_Browser__*`) — no question, no ⚠️. `preview_start` already opened a tab
-     on the port there (not on the Bash path: `navigate` there).
+2. **Browser — the built-in browser if the session has it, otherwise Chrome; both are equal.**
+   - First the **built-in browser** (`mcp__Claude_Browser__*`, in the Claude desktop app): `preview_start`
+     already opened a tab on the port there — use that tab (on the Bash path: `navigate` to
+     `http://localhost:<port>/`).
+   - **Chrome** (`mcp__claude-in-chrome__*`, loaded with a single ToolSearch, `tabs_context_mcp` with
+     `createIfEmpty`) when the user asks for it, or when the built-in browser is not in the session (e.g. the
+     CLI) — no question, no ⚠️.
    - Both need the same steps and the same evidence. The PR and the report name the browser used.
 
    Then follow the issue's **"What we measured"** steps exactly, clicking through the UI.
@@ -271,7 +291,8 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
    repeat. The workflow page gives the duration of slow live operations.
 5. **Afterwards:** separate the console errors (`read_console_messages`, `onlyErrors`) that come from the
    changed code. Then `preview_stop` (on the Bash path, stop the background task), close the browser tab
-   (Chrome: `tabs_close_mcp`, built-in: `tabs_close`), and check that the port no longer listens:
+   (Chrome: `tabs_close_mcp`, built-in: `tabs_close`), and check that the port (the one actually used) no
+   longer listens:
    macOS/Linux `lsof -nP -iTCP:<port> -sTCP:LISTEN` (if it does, `kill <pid>`); Windows
    `netstat -ano | findstr :<port>` (if it does, `taskkill /PID <pid> /T /F`).
 6. **On failure, back to step 5 — this is a fix round, not a skip.** If a criterion fails, or the changed code
@@ -411,7 +432,9 @@ with the closing label counts as complete (`HGA deps`).
 ## 10. Cleanup — before the report
 
 1. The app stopped, the browser tab closed (step 6).
-2. The temporary `launch.json` entry **removed** (it would point to the scratchpad and the deleted worktree).
+2. `launch.json` **as it was before** step 6: remove our entry; if we created the file (or `.claude/`), delete
+   it. A leftover entry would point to the deleted worktree, and a new untracked folder dirties the shared
+   checkout.
 3. `git -C ../<repo>-<n> status --short` is empty, and the head is on the remote branch. Then:
    `git worktree remove ../<repo>-<n>`, `git branch -D <branch>`, `git worktree prune`.
 4. **The remote branch stays until the merge**: deleting it closes the PR. After the merge GitHub usually
@@ -427,14 +450,15 @@ with the closing label counts as complete (`HGA deps`).
   commit SHAs, commands, issue/PR URL, the claim's link), as the `hga:knowledge` skill says. Without a merge, say
   that it is not evidence of deployment. For a large PR, record whether there was a local review and how many
   bot rounds followed. Then rebuild the map, validate, commit your pages and push (the knowledge skill's
-  commands). The evidence is the commit SHA after the push; if the push fails, step 11 is `skipped` with the
-  reason, because the note exists only on this machine.
+  commands). The evidence is the commit SHA after the push — or the commit SHA alone if the knowledge base has
+  no remote (`git remote` is empty: a local-only knowledge base is a valid setup). Step 11 is `skipped` only if a
+  push to an existing remote fails, with the reason, because the note then exists only on this machine.
 - Memory: only what the repository does not reveal and what matters to the next session (a new rule, a trap,
   where a tool is).
 - Where a lesson goes:
   - a recurring workflow trap, not visible from the code → one line in the right topic of the knowledge base's
-    `workflow/<app>.md`, with `Edit`, re-read right before (parallel sessions write it too); keep the size budget
-    in the page's header. Commit and push it with the note (above);
+    `workflow/<app>.md`, with `Edit`, re-read right before (parallel sessions write it too); keep the page short
+    (split it into topic files past ~100 lines). Commit and push it with the note (above);
   - a one-off measurement or the issue's story → the note;
   - a fact about how the repository works → the repo's docs, as part of the PR (at most a pointer in `CLAUDE.md`).
 

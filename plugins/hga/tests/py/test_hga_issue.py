@@ -185,3 +185,24 @@ def test_cli_config_and_now(hga, capsys):
 def test_review_commands_refuse_local_provider(hga, capsys):
     assert hga.main(["review-wait", "a/b", "1"]) == 4
     assert "local" in capsys.readouterr().out
+
+
+def test_triage_labels_dropped_only_when_work_starts(hga):
+    labels = {"bug", "ready-for-agent", "in-progress"}
+    assert hga.triage_labels_to_drop("in_progress", labels) == ["ready-for-agent"]
+    assert hga.triage_labels_to_drop("done", labels) == []
+    assert hga.triage_labels_to_drop("todo", labels) == []
+
+
+def test_doctor_before_init_is_not_a_failure(hga, capsys):
+    # no user configuration and no knowledge base yet: /hga:init is the fix, not an error
+    hga.main(["doctor"])
+    out = capsys.readouterr().out
+    assert "not set up yet — run /hga:init" in out
+    assert "MISSING] knowledge base" not in out
+
+
+def test_doctor_after_init_requires_the_knowledge_base(hga, tmp_path, capsys):
+    write(tmp_path / "user.json", {"knowledge_dir": str(tmp_path / "kb")})
+    hga.main(["doctor"])
+    assert "MISSING] knowledge base" in capsys.readouterr().out

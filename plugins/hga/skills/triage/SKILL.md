@@ -15,10 +15,11 @@ implementation session. The request decides which branch runs:
 | A. Vet — the five questions | "vet issue #N", "run the five questions" | no; writes to the knowledge base |
 | B. Finalize | "finalize #N", "make it ready for implementation" | yes: body, prerequisite edges, state label |
 | C. Next issue | "which issue next?", "when can #N start?", **a call without an issue** | no |
-| D. Launch | automatically after B, if the issue is `ready-for-agent` | no; starts a new session |
+| D. Launch | "launch #N", or automatically after B in continuous mode | no; starts a new session |
 
 **Continuous mode** (a call without an issue, or "bring the next one"): C → A → B → D → C … Your decision
-points are branch B's questions; the launch is automatic. It stops when there is no issue to vet, when the
+points are branch B's questions; the launch is automatic. Outside continuous mode, B ends with a question
+instead (B.9). It stops when there is no issue to vet, when the
 5-hour plan usage is above `parallel.usage_ceiling_pct` (`mcp__ccd_session_mgmt__get_usage`, where available),
 or when you stop it.
 
@@ -45,7 +46,9 @@ or when you stop it.
   scratchpad, and send it with `--body-file`.
 - **Helper script:** `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows
   `python`) — `config`, `repo-check`, `status`, `track`, `deps`, `block`, `triage-state`, `meta`, `next`,
-  `midnight`.
+  `midnight`. Write it out in full in every Bash call, or define a shell function first —
+  `hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
+  not work (zsh does not split it into words).
 - **Dashboard (the hga plugin's triage panel).** If the session has the `mcp__hga__phase` tool, call it **at
   every branch change** (`branch`: A / B / C / D, `issue`: `owner/repo#n`, `step`: what you are doing now, in one
   short line), at **every verdict** of branch A (`verdicts`: `current` 2, `complete` 3, `feasible` 4, `problem`
@@ -69,8 +72,9 @@ A prerequisite is a native "blocked by" edge (`HGA block`), not text: branch C a
 ## A. Vet — the five questions
 
 1. **Preparation.**
-   - `HGA repo-check <owner/repo>`, `gh issue view <n> --repo <owner/repo> --comments`, `HGA status …`,
-     `HGA deps …`.
+   - `HGA repo-check <owner/repo>`,
+     `gh issue view <n> --repo <owner/repo> --json title,body,state,labels,assignees,updatedAt,comments` (not
+     `--comments`: outside a terminal it prints only the comments, never the body), `HGA status …`, `HGA deps …`.
    - `git fetch origin`; the worktree on the default branch.
    - Knowledge base (`hga:knowledge`): the app's page, its map, and the issue's earlier notes (search `notes/`
      for the issue number), with their dates.
@@ -127,9 +131,12 @@ validated, and the worktree is gone.
 7. **Knowledge base:** the finalization in the note (decisions, SHA, state, prerequisite), validation.
 8. **Report:** the issue's link, the decisions, the body's sections one line each, the state label and the
    prerequisites.
-9. With `ready-for-agent`, branch D follows, without asking.
+9. With `ready-for-agent`: in continuous mode, or if the request asked for a launch, branch D follows without
+   asking. Otherwise ask (`AskUserQuestion`): "Launch a parallel implementation now (Recommended)", "Not now" —
+   the user may want to implement it in this session, or only prepare issues.
 
-**Done** when the body, the edges and the label are read back, and the note is validated.
+**Done** when the body, the edges and the label are read back, the note is validated, and (outside continuous
+mode) the user answered the launch question.
 
 ## C. Next issue
 

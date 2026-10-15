@@ -2,14 +2,17 @@
 
 App-specific pages for `/hga:issue`: whatever is particular to one repository. Where a page differs from the
 skill's general description, the page wins. One page per app (`web-app.md`); a page may point to topic files
-(`web-app/live-test.md`) when it grows. Keep each page short — the size budget in its header is a promise.
+(`web-app/live-test.md`) when it grows. Keep each page short: past ~100 lines, split it into topic files.
 
 Useful sections:
 
 - **Gate** — the full check before a PR (e.g. `just check`, `npm test && npm run lint`), and what to record.
 - **Install in a worktree** — the setup command for a fresh worktree.
 - **Live test** — the start command and port, environment overrides (e.g. auth off), how to log in, which
-  state objects to read with JavaScript, where the server log is.
+  state objects to read with JavaScript, where the server log is. The command must run the **worktree's** code
+  (`preview_start` runs it in the main checkout): give the flag that points it there (`--app-dir <worktree>`,
+  `--prefix <worktree>`, `cd <worktree> && …`), and a quick way to prove it (a log line, or a request whose answer
+  the fix changes).
 - **Test data** — safe fixtures or accounts for live tests (names only, no secrets).
 - **Pitfalls** — recurring traps not visible from the code.
 

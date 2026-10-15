@@ -261,11 +261,19 @@ def cmd_doctor(_a) -> int:
         except Exception:
             line(False, f"time zone {c['timezone']}", "on Windows: pip install tzdata")
     kdir = Path(c["knowledge_dir"])
-    line(kdir.is_dir(), "knowledge base", str(kdir))
+    # Before /hga:init has run, a missing knowledge base and configuration are expected, not errors.
+    set_up = c["sources"]["user"] is not None or kdir.is_dir()
+    if not set_up:
+        line(None, "knowledge base", f"not set up yet — run /hga:init ({kdir})")
+    else:
+        line(kdir.is_dir(), "knowledge base", str(kdir))
     if kdir.is_dir():
-        line((kdir / ".git").exists() or None, "knowledge base is a git repository")
+        has_remote = bool(git(str(kdir), "remote"))
+        line((kdir / ".git").exists() or None, "knowledge base is a git repository",
+             "with a remote" if has_remote else "local only (no remote)")
         line((kdir / "hga.config.json").exists(), "team configuration", str(kdir / "hga.config.json"))
-    line(c["sources"]["user"] is not None or None, "user configuration", str(user_config_path()))
+    line(c["sources"]["user"] is not None or None, "user configuration",
+         str(user_config_path()) if set_up else "not set up yet — run /hga:init")
     provider = (c.get("review") or {}).get("provider")
     line(provider in REVIEW_PROVIDERS, "review provider", str(provider))
     for problem in config_problems(c):
@@ -662,9 +670,25 @@ def set_label_status(repo: str, num: int, status: str) -> int:
     return 0 if canonical_status(st) == status else 4
 
 
+def triage_labels_to_drop(status: str, labels: set[str]) -> list[str]:
+    """When work starts, the triage verdict has done its job: the issue should not look ready and in progress."""
+    return sorted(labels & set(TRIAGE_LABELS)) if status == "in_progress" else []
+
+
+def drop_triage_labels(repo: str, num: int, status: str) -> None:
+    drop = triage_labels_to_drop(status, label_names(issue_items(repo, num)))
+    if drop:
+        args = ["issue", "edit", str(num), "--repo", repo]
+        for x in drop:
+            args += ["--remove-label", x]
+        gh(*args)
+        print(f"triage label removed: {', '.join(drop)}")
+
+
 def cmd_status_set(a) -> int:
     status = canonical_status(a.status)
     project = project_name(a)
+    drop_triage_labels(a.repo, a.num, status)
     if not project:
         return set_label_status(a.repo, a.num, status)
     issue = issue_items(a.repo, a.num)

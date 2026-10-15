@@ -1,6 +1,6 @@
 """Validates an hga knowledge base: frontmatter, links and wikilinks, and credential-like content.
 
-Usage: python validate_kb.py [<knowledge-dir>] [--today YYYY-MM-DD]
+Usage: python validate_kb.py [<knowledge-dir>]   (default: the configured knowledge base) [--today YYYY-MM-DD]
 
 Checks every Markdown page (except under .git and .maintenance):
   - frontmatter: `title`, `verified_at` (YYYY-MM-DD), `status` (verified | partially_verified |
@@ -25,7 +25,7 @@ from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from kb_common import MD_LINK_RE, REQUIRED, STATUSES, WIKILINK_RE, code_free_lines, pages, split_frontmatter  # noqa: E402
+from kb_common import default_root, MD_LINK_RE, REQUIRED, STATUSES, WIKILINK_RE, code_free_lines, pages, split_frontmatter  # noqa: E402
 
 SECRET_PATTERNS = (
     ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("root", nargs="?", default=os.environ.get("HGA_KNOWLEDGE_DIR", "~/.hga/knowledge"))
+    ap.add_argument("root", nargs="?", default=default_root())
     ap.add_argument("--today", help="override today's date (YYYY-MM-DD), for tests")
     a = ap.parse_args(argv)
     root = Path(a.root).expanduser()

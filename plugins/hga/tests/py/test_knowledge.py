@@ -98,3 +98,15 @@ def test_map_relations_and_cleanup(tmp_path):
     # the generated map validates (wikilinks resolve, map/ is exempt from frontmatter)
     errors, _w = validate.check(tmp_path, validate.date(2026, 10, 15))
     assert errors == []
+
+
+def test_default_root_follows_the_machine_config(tmp_path, monkeypatch):
+    import kb_common
+    monkeypatch.delenv("HGA_KNOWLEDGE_DIR", raising=False)
+    cfg = tmp_path / "config.json"
+    monkeypatch.setenv("HGA_USER_CONFIG", str(cfg))
+    assert kb_common.default_root() == "~/.hga/knowledge"
+    cfg.write_text('{"knowledge_dir": "/srv/kb"}', encoding="utf-8")
+    assert kb_common.default_root() == "/srv/kb"
+    monkeypatch.setenv("HGA_KNOWLEDGE_DIR", "/env/kb")
+    assert kb_common.default_root() == "/env/kb"

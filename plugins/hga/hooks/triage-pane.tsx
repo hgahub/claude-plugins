@@ -56,7 +56,7 @@ const QUESTIONS: { key: Question; title: string; inverted?: true }[] = [
   { key: 'current', title: 'Still current?' },
   { key: 'complete', title: 'Is the issue complete?' },
   { key: 'feasible', title: 'Feasible?' },
-  { key: 'problem', title: 'Is the problem clear?' },
+  { key: 'problem', title: 'Which problem does it solve?' },
   { key: 'preceded', title: 'Is it preceded by another issue?', inverted: true },
 ]
 const VERDICTS: readonly string[] = ['yes', 'partly', 'no']

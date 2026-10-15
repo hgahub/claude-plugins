@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 from pathlib import Path
 
@@ -14,6 +16,19 @@ INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\]")
 ISSUE_RE = re.compile(r"(?<![\w/&])#(\d{1,6})\b")
+
+
+def default_root() -> str:
+    """The knowledge base folder, resolved like `hga_issue.py config`: $HGA_KNOWLEDGE_DIR, then the machine
+    configuration's `knowledge_dir` ($HGA_USER_CONFIG or ~/.claude/hga/config.json), then ~/.hga/knowledge."""
+    if os.environ.get("HGA_KNOWLEDGE_DIR"):
+        return os.environ["HGA_KNOWLEDGE_DIR"]
+    user = Path(os.environ.get("HGA_USER_CONFIG") or Path.home() / ".claude" / "hga" / "config.json").expanduser()
+    try:
+        kdir = json.loads(user.read_text(encoding="utf-8")).get("knowledge_dir")
+    except (OSError, ValueError, AttributeError):
+        kdir = None
+    return kdir or "~/.hga/knowledge"
 
 
 def pages(root: Path) -> list[Path]:

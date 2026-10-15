@@ -15,8 +15,10 @@ set of facts.
 
 **Where it is:** `HGA config` prints the merged configuration; `knowledge_dir` is the folder (default
 `~/.hga/knowledge`). `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows
-`python`). Give the file tools the expanded absolute path. If the folder does not exist, say so and suggest
-`/hga:init` — do not answer from memory.
+`python`). Write it out in full in every Bash call, or define a shell function first —
+`hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
+not work (zsh does not split it into words). Give the file tools the expanded absolute path. If the folder does
+not exist, say so and suggest `/hga:init` — do not answer from memory.
 
 `KB` below = the plugin's knowledge scripts: `${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts`.
 
@@ -40,8 +42,10 @@ The team may add folders; `00-index.md` says what they are.
 
 ## Reading
 
-Pull first: `git -C "<knowledge_dir>" pull --ff-only --autostash --quiet`. If that fails (not a git
-repository, no network, local changes), read the local state and say that it may be older.
+Pull first, if it has a remote: `git -C "<knowledge_dir>" remote` — if that prints nothing (or the folder is not
+a git repository), it is a local-only knowledge base: skip the pull, nothing to say. Otherwise
+`git -C "<knowledge_dir>" pull --ff-only --autostash --quiet`; if that fails (no network, local changes), read the
+local state and say that it may be older.
 
 Start at `00-index.md`, then go to the page the question is about. Search with Grep/Glob and read whole pages
 with Read: that also shows the frontmatter.
@@ -129,12 +133,12 @@ validation — until it is on the remote, nobody else sees it:
 K="<knowledge_dir>"
 git -C "$K" add <your pages and the changed map pages>   # not -A: other sessions may be writing too
 git -C "$K" commit -m "<app>: <what changed> (#<issue>)"
-git -C "$K" pull --rebase --autostash --quiet && git -C "$K" push --quiet
+[ -n "$(git -C "$K" remote)" ] && git -C "$K" pull --rebase --autostash --quiet && git -C "$K" push --quiet
 ```
 
-Conflicts are rare (notes are new files); if one happens, resolve the rebase and validate again. If the folder
-is not a git repository, or the push fails (network, permission), say so: the change exists only on this
-machine.
+Without a remote, the commit is the end of it: a local-only knowledge base is a valid setup, not a failure.
+Conflicts are rare (notes are new files); if one happens, resolve the rebase and validate again. If the push to
+an existing remote fails (network, permission), say so: the change exists only on this machine.
 
 ## Boundaries
 
