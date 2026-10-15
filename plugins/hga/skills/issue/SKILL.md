@@ -1,0 +1,483 @@
+---
+name: issue
+description: Use when the user asks to take a GitHub issue end to end — claim it (Slack or GitHub), set it In Progress, implement it in an isolated worktree, test it (automated + live in Chrome or the built-in browser), open a PR, get it reviewed (local code-review, optionally Codex, Copilot or Greptile, with a round limit — closing the review is the maintainer's call), fix the findings, set Done, clean up, update the knowledge base, and report last with measured time / difficulty / token use — every step tracked on a verified checklist (✅ only with read-back evidence). Works for any GitHub repository. Triggers include "take issue 142 end to end", "implement #142", "do this issue up to a PR", "work on this issue", or a pasted github.com/<owner>/<repo>/issues/N link with a request to do it.
+user-invocable: true
+argument-hint: "<issue URL | owner/repo#number> [e.g. https://github.com/acme/web-app/issues/142]"
+---
+
+# Issue workflow
+
+Takes one issue from the claim to the report. The order matters: the claim comes before the work, Done comes
+before the cleanup, and the report comes last, because only the report may say that everything is finished.
+
+The steps come from the typical request:
+
+> Implement issue <issue>. First set it In Progress. After the development, start the application and do a
+> user test in the browser. Open a PR and get it reviewed. After fixing the findings, set the issue Done.
+> Report back (time, difficulty, token cost). Stop the application after the test, clean up the branch and the
+> worktree. Use and update the knowledge base.
+
+**Every step is mandatory, even when the request does not list them.** Invoking the skill — even with a bare
+issue URL, or with a note about a decision — means the whole workflow: claim, In Progress, worktree,
+development and automated tests, live user test, PR, review and fixing its findings, Done, cleanup, knowledge
+base, report. A step may be skipped only if the user **explicitly** excludes it ("no live test needed"), or it
+cannot be done technically (no VPN, no browser available). Then the report and the PR say what was skipped,
+and why. (Stopping after the PR "because the request did not ask for more" is the classic failure.)
+
+## Settings
+
+Run `HGA config` once at the start and keep the values for the whole run:
+
+- `language` — the language of everything you write outward: commit messages, PR and issue texts, comments,
+  Slack messages, knowledge base notes. Code, comments in code and UI strings follow the repository's own
+  conventions instead.
+- `slack` — `null`: claim and report go to the issue as GitHub comments; otherwise `channel` and `channel_id`
+  for the claim and the report thread (needs a Slack MCP connector).
+- `github.project` — `null`: the status is kept with labels (`labels.in_progress`, `labels.in_review`);
+  otherwise the project board's title, and the status is its Status field.
+- `review.provider` — `local` (the `code-review` skill only), or `codex` / `copilot` / `greptile` (a review bot
+  on GitHub, in addition to the local review); `review.ask_after_rounds` — the round limit (step 8).
+- `labels.closed` — the maintainer's closing label (default `done`). You never set it.
+- `knowledge_dir` — the knowledge base.
+
+**App-specific part:** what is particular to one repository (gate, install, starting the live test, state
+objects, test data, UI pitfalls) is on the knowledge base's `workflow/<app>.md` page. Read it in step 0 if it
+exists; where it differs from the general description here, it wins. The page may point to topic files
+(`workflow/<app>/*.md`): read the topic the issue touches. For a new app, start such a page once a lasting
+lesson accumulates.
+
+## Verified checklist — mandatory for every issue
+
+Keep the steps on a **verified checklist**, and show it to the user. An item is ✅ **only if its evidence
+exists**: a read-back state, command output, test count, SHA, URL. "I did it" is not evidence; reading it back
+is. If the evidence is missing, the item is not done.
+
+| # | Step | | Evidence |
+|---|---|---|---|
+| 0 | Start: repo, issue, duplicates, knowledge base | ✅ | timestamp; `HGA repo-check` OK; issue OPEN + status; duplicate search result; knowledge pages read and their dates |
+| 1 | Claim | ✅ | today's claims checked (nobody else); the claim's message `ts` or comment URL |
+| 2 | In Progress | ✅ | `HGA status-set` read-back: `Status: In Progress · issue: OPEN` |
+| 3 | Worktree | ✅ | branch name + base SHA; upstream unset |
+| 4 | Decisions | ✅ | who decided what (issue comment, user, decision tool) |
+| 5 | Build + automated tests | ✅ | number of new cases; how many fail on the base and why; the gate's numbers (passed, coverage) |
+| 6 | Live test | ✅ | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free |
+| 7 | PR | ✅ | PR URL, head SHA; follow-up issue numbers (7a), if any |
+| 8 | Review | ✅ | local review result; bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI |
+| 9 | Done | ✅ | read-back: `Status: Done · issue: OPEN` |
+| 10 | Cleanup | ✅ | `launch.json` restored; worktree + local branch deleted; the remote branch stays until merge |
+| 11 | Knowledge | ✅ | the note's path; `validate_kb` 0 errors; commit SHA after push |
+| 12 | Report | ✅ | link to the report message or comment |
+
+Marks: ✅ done, with evidence · ⏳ in progress · ⬜ not started · ⚠️ skipped (only on explicit exclusion or a
+technical obstacle, with the reason; the live test only if both start paths of 6.1 failed).
+
+**Side pane (the hga plugin's issue pane) — mandatory, at every step.** If the session has the
+`mcp__hga__step` tool, **each** of steps 0–12 gets **two calls**, without exception:
+
+1. **`in_progress`**, in the same message as the step's **first** action (as a parallel call), not after it;
+2. **`done`** with one short line of evidence (SHA, test count, status, URL), or **`skipped`** with the reason —
+   with the step's **last** action, or at the latest in the same message as the next step's `in_progress`.
+
+Parameters: `issue` = `owner/repo#n` (the main issue, also when a PR covers several), `step` = the number,
+`verb` = the claim verb. The **first call is step 0's `in_progress`**, with `started_at` = the `HGA now`
+timestamp: the pane's clock counts from it.
+
+This is part of the step, not paperwork afterwards. "I'll fill it in at the end" is not allowed: the pane is the
+maintainer's live view, and a silent pane says the work has stopped. Short steps (2, 9) and steps that wait in
+the background (8) are no exception: step 8's `in_progress` goes out with the review request. If a skipped
+step is completed later (e.g. the live test after merge), the `done` call is still due.
+
+**Gate:** before every showing of the checklist table (below: after the PR, before the report, after the
+report), compare the pane's last answer (`N/13 done`) with the table. If the pane shows fewer, make the missing
+calls first, and only then show the table or post the report. **The report does not go out until the pane
+shows steps 0–11.**
+
+Why this strict: the loose version of the rule ("call it at every state change") is regularly forgotten, and the
+pane then shows a third of the work while all of it is done. If the tool is not in the session, skip it — that
+is not an error.
+
+When to show it:
+- **after the PR** (items 0–7), and at the end of a review round if there were fixes;
+- **before the report**, the whole table with items 0–11 and each one's evidence — the report's checklist line
+  is made from it;
+- **after the report**, with item 12 (the report's link) added, to close.
+
+The report gets one line from it: `Checklist: 0–11 ✅` (or which item was skipped, and why); item 12 is the
+report itself. That is why the cleanup and the knowledge base come before the report: otherwise the report says
+"12/12" while the worktree still exists. The checklist does not go into the PR description: it would be stale
+after the review and the merge.
+
+Helper script (standard library + `gh`):
+`python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (on Windows `python`) —
+`config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`, `tokens --since <iso-start>`,
+`status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
+`review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr>`, `deps <owner/repo> <n>`. In the examples
+below `HGA` means this command. `elapsed` and `tokens` measure from the session transcript (via
+`CLAUDE_CODE_SESSION_ID`); if the work spanned several sessions, pass each with `--session <id>` (repeatable).
+
+The `workflow/` pages use two placeholders, because nothing is substituted there: `<SCRIPTS>` =
+`${CLAUDE_SKILL_DIR}/scripts` (it has `run_worktree.py`), `<REPOS>` = the common parent folder of the
+repositories' main checkouts (the worktrees go next to them).
+
+## What is allowed in advance, and what is not
+
+| Action | Permission |
+|---|---|
+| The claim (Slack message, or issue comment + self-assignment) | Slack: only with a standing permission in the user's `~/.claude/CLAUDE.md` (`/hga:init` offers the snippet); without it, ask once. GitHub comment: part of the request |
+| The "done" report in the claim's thread (or as an issue comment) | part of the workflow — one message, as in step 12 |
+| **Any other Slack message** — an interim "PR ready", a question, another channel | **ask first**, or use a draft (`slack_send_message_draft`) |
+| Issue status (In Progress, Done), status labels, PR, review request, replies to review comments | part of the request |
+| Creating a follow-up **GitHub issue** and tracking it (Todo) | part of the workflow — as in step 7a |
+| A follow-up as a **suggested task chip** (`spawn_task`) | **no** — the team starts work from issues only |
+| **Closing** the bot review without 👍 | **the maintainer's decision** — ask, as in step 8 |
+| **Closing** the issue, the closing label, **merging** the PR | **never** — the maintainer's |
+| Deleting the remote branch **before** the merge | **never** — it closes the PR |
+
+## 0. Start
+
+1. **Timestamp:** `HGA now`. Note it: the report measures time (`HGA elapsed`) and tokens
+   (`HGA tokens --since`) from it. Right after it, before the repo check: pane, step 0 `in_progress` with this
+   `started_at` (see "Side pane").
+2. **Settings:** `HGA config` (see "Settings").
+3. **Repo check:** `HGA repo-check <owner/repo>` in the main checkout. On a mismatch (exit 4), do not claim and
+   do not open a worktree: tell the user, and restart from the checkout the script names. (Working in the wrong
+   checkout wastes the whole run.)
+4. **The issue:** `gh issue view <n> --repo <owner/repo> --comments`, and `HGA status <owner/repo> <n>`. Also
+   look for **another issue with the same title** (`gh issue list --repo … --search "<title>" --state all`):
+   duplicates filed minutes apart are common.
+   **Prerequisites:** `HGA deps <owner/repo> <n>`. If an open prerequisite exists (exit 3), do not claim: tell
+   the user, as with an issue someone else has claimed. In an issue finalized by `hga:triage`, the body's
+   "Implementation" and "Acceptance criteria" are the contract.
+5. **Knowledge base:** load the `hga:knowledge` skill, and read the app's page, its map (`map/<app>.md`) and the
+   related notes. Take their dates seriously.
+6. **The repo's rules:** the repo's `CLAUDE.md` and its conventions document, the knowledge base's
+   `workflow/<app>.md` page (if it exists), and the relevant memory (`MEMORY.md`) pages.
+
+## 1. Claim
+
+**With Slack** (`slack` set):
+
+1. `HGA midnight` → the `oldest` parameter of `slack_read_channel` on `slack.channel_id` (today's messages only).
+2. If **someone else claimed** the same issue or PR **today**: **do not start**. Tell the user, and stop.
+3. If it is free, post the claim, **and only then start working**. One line, this format:
+   ```
+   <your name or agent name> · <repo> · #142 https://github.com/acme/web-app/issues/142 · fix
+   ```
+   The verb: `implement` / `fix` / `verify` / `re-verify`. For a verification of someone else's work, add the
+   head SHA. If a closely related issue goes into the same PR, it gets its own claim (one line per issue).
+4. The returned `message_ts` is the thread id. **Every further message goes there**, if any goes at all (see
+   the table above).
+
+**Without Slack** (`slack` is `null`):
+
+1. `gh issue view <n> --repo <owner/repo> --json assignees,comments`: if someone else is assigned, or claimed
+   it in a comment today, **do not start** — tell the user, and stop.
+2. Claim it: `gh issue edit <n> --repo <owner/repo> --add-assignee @me`, then a comment in the same one-line
+   format (`claimed · fix`). The comment's URL is the evidence; the report goes to the same issue.
+
+## 2. In Progress
+
+```bash
+HGA status-set acme/web-app 142 "In Progress"
+```
+
+With a board, the script reads the Status field and its options from the project and checks by reading back.
+Without a board, it sets `labels.in_progress` (creating the label if missing). If the issue is not on the board
+yet, `HGA track <owner/repo> <n>` first.
+
+## 3. Worktree — your own work, separate from the shared checkout
+
+Other agents may work in the same checkout. Never switch branches in the main checkout.
+
+```bash
+git -C <main-checkout> reflog -6          # has anyone worked here recently?
+git -C <main-checkout> fetch origin
+git -C <main-checkout> worktree add -b fix/<n>-<short-name> ../<repo>-<n> origin/<default-branch>
+git -C ../<repo>-<n> branch --unset-upstream   # so a plain push does not go to the default branch
+```
+
+Branch name: `fix/<n>-…` / `feat/<n>-…` / `perf/<n>-…`. Run the repo's install step in the worktree (per the
+workflow page). **Never `git add -A` / `git commit -a`**: stage file by file, because a repository may track a
+secret file by mistake.
+
+## 4. Decisions
+
+If the user asks for it (or the decision really is a coin toss), and a decision skill is installed (e.g. the
+`typesafe` plugin), use it: questions from the facts in the code, at most three rounds, the result as a table
+in the PR description. With low confidence (scattered answers), the state lacks the consequence: ask again, do
+not take the winner. Without such a skill, ask with `AskUserQuestion` (the recommended option first).
+
+For scope questions (what fits in this PR), start from the acceptance criteria. A bug in sibling code that is
+fixed by **the same mechanism** fits if it is tested; everything else is a follow-up.
+
+## 5. Build and automated tests
+
+- Follow the surrounding code's language and style, and the repo's conventions.
+- **A regression test that fails without the fix.** Prove it: extract the base's affected files to a temporary
+  folder (`git archive origin/<default-branch> <dir> | tar -x -C <tmp>`) and run the new test there. All of them
+  must fail, and for the right reason.
+- **Look at every affected place, not only the one the issue names.**
+  - If two kinds of entries share a key in one collection, check *all* lookups (guard, status, removal,
+    hiding, dimming) — one key collision usually affects several of them.
+  - If a data format changes, rewrite every consumer in the same round, and test the whole path. A forgotten
+    consumer is what the reviewer finds three rounds later.
+- **Test-driven where possible** (red-green-refactor), at the seams agreed in step 4. For a new feature this is
+  the counterpart of the regression test: first the failing test, then the code.
+- **During development, regularly** run the type check and the test file you are touching; the full gate once,
+  at the end.
+- The repo's full gate before the PR (per the workflow page). Record the numbers (passed, coverage) for the PR.
+
+## 6. Live user test
+
+1. **Start** first with `preview_start`. Add a temporary configuration to the main checkout's
+   `.claude/launch.json`, with the command from the workflow page. For Python apps, the optional helper runs the
+   worktree's venv with the main checkout's `.env`:
+   ```json
+   {
+     "name": "<app>-<n>-live",
+     "runtimeExecutable": "uv",
+     "runtimeArgs": ["run", "--project", "<REPOS>/<repo>-<n>", "python",
+       "${CLAUDE_SKILL_DIR}/scripts/run_worktree.py",
+       "--main", "<REPOS>/<repo>", "--worktree", "<REPOS>/<repo>-<n>", "--port", "<port>",
+       "--env", "<KEY>=<value>", "--abs-env", "<keys holding relative paths>"],
+     "port": <port>
+   }
+   ```
+   Use a separate port, because someone else's instance may run on the usual one. The `--env` / `--abs-env`
+   values (auth off, relative secret paths) come from the workflow page or the repo's `CLAUDE.md`. Check the
+   start in `preview_logs`.
+
+   **If `preview_start` comes back declined, do not give up** ("The user declined starting the … server": in an
+   unattended, auto-mode run — a scheduled start — the app declines server starts by itself, no human saw it).
+   Then start the same command with the **Bash tool, in the background** (`run_in_background: true`), from the
+   configuration's `runtimeExecutable` + `runtimeArgs`. Check the start from the background process's output and
+   an `until curl -sf -o /dev/null http://localhost:<port>/; do sleep 2; done` loop (with the `Monitor` tool and
+   a timeout). In the browser, navigate to `http://localhost:<port>/` directly; the server log is the background
+   process's output (instead of `preview_logs`). The step may be **skipped** only if this fails too: the evidence
+   is both paths' error messages.
+2. **Browser — Chrome, or the built-in browser as an equal fallback.**
+   - First Chrome: `mcp__claude-in-chrome__*`, loaded with a single ToolSearch, `tabs_context_mcp` with
+     `createIfEmpty`, navigate to `http://localhost:<port>/`.
+   - If the extension does not connect after one retry, or its tools are not in the session, switch to the
+     **built-in browser** (`mcp__Claude_Browser__*`) — no question, no ⚠️. `preview_start` already opened a tab
+     on the port there (not on the Bash path: `navigate` there).
+   - Both need the same steps and the same evidence. The PR and the report name the browser used.
+
+   Then follow the issue's **"What we measured"** steps exactly, clicking through the UI.
+3. **Evidence.** State: read with `javascript_tool` (the workflow page lists the app's state objects). Server
+   side: `preview_logs` (did the request go out). Plus screenshots. Read anything that disappears within
+   seconds (a toast) from the DOM, not from a picture.
+4. **Waiting:** a JavaScript evaluation in Chrome has a 45-second frame. Wait at most ~40 s per call, and
+   repeat. The workflow page gives the duration of slow live operations.
+5. **Afterwards:** separate the console errors (`read_console_messages`, `onlyErrors`) that come from the
+   changed code. Then `preview_stop` (on the Bash path, stop the background task), close the browser tab
+   (Chrome: `tabs_close_mcp`, built-in: `tabs_close`), and check that the port no longer listens:
+   macOS/Linux `lsof -nP -iTCP:<port> -sTCP:LISTEN` (if it does, `kill <pid>`); Windows
+   `netstat -ano | findstr :<port>` (if it does, `taskkill /PID <pid> /T /F`).
+6. **On failure, back to step 5 — this is a fix round, not a skip.** If a criterion fails, or the changed code
+   causes a console error: on the pane, step 5 is `in_progress` again ("live test: C2 ❌ …"); if it can be
+   automated, write a regression test that fails on the base too; fix, run the gate, commit; then repeat the
+   live test **from the beginning**, not only the failed criterion. At most 3 rounds. If it still fails after
+   the 3rd, stop before the PR and ask the maintainer (`AskUserQuestion`) what to do.
+7. **Tester's verdict** — at the end, in one word, as an AI tester, by the issue's "Acceptance criteria":
+   - **`PASSED`** — every criterion that can be checked in the UI holds, and the changed code causes no new
+     console error;
+   - **`FAILED`** — at least one criterion still fails after the 3rd fix round (6.6);
+   - **`NOT VERIFIED`** — the app did not start on either path (6.1, with the error messages).
+
+   Below it, one line per criterion: `C<i> ✅ / ❌ — what you did, what you saw (DOM / state / log)`. A criterion
+   that is not about the UI (e.g. "the test fails on the base") is `—` here; step 5 proves it. Step 6's pane
+   report starts with the verdict (`PASSED · Chrome · C1–C4 ✅`), and only `PASSED` can be `done`; the other two
+   are `skipped`, with the reason. The verdict is the first line of the PR's "Live user test" section, and it is
+   in the report too.
+
+## 7. Commit and PR
+
+- Commit: `fix(#<n>): <summary in the configured language>`. In the body, the mechanism and the changes as
+  bullets, at the end `Ref #<n>` and the harness's attribution line. **Never a closing keyword**
+  (`Fixes/Closes/Resolves #n` — the merge would close the issue, and closing is the maintainer's). The
+  `fix(#n):` prefix is not a trigger.
+- Push: `git push -u origin <branch>` (the upstream was unset, so name the branch explicitly).
+- PR: write the body with the `Write` tool to the scratchpad (`pr<n>.md`), then
+  `gh pr create --base <default-branch> --head <branch> --body-file <scratchpad>/pr<n>.md`. A shell heredoc
+  (`<<'EOF'`) breaks on the first apostrophe with "unexpected EOF". The description's sections:
+  1. `Ref #<n>`
+  2. **The bug** (or **The need**) — the mechanism, at file:line level
+  3. **The fix** — as bullets
+  4. **Decisions** — a table (question · decision · who / confidence), if there was a decision round
+  5. **Tests** — what fails on the base; the gate's numbers
+  6. **Live user test** — first line the tester's verdict (6.7), then date, commit, environment, browser and
+     start path, the result per criterion, and the fix rounds (if any)
+  7. **Review** — filled in at the end of the review (step 8): the fixes as a table (round · commit · fix), and if
+     the maintainer closed it, that fact with the follow-up issue's link
+  8. **Not part of this PR (follow-up)** — with the follow-up issues' links (7a)
+  9. the harness's PR attribution line
+- Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
+
+## 7a. Follow-up issues — as GitHub issues, tracked
+
+The team starts work from issues only, so a follow-up is a **GitHub issue**. A suggested task chip offered in
+the UI cannot be started as a task, so do not use one. If a chip was created in the session anyway, withdraw it
+(`dismiss_task`), and give the issue's link instead.
+
+1. **Check on the current default branch** (`git grep … origin/<default-branch> -- <file>`) that the claim holds,
+   with its file:line references. What is known only from the live test, write down as a measurement: date,
+   environment, test data. Check the claim against the **raw evidence** before filing, and if earlier text
+   (report, knowledge base) overstated it, fix that too.
+2. **Duplicate search:** `gh issue list --repo … --search "<keyword>" --state all`. Refer to a related issue
+   about a different bug as "related".
+3. **The issue's structure** follows the repo's usual form: a `**Ref:** #<n> / PR #<pr>` line,
+   `## The bug` (mechanism, file:line), `## What we measured`, `## Why it hurts`, `## Direction of the fix`,
+   `## Acceptance criteria` (numbered, including the regression test), and at the end the harness's attribution
+   line. Pass the body from the scratchpad (`--body-file`), because of the heredoc trap. Label: `bug` (or
+   whatever fits).
+4. **Never secrets or sensitive data:** do not quote tokens, `.env` values or real people's data. Write *what*
+   leaked and *how much* of it (e.g. "the token's truncated start, the JWT header").
+5. **Track it:** `HGA track <owner/repo> <n>` → `Status: Todo · issue: OPEN`. A new issue does not appear on the
+   board by itself, and without it step 2's `status-set` fails on it.
+6. The issues' links go into the PR's "Not part of this PR" section (while the PR is open), the report's
+   follow-up line and the knowledge base note.
+
+## 8. Review
+
+1. **Local review first, on every PR.** Run the `code-review` skill on the PR, without `--comment` (no comments
+   on the PR): at `medium` level, or `high` if the PR changes more than 1000 lines
+   (`gh pr view <pr> --json additions,deletions`). Fix the real findings (test, gate, commit, push); justify the
+   rest to yourself.
+   - With `review.provider` = `local` this **is** the review: repeat it after each round of fixes until it finds
+     nothing significant, with the same round limit as below (point 5, counting local rounds).
+2. **Request (bot providers):** `HGA review-request <owner/repo> <pr>` — Codex gets an `@codex review` comment,
+   Copilot is added as a reviewer, Greptile gets an `@greptileai` comment. After a push, wait ~20 seconds before
+   requesting: a request that is too early can fail with "ref does not exist".
+3. **Waiting** in the background, with a single notification (Bash `run_in_background`):
+   ```bash
+   HGA review-wait <owner/repo> <pr> --timeout-min 30
+   ```
+   Exit codes: 0 = no findings (👍), 1 = inline findings (listed as `severity · path:line · id · title`),
+   2 = timeout, 3 = the review failed. The script waits for the PR's current head commit, prints the round
+   number (`Round: N · Result: …`) and the severity breakdown, and only looks at the bot's comments, not your
+   replies. (Copilot and Greptile support is newer than Codex's; if the output looks wrong, read the review in
+   the API and say so in the report.)
+4. **Findings:** assess each one (`gh api repos/<o>/<r>/pulls/<pr>/comments`).
+   - If it is real: fix it, and test it if you can.
+   - **Before requesting a new round, find the sibling places:** the same kind of bug in the changed format's
+     other consumers, the same lookup pattern elsewhere, the same function's other path. Fix them in the same
+     round (the list in step 5).
+   - Run the gate again, new commit (`fix(#n): …`), push.
+   - Reply to every comment (`gh api repos/<o>/<r>/pulls/<pr>/comments/<id>/replies -f body=…`): what you fixed,
+     in which commit, or why not.
+   - Request a new review, and wait again.
+5. **Round limit — closing is the maintainer's decision.** Before starting the next round's fixes, ask the
+   maintainer (`AskUserQuestion`) if
+   - `review-wait` reports round `review.ask_after_rounds` (default 5) or later (the script says so too), or
+   - from round 3 on, a round finds **only minor findings**, all in the code of earlier rounds' fixes.
+
+   Put the numbers in the question: rounds, findings per round, severities, and since when they stopped
+   shrinking. The options:
+   - "Close with a follow-up issue (Recommended)" — this round's findings go into the issue;
+   - "Fix this round, then close";
+   - "Continue until 👍".
+
+   Why this threshold: late rounds typically bring the edge cases of the PR's own fixes, while the cost of a round
+   (several minutes of waiting, plus the fix) stays the same. An exception is a PR that changes a test suite or a
+   measuring tool: there the rounds tighten the measurement and can surface real product bugs — say so in the
+   question.
+6. **Closing, if the maintainer decides so:**
+   - The open findings go into a follow-up issue (7a). Reply to every comment with the issue's link.
+   - Fix a severe finding and any regression the PR introduced (something that worked on the default branch)
+     despite the closing, without a new bot round. Say in the PR comment, the reply and the follow-up issue that
+     the reviewer did not review this fix.
+   - Fill in the PR description's "Review" section (step 7).
+   - Take the round and finding counts from `review-wait`'s output or from the API, not from memory. The script
+     counts every bot review as a round, the closing one too.
+7. CI is shown by `mcp__ccd_pr__get_status` where available, otherwise `gh pr checks <pr>`. Auto-fix monitoring
+   only if the user asks.
+
+## 9. Done — but not closed
+
+```bash
+HGA status-set <owner/repo> <n> Done
+```
+
+With a board, the Status becomes Done; without one, `labels.in_review` replaces `labels.in_progress`. In the
+output, `issue: OPEN` is correct. If the issue is closed, that is a mistake: tell the user, but do not reopen it
+yourself. If the PR covers several claimed issues, set each one Done.
+
+**Closing belongs to the maintainer, and it is not "Close issue":** an issue is closed when its PR is merged, its
+status is Done, and the maintainer has added the closing label (`labels.closed`, default `done`). You do not add
+that label either. The issue's `CLOSED` state is a later, independent event — do not wait for it; a prerequisite
+with the closing label counts as complete (`HGA deps`).
+
+## 10. Cleanup — before the report
+
+1. The app stopped, the browser tab closed (step 6).
+2. The temporary `launch.json` entry **removed** (it would point to the scratchpad and the deleted worktree).
+3. `git -C ../<repo>-<n> status --short` is empty, and the head is on the remote branch. Then:
+   `git worktree remove ../<repo>-<n>`, `git branch -D <branch>`, `git worktree prune`.
+4. **The remote branch stays until the merge**: deleting it closes the PR. After the merge GitHub usually
+   deletes it; if not, `git push origin --delete <branch>`.
+5. Do not touch other people's worktrees.
+6. If a fix is still needed before the merge (the maintainer asks): `git -C <main-checkout> fetch origin <branch>`,
+   then `git -C <main-checkout> worktree add -b <branch> ../<repo>-<n> origin/<branch>`. The upstream here is
+   your own remote branch, which is fine.
+
+## 11. Knowledge base and memory — before the report
+
+- A new, lasting finding: a note in the knowledge base's `notes/` (frontmatter, `## Sources and verification`:
+  commit SHAs, commands, issue/PR URL, the claim's link), as the `hga:knowledge` skill says. Without a merge, say
+  that it is not evidence of deployment. For a large PR, record whether there was a local review and how many
+  bot rounds followed. Then rebuild the map, validate, commit your pages and push (the knowledge skill's
+  commands). The evidence is the commit SHA after the push; if the push fails, step 11 is `skipped` with the
+  reason, because the note exists only on this machine.
+- Memory: only what the repository does not reveal and what matters to the next session (a new rule, a trap,
+  where a tool is).
+- Where a lesson goes:
+  - a recurring workflow trap, not visible from the code → one line in the right topic of the knowledge base's
+    `workflow/<app>.md`, with `Edit`, re-read right before (parallel sessions write it too); keep the size budget
+    in the page's header. Commit and push it with the note (above);
+  - a one-off measurement or the issue's story → the note;
+  - a fact about how the repository works → the repo's docs, as part of the PR (at most a pointer in `CLAUDE.md`).
+
+## 12. Report — the last step
+
+**Precondition:** the pane shows steps 0–11 (`done` or `skipped`). If not, make up the missing calls first —
+the report does not go out until then. After sending: step 12 `done` with the message's link.
+
+**Where:** with Slack, in the claim's **thread** (`thread_ts` = the claim's `message_ts`), without broadcast;
+without Slack, as a comment on the issue. If the PR covers several claimed issues, the full report goes to the
+main issue's thread (or issue), and each other one gets a short line ("together with #n, PR …, details in #n").
+Write it in the configured language. The content:
+
+- ✅ Done: #n — PR link (head SHA), CI, the review's result (local review; bot rounds; 👍, or the maintainer's
+  closing with the follow-up issue), the issue is Done (open; closing is the maintainer's)
+- **Fix** in 1–2 lines; **Tests**: new cases, whether they fail on the base, the gate's numbers, live test (in
+  which browser); **Live test verdict**: `PASSED` / `FAILED` / `NOT VERIFIED`, with the number of fix rounds
+- **Checklist:** `0–11 ✅` — or which item was skipped, and why
+- **Time:** the "Report line" of `HGA elapsed <start>`: wall clock, and within it active time, review wait and
+  pauses. Name a pause if you know what it was ("waiting for an answer about closing", "interrupted run"): the
+  transcript shows the time, not always the reason.
+- **Real difficulty:**
+  - *easy* — one file, a clear cause, no decision;
+  - *medium* — crosses module boundaries, one or two decisions, the test needs a harness;
+  - *hard* — an architectural or data-format decision, cannot be proven without live measurement, or several
+    review rounds.
+
+  Justify it in one sentence.
+- **Tokens:** the "Report line" of `HGA tokens --since <start>` (API calls, output, fresh input, cache write,
+  cache read). This is the session's real use from the transcript, subagents included; `--since` separates the
+  issue's part of a shared session. Do not report the context size or the plan's usage percentage: the first is
+  not a cost, the second covers the whole account. Add the tokens of any external decision tool from its
+  response files' `usage` fields.
+- **Follow-up** — the follow-up issues' links (#n · half a sentence), in one line (7a).
+
+Then show the user the whole checklist with item 12 (the report's link).
+
+## After the merge (when the user says so)
+
+1. `gh pr view <pr> --json state,mergedAt,mergeCommit`, and `HGA status …`. Expected: `MERGED`, the issue
+   `OPEN` + Done.
+2. Remote branch: `git ls-remote --heads origin <branch>`; if it exists, delete it (10.4).
+3. A dated line in the knowledge base note with the merge commit's SHA, the follow-up issues' numbers and the
+   report's link. This does not prove deployment either.
+4. If the follow-up issues were not created yet (or were offered as chips), create them now as in 7a, checked on
+   the merged default branch.

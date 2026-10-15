@@ -1,0 +1,13 @@
+{
+  "name": "hga",
+  "version": "0.1.0",
+  "description": "Issue workflow: /hga:init (setup and knowledge base), /hga:triage (issue preparation), /hga:issue (issue to reviewed PR), /hga:knowledge (knowledge base), with live panes (/issue-pane, /triage-pane).",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Heizer Gábor",
+    "email": "hga.posta@gmail.com"
+  },
+  "homepage": "https://github.com/hgahub/claude-plugins",
+  "repository": "https://github.com/hgahub/claude-plugins",
+  "license": "MIT"
+}

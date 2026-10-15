@@ -1,0 +1,11 @@
+{
+  "name": "hga-claude-plugins",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc -p plugins/hga",
+    "test:py": "python3 -m pytest plugins/hga/tests/py -q"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

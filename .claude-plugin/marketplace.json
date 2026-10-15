@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "hga-plugins",
+  "description": "Claude Code plugins for taking GitHub issues from triage to a reviewed pull request, with a shared knowledge base.",
+  "owner": {
+    "name": "Heizer Gábor",
+    "email": "hga.posta@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "hga",
+      "version": "0.1.0",
+      "description": "Issue workflow: /hga:init (setup and knowledge base), /hga:triage (issue preparation), /hga:issue (issue to reviewed PR), /hga:knowledge (knowledge base), with live panes (/issue-pane, /triage-pane).",
+      "source": "./plugins/hga",
+      "category": "productivity"
+    }
+  ]
+}
