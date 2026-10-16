@@ -2,9 +2,9 @@
 
 One JSON record per run of `/hga:issue`: how long it took, how many tokens it used and where, written by
 `hga_issue.py metrics-record` at the end of step 12 and committed on its own. Machine data for aggregation
-(per repository, per period), not pages: the validator checks that each record is a JSON object with an
-integer `schema` and holds nothing that looks like a secret; the map does not list them. Do not edit them by
-hand.
+per repository and period (`hga_issue.py metrics` flattens them into rows, `/hga:dashboard` charts them), not
+pages: the validator checks that each record is a JSON object with an integer `schema` and holds nothing that
+looks like a secret; the map does not list them. Do not edit them by hand.
 
 File: `metrics/<owner>/<repo>/<issue>-<start, UTC, YYYYMMDDTHHMMSSZ>.json` (e.g.
 `metrics/acme/web-app/142-20261013T065305Z.json`), owner and repo in lower case. Every run of an issue has its

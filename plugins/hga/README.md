@@ -1,9 +1,10 @@
 # hga — from GitHub issue to reviewed pull request
 
-One Claude Code plugin with six skills, three live panes and a progress band. An issue's path:
+One Claude Code plugin with seven skills, three live panes and a progress band. An issue's path:
 **`/hga:intent`** turns a few sentences into an intent.md in the knowledge base, by interviewing and research,
 **`/hga:new-issue`** makes an issue from it, **`/hga:triage`** prepares it, **`/hga:issue`** takes it to a
-reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, and **`/hga:init`** sets everything up.
+reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, **`/hga:dashboard`** shows how the runs
+went, and **`/hga:init`** sets everything up.
 
 ```
 /hga:intent → /hga:new-issue → /hga:triage → /hga:issue
@@ -17,6 +18,7 @@ reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, and **`/hga
 | `/hga:triage [issue]` | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
 | `/hga:issue <issue>` | Claim (Slack or GitHub) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → Done → cleanup → knowledge base → report, on a verified checklist |
 | `/hga:knowledge [question]` | Reads and writes the knowledge base, with dates and sources |
+| `/hga:dashboard [refresh]` | A claude.ai Dashboard over the metrics records: lead time, elapsed per section, tokens and an API-price cost estimate per section and model, review rounds, the account's five-hour usage — filterable by repository and period; creates it on first use, refreshes it afterwards |
 | `/issue-pane` | Toggles the issue pane (the running issue's 13 steps) |
 | `/triage-pane [refresh \| owner/repo]` | Toggles the triage dashboard |
 | `/intent-pane` | Toggles the intent pane (the band above the prompt comes by itself) |
@@ -70,7 +72,8 @@ Two layers, merged (`hga_issue.py config` prints the result):
   ```
 
 - **Machine** — `~/.claude/hga/config.json`: `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (the
-  user's Docs copy of the guide, if any), and any team field to override on this machine.
+  user's Docs copy of the guide, if any), `dashboard_url` (the user's metrics dashboard, written by
+  `/hga:dashboard`), and any team field to override on this machine.
 
 | Key | Meaning |
 |---|---|
@@ -133,6 +136,22 @@ per run, so parallel sessions never conflict and a re-run of the issue gets a ne
 
 The schema (`"schema": 1`) is in the knowledge base's `metrics/README.md`; `validate_kb.py` checks each
 record. Records are data for aggregation per repository and period; nothing reads them back into a session.
+
+### The dashboard
+
+`hga_issue.py metrics [--repo owner/repo] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--format json|csv] [--cost]`
+flattens every schema-1 record (others are skipped with a warning) into rows for charts: `kind=run` (one per
+run), `kind=section` (one per run and section) and `kind=model` (one per run, section and model). Sections add
+up to their run, models to their section. `--cost` adds `api_cost_usd_est`: the tokens at Anthropic API list
+prices from a small table in the script — an estimate of what they would cost on the API, **not** what a Claude
+subscription costs.
+
+`/hga:dashboard` uploads those rows (CSV) to a claude.ai **Dashboard** artifact as an attached file: tiles,
+lead time per issue by difficulty, solving speed per week, elapsed by section (stacked), tokens and the cost
+estimate by section and model, review rounds, and the account's five-hour usage as context; filters for the
+repository and the period. The knowledge base stays local, so the dashboard is a snapshot:
+`/hga:dashboard refresh` uploads new rows. Its link is kept as `dashboard_url` in the machine configuration.
+Whoever can open the dashboard can read the attached rows; it is private until you share it.
 
 ## Review providers
 
