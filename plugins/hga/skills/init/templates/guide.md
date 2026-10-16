@@ -70,12 +70,15 @@ Claude stops and asks before anything that leaves your machine or cannot be undo
 | `workflow/` | App-specific rules for `/hga:issue` (gate, live test, pitfalls) — and this guide. |
 | `notes/` | Dated findings from issues, and the intents. |
 | `environments/`, `architecture/` | Hosts, ports, deployments; what calls what. |
+| `metrics/` | One record per `/hga:issue` run: times, tokens, review rounds. `/hga:dashboard` charts them. |
 
 ## Changing something, or when something is off
 
 - `/hga:init` — change any setting above (language, board, Slack, review provider, limits); it updates this page
   too.
 - `/hga:init check` — checks the prerequisites and the setup, and offers to repair what it finds.
+- `/hga:dashboard` — your dashboard on claude.ai of how the runs went (lead time, sections, tokens, an API-price
+  cost estimate, review rounds), by repository and period; `/hga:dashboard refresh` brings in the newest runs.
 - The panes: `/issue-pane`, `/triage-pane`, `/intent-pane` show or hide them; the skills work without them.
 
 ## Sources and verification

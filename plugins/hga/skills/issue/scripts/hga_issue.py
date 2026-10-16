@@ -36,6 +36,13 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       the checklist and per model). The end is --until, else step 12's end, else now. The sessions are the
       --session ones, else this session and the one in the state file. The schema is in the knowledge
       base's metrics/README.md.
+  metrics [--repo <owner/repo>] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--format json|csv] [--cost]
+      Every schema-1 metrics record of the knowledge base as flat rows for charts (records with another
+      schema are skipped with a warning): `kind` = `run` (one per run: elapsed, tokens, the account's
+      five-hour usage at start and end), `section` (one per run and section: Prepare, Build, Review,
+      Finish) and `model` (one per run, section and model: tokens). --since/--until filter on the run's
+      start date (both inclusive). --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
+      list prices (a table in this script), an estimate, not what a Claude subscription costs.
   status <owner/repo> <n>
       The issue's workflow status: on the project board if one is configured, otherwise from labels.
   status-set <owner/repo> <n> {Todo,"In Progress",Done}
@@ -79,6 +86,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import csv
 import json
 import os
 import platform
@@ -792,6 +800,183 @@ def cmd_metrics_record(a) -> int:
     return 0
 
 
+# --- metrics aggregate ---------------------------------------------------------------------------
+
+# Anthropic API list prices, USD per million tokens: (input, output, cache write, cache read). Matched by the
+# longest prefix of the model id. Cache writes at the 5-minute rate (1.25 × input; a 1-hour write costs 2 ×), and
+# Haiku 5.5 at its rate for prompts up to 100K tokens. An estimate of what the tokens would cost on the API —
+# not what a Claude subscription costs.
+API_PRICES_AS_OF = "2026-10-06"
+API_PRICES: dict[str, tuple[float, float, float, float]] = {
+    "claude-fable-5-1": (10.0, 50.0, 12.5, 0.25),
+    "claude-mythos-5-1": (10.0, 50.0, 12.5, 0.25),
+    "claude-fable-5": (10.0, 50.0, 12.5, 1.0),
+    "claude-mythos-5": (10.0, 50.0, 12.5, 1.0),
+    "claude-opus-5-5": (4.0, 20.0, 5.0, 0.2),
+    "claude-opus-5": (5.0, 25.0, 6.25, 0.5),
+    "claude-opus-4-8": (5.0, 25.0, 6.25, 0.5),
+    "claude-opus-4-7": (5.0, 25.0, 6.25, 0.5),
+    "claude-opus-4-6": (5.0, 25.0, 6.25, 0.5),
+    "claude-opus-4-5": (5.0, 25.0, 6.25, 0.5),
+    "claude-sonnet-5-5": (2.0, 10.0, 2.5, 0.2),
+    "claude-sonnet-5": (2.0, 10.0, 2.5, 0.2),
+    "claude-sonnet-4": (3.0, 15.0, 3.75, 0.3),
+    "claude-haiku-5-5": (0.1, 0.5, 0.125, 0.01),
+    "claude-haiku-4-5": (1.0, 5.0, 1.25, 0.1),
+}
+COST_COLUMN = "api_cost_usd_est"
+COST_NOTE = (f"{COST_COLUMN}: an estimate at Anthropic API list prices ({API_PRICES_AS_OF}), "
+             "not what a Claude subscription costs")
+METRICS_COLUMNS = (
+    "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "difficulty",
+    "review_rounds", "section", "section_index", "model",
+    "wall_s", "active_s", "review_wait_s", "pause_s",
+    "calls", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+    "total_tokens",
+    "five_hour_start_at", "five_hour_start_pct", "five_hour_end_at", "five_hour_end_pct",
+)
+TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+
+
+def api_price(model: str) -> tuple[float, float, float, float] | None:
+    best = max((p for p in API_PRICES if model.startswith(p)), key=len, default=None)
+    return API_PRICES[best] if best else None
+
+
+def api_cost(model: str, tok: dict) -> float | None:
+    """The tokens' cost at API list prices in USD, or None for a model without a price."""
+    price = api_price(model)
+    if price is None:
+        return None
+    return sum((tok.get(k) or 0) * p for k, p in zip(TOKEN_KEYS, price)) / 1_000_000
+
+
+def _token_cols(tok: dict | None) -> dict:
+    if not isinstance(tok, dict):
+        return {"calls": None, **{k: None for k in TOKEN_KEYS}, "total_tokens": None}
+    return {"calls": tok.get("calls"), **{k: tok.get(k) for k in TOKEN_KEYS},
+            "total_tokens": sum(tok.get(k) or 0 for k in TOKEN_KEYS)}
+
+
+def _elapsed_cols(el: dict | None) -> dict:
+    el = el if isinstance(el, dict) else {}
+    return {k: el.get(k) for k in ("wall_s", "active_s", "review_wait_s", "pause_s")}
+
+
+def _models_cost(models: dict, unpriced: set[str]) -> float | None:
+    """The sum over the models that have a price; None if there are no tokens at all."""
+    if not models:
+        return None
+    total = 0.0
+    for m, tok in models.items():
+        c = api_cost(m, tok)
+        if c is None:
+            if _token_cols(tok)["total_tokens"]:
+                unpriced.add(m)
+        else:
+            total += c
+    return round(total, 6)
+
+
+def metrics_rows(rec: dict, run: str, cost: bool, unpriced: set[str]) -> list[dict]:
+    """A schema-1 record as flat rows: one for the run, one per section, one per section and model."""
+    five = rec.get("five_hour") or {}
+    start5, end5 = five.get("start") or {}, five.get("end") or {}
+    base = {
+        "run": run, "repo": rec.get("repo"), "issue": rec.get("issue"), "verb": rec.get("verb"),
+        "date": (rec.get("started_at") or "")[:10] or None, "started_at": rec.get("started_at"),
+        "ended_at": rec.get("ended_at"), "finished": rec.get("finished"), "difficulty": rec.get("difficulty"),
+        "review_rounds": rec.get("review_rounds"),
+    }
+    empty = {k: None for k in METRICS_COLUMNS}
+    rows = [{**empty, **base, "kind": "run", **_elapsed_cols(rec.get("elapsed")), **_token_cols(rec.get("tokens")),
+             "five_hour_start_at": start5.get("at"), "five_hour_start_pct": start5.get("percent_used"),
+             "five_hour_end_at": end5.get("at"), "five_hour_end_pct": end5.get("percent_used")}]
+    if cost:
+        rows[0][COST_COLUMN] = _models_cost(rec.get("models") or {}, unpriced)
+    for i, sec in enumerate(rec.get("sections") or []):
+        if not isinstance(sec, dict):
+            continue
+        row = {**empty, **base, "kind": "section", "section": sec.get("title"), "section_index": i,
+               **_elapsed_cols(sec.get("elapsed")), **_token_cols(sec.get("tokens"))}
+        if cost:
+            row[COST_COLUMN] = _models_cost(sec.get("models") or {}, unpriced)
+        rows.append(row)
+        for model, tok in sorted((sec.get("models") or {}).items()):
+            mrow = {**empty, **base, "kind": "model", "section": sec.get("title"), "section_index": i,
+                    "model": model, **_token_cols(tok)}
+            if cost:
+                c = api_cost(model, tok)
+                mrow[COST_COLUMN] = round(c, 6) if c is not None else None
+            rows.append(mrow)
+    return rows
+
+
+def _day(s: str) -> str:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        raise SystemExit(f"not a date (YYYY-MM-DD): {s}")
+
+
+def collect_metrics(kdir: Path, repo: str | None, since: str | None, until: str | None,
+                    cost: bool) -> tuple[list[dict], list[str]]:
+    """The rows of every schema-1 record under <kdir>/metrics/ that matches the filters, and the warnings."""
+    rows: list[dict] = []
+    warnings: list[str] = []
+    unknown: Counter = Counter()
+    unpriced: set[str] = set()
+    root = kdir / "metrics"
+    for path in sorted(root.rglob("*.json")) if root.is_dir() else []:
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            warnings.append(f"skipped {path.relative_to(root)}: {e}")
+            continue
+        schema = rec.get("schema") if isinstance(rec, dict) else None
+        if isinstance(schema, bool) or schema != METRICS_SCHEMA:
+            unknown[json.dumps(schema)] += 1
+            continue
+        if repo and str(rec.get("repo") or "").lower() != repo.lower():
+            continue
+        day = (rec.get("started_at") or "")[:10]
+        if (since and day < since) or (until and day > until):
+            continue
+        rows += metrics_rows(rec, path.relative_to(root).with_suffix("").as_posix(), cost, unpriced)
+    for schema, n in sorted(unknown.items()):
+        warnings.append(f"skipped {n} record(s) with an unknown schema ({schema})")
+    if unpriced:
+        warnings.append(f"no API price for {', '.join(sorted(unpriced))}: their tokens are not in {COST_COLUMN}")
+    order = {"run": 0, "section": 1, "model": 2}
+    rows.sort(key=lambda r: (r["started_at"] or "", r["run"], order[r["kind"]], r["section_index"] or 0,
+                             r["model"] or ""))
+    return rows, warnings
+
+
+def cmd_metrics(a) -> int:
+    kdir = Path(cfg()["knowledge_dir"])
+    if not kdir.is_dir():
+        print(f"no knowledge base at {kdir}: run /hga:init", file=sys.stderr)
+        return 4
+    since = _day(a.since) if a.since else None
+    until = _day(a.until) if a.until else None
+    rows, warnings = collect_metrics(kdir, a.repo, since, until, a.cost)
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    if a.cost:
+        print(f"note: {COST_NOTE}", file=sys.stderr)
+    columns = list(METRICS_COLUMNS) + ([COST_COLUMN] if a.cost else [])
+    if a.format == "csv":
+        w = csv.DictWriter(sys.stdout, fieldnames=columns, lineterminator="\n")
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: ("true" if r[k] else "false") if isinstance(r[k], bool) else r[k] for k in columns})
+    else:
+        lines = [json.dumps({k: r[k] for k in columns}, ensure_ascii=False) for r in rows]
+        print("[\n" + ",\n".join(lines) + "\n]" if lines else "[]")
+    return 0
+
+
 # --- workflow status: project board or labels ----------------------------------------------------
 
 ITEMS_Q = """
@@ -1494,6 +1679,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--until")
     p.add_argument("--session", action="append")
     p.add_argument("--pause-min", type=float, default=15)
+    p = sub.add_parser("metrics", help="the knowledge base's metrics records as flat rows (one per run, section, "
+                                       "section and model)")
+    p.add_argument("--repo", help="owner/repo")
+    p.add_argument("--since", help="first start date, YYYY-MM-DD")
+    p.add_argument("--until", help="last start date, YYYY-MM-DD (inclusive)")
+    p.add_argument("--format", choices=("json", "csv"), default="json")
+    p.add_argument("--cost", action="store_true", help=f"add {COST_COLUMN}: an estimate at API list prices, "
+                                                        "not a subscription cost")
     p = sub.add_parser("status")
     p.add_argument("repo")
     p.add_argument("num", type=int)
@@ -1560,6 +1753,7 @@ def main(argv: list[str] | None = None) -> int:
             "elapsed": cmd_elapsed,
             "tokens": cmd_tokens,
             "metrics-record": cmd_metrics_record,
+            "metrics": cmd_metrics,
             "status": cmd_status,
             "status-set": cmd_status_set,
             "track": cmd_track,

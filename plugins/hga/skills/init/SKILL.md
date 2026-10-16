@@ -22,7 +22,7 @@ Configuration has two layers (`HGA config` prints the merged result, with the fi
 | Layer | File | Holds |
 |---|---|---|
 | Team | `<knowledge_dir>/hga.config.json` — versioned with the knowledge base, shared | language, time zone, project board, labels, Slack, review provider, parallel limits |
-| Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (this user's Docs copy of the guide, step 7), and any team field to override for this machine |
+| Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (this user's Docs copy of the guide, step 7), `dashboard_url` (this user's metrics dashboard, written by `/hga:dashboard`), and any team field to override for this machine |
 
 Ask every choice with `AskUserQuestion` (the recommended option first, "(Recommended)"); detect what you can
 first, so the questions offer real values. With an argument, skip the matching question: `new`, `join <URL>`,

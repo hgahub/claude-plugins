@@ -1,6 +1,7 @@
 import json
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
 from conftest import load
 
 
@@ -464,3 +465,160 @@ def test_section_bounds_clamp_out_of_order_steps(hga):
     steps[7] = step("done", 30, 40)  # reported before the build started
     bounds = hga.section_bounds(steps, at(0), at(100))
     assert bounds == [(at(0), at(30)), (at(30), at(30)), (at(30), at(100)), (at(100), at(100))]
+
+
+# --- metrics aggregate -------------------------------------------------------------------------
+
+
+def tok(inp, out, cw=0, cr=0, calls=1):
+    return {"calls": calls, "output_tokens": out, "input_tokens": inp,
+            "cache_creation_input_tokens": cw, "cache_read_input_tokens": cr}
+
+
+def a_record(repo="acme/web-app", issue=7, started="2026-10-01T09:00:00+02:00", **over):
+    opus = tok(1_000_000, 100_000, 200_000, 2_000_000, calls=40)
+    sonnet = tok(500_000, 50_000, calls=10)
+    rec = {
+        "schema": 1, "repo": repo, "issue": issue, "verb": "fix", "started_at": started,
+        "ended_at": "2026-10-01T10:30:00+02:00", "finished": True, "difficulty": "hard", "review_rounds": 3,
+        "elapsed": {"wall_s": 5400, "active_s": 4000, "review_wait_s": 600, "review_wait_runs": 1, "pause_s": 800,
+                    "pauses": []},
+        "tokens": tok(1_500_000, 150_000, 200_000, 2_000_000, calls=50),
+        "models": {"claude-opus-5-5": opus, "claude-sonnet-5-5": sonnet},
+        "sections": [
+            {"title": "Prepare", "steps": [0, 4], "elapsed": {"wall_s": 600, "active_s": 500},
+             "tokens": tok(0, 0, calls=0), "models": {}},
+            {"title": "Build", "steps": [5, 6], "elapsed": {"wall_s": 3000, "active_s": 2500},
+             "tokens": opus, "models": {"claude-opus-5-5": opus}},
+            {"title": "Review", "steps": [7, 8], "elapsed": {"wall_s": 1500, "active_s": 800, "review_wait_s": 600},
+             "tokens": sonnet, "models": {"claude-sonnet-5-5": sonnet}},
+            {"title": "Finish", "steps": [9, 12], "elapsed": {"wall_s": 300, "active_s": 200},
+             "tokens": tok(0, 0, calls=0), "models": {}},
+        ],
+        "steps": [],
+        "five_hour": {"scope": "account", "start": {"at": started, "percent_used": 10},
+                      "end": {"at": "2026-10-01T10:30:00+02:00", "percent_used": 35.5}},
+    }
+    rec.update(over)
+    return rec
+
+
+def metrics_kb(tmp_path):
+    m = tmp_path / "kb" / "metrics"
+    write(m / "acme" / "web-app" / "7-20261001T070000Z.json", a_record())
+    write(m / "acme" / "web-app" / "9-20261005T070000Z.json",
+          a_record(issue=9, started="2026-10-05T09:00:00+02:00", tokens=None, models={}, difficulty=None))
+    write(m / "acme" / "api" / "3-20260920T070000Z.json", a_record(repo="acme/api", issue=3,
+                                                                     started="2026-09-20T09:00:00+02:00"))
+    write(m / "acme" / "api" / "4-20260921T070000Z.json", {"schema": 2, "repo": "acme/api"})
+    (m / "acme" / "api" / "5-20260922T070000Z.json").write_text("{not json", encoding="utf-8")
+    write(tmp_path / "kb" / "metrics" / "README.md", {})  # not a record: ignored by name
+    return m
+
+
+def metrics_out(hga, capsys, *args):
+    assert hga.main(["metrics", *args]) == 0
+    captured = capsys.readouterr()
+    return json.loads(captured.out), captured.err
+
+
+def test_api_cost_from_the_price_table(hga):
+    # longest prefix wins: Opus 5.5 is not priced as Opus 5, dated or suffixed ids still match
+    assert hga.api_price("claude-opus-5-5") == (4.0, 20.0, 5.0, 0.2)
+    assert hga.api_price("claude-opus-5") == (5.0, 25.0, 6.25, 0.5)
+    assert hga.api_price("claude-sonnet-4-5-20250929") == (3.0, 15.0, 3.75, 0.3)
+    assert hga.api_price("<synthetic>") is None
+    # 1M input × $4 + 0.1M output × $20 + 0.2M cache write × $5 + 2M cache read × $0.20
+    assert hga.api_cost("claude-opus-5-5", tok(1_000_000, 100_000, 200_000, 2_000_000)) == pytest.approx(7.4)
+    assert hga.api_cost("unknown-model", tok(1, 1)) is None
+
+
+def test_metrics_rows_per_run_section_and_model(hga, tmp_path, capsys):
+    metrics_kb(tmp_path)
+    rows, err = metrics_out(hga, capsys, "--repo", "ACME/Web-App", "--cost")
+    assert {r["repo"] for r in rows} == {"acme/web-app"}
+    runs = [r for r in rows if r["kind"] == "run"]
+    assert [r["issue"] for r in runs] == [7, 9]  # by start
+    run = runs[0]
+    assert run["run"] == "acme/web-app/7-20261001T070000Z"
+    assert (run["date"], run["difficulty"], run["review_rounds"], run["finished"]) == ("2026-10-01", "hard", 3, True)
+    assert (run["wall_s"], run["active_s"], run["review_wait_s"], run["pause_s"]) == (5400, 4000, 600, 800)
+    assert run["total_tokens"] == 1_500_000 + 150_000 + 200_000 + 2_000_000
+    assert (run["five_hour_start_pct"], run["five_hour_end_pct"]) == (10, 35.5)
+    assert run["section"] is None and run["model"] is None
+    # the run's estimate is the sum of its models': Opus 7.4 + Sonnet (0.5 × 2 + 0.05 × 10) 1.5
+    assert run["api_cost_usd_est"] == 8.9
+
+    secs = [r for r in rows if r["kind"] == "section" and r["issue"] == 7]
+    assert [(s["section"], s["section_index"]) for s in secs] == [("Prepare", 0), ("Build", 1), ("Review", 2), ("Finish", 3)]
+    assert [s["wall_s"] for s in secs] == [600, 3000, 1500, 300]
+    assert [s["api_cost_usd_est"] for s in secs] == [None, 7.4, 1.5, None]
+    assert secs[2]["review_wait_s"] == 600 and secs[0]["review_wait_s"] is None
+    assert secs[0]["five_hour_start_pct"] is None  # account context only on the run row
+
+    models = [r for r in rows if r["kind"] == "model" and r["issue"] == 7]
+    assert [(m["section"], m["model"], m["api_cost_usd_est"]) for m in models] == [
+        ("Build", "claude-opus-5-5", 7.4), ("Review", "claude-sonnet-5-5", 1.5)]
+    assert models[0]["wall_s"] is None and models[0]["calls"] == 40
+
+    # a run without a transcript: no tokens, no estimate, still a row
+    no_tok = runs[1]
+    assert no_tok["total_tokens"] is None and no_tok["api_cost_usd_est"] is None
+    assert "API list prices" in err and "not what a Claude subscription costs" in err
+
+
+def test_metrics_skips_unknown_schemas_and_bad_files(hga, tmp_path, capsys):
+    metrics_kb(tmp_path)
+    rows, err = metrics_out(hga, capsys)
+    assert {r["run"] for r in rows if r["kind"] == "run"} == {
+        "acme/api/3-20260920T070000Z", "acme/web-app/7-20261001T070000Z", "acme/web-app/9-20261005T070000Z"}
+    assert "skipped 1 record(s) with an unknown schema (2)" in err
+    assert "5-20260922T070000Z.json" in err
+    assert "api_cost_usd_est" not in rows[0]  # the estimate only on request
+    assert "API list prices" not in err
+
+
+def test_metrics_period_filter(hga, tmp_path, capsys):
+    metrics_kb(tmp_path)
+    rows, _ = metrics_out(hga, capsys, "--since", "2026-10-01", "--until", "2026-10-01")
+    assert {r["run"] for r in rows} == {"acme/web-app/7-20261001T070000Z"}
+    rows, _ = metrics_out(hga, capsys, "--until", "2026-09-30")
+    assert {r["repo"] for r in rows} == {"acme/api"}
+    with pytest.raises(SystemExit, match="YYYY-MM-DD"):
+        hga.main(["metrics", "--since", "1 October"])
+
+
+def test_metrics_csv(hga, tmp_path, capsys):
+    metrics_kb(tmp_path)
+    assert hga.main(["metrics", "--format", "csv", "--cost", "--repo", "acme/api"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    header = lines[0].split(",")
+    assert header[:3] == ["kind", "run", "repo"] and header[-1] == "api_cost_usd_est"
+    first = dict(zip(header, lines[1].split(",")))
+    assert (first["kind"], first["finished"], first["section"], first["api_cost_usd_est"]) == ("run", "true", "", "8.9")
+    assert len(lines) == 1 + 1 + 4 + 2  # header, run, sections, section × model
+
+
+def test_metrics_empty_and_without_knowledge_base(hga, tmp_path, capsys):
+    assert hga.main(["metrics"]) == 4
+    assert "run /hga:init" in capsys.readouterr().err
+    (tmp_path / "kb").mkdir()
+    assert metrics_out(hga, capsys)[0] == []
+    assert hga.main(["metrics", "--format", "csv"]) == 0
+    assert capsys.readouterr().out.startswith("kind,run,repo,")
+
+
+def test_metrics_reads_what_metrics_record_writes(hga, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"timezone": "UTC"})
+    transcripts(tmp_path, hga, monkeypatch)
+    state_file(tmp_path, hga, monkeypatch)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    record(hga, capsys, "--difficulty", "medium", "--review-rounds", "2")
+    rows, _ = metrics_out(hga, capsys, "--cost")
+    run = rows[0]
+    assert (run["kind"], run["run"], run["wall_s"], run["calls"]) == ("run", "acme/web-app/18-20261013T080000Z", 6300, 5)
+    sections = [r for r in rows if r["kind"] == "section"]
+    models = [r for r in rows if r["kind"] == "model"]
+    assert sum(s["calls"] for s in sections) == sum(m["calls"] for m in models) == run["calls"]
+    assert sum(s["api_cost_usd_est"] or 0 for s in sections) == pytest.approx(run["api_cost_usd_est"])
+    assert sum(m["api_cost_usd_est"] for m in models) == pytest.approx(run["api_cost_usd_est"])
