@@ -37,7 +37,6 @@ Run `HGA config` once at the start and keep the values for the whole run:
   otherwise the project board's title, and the status is its Status field.
 - `review.provider` — `local` (the `code-review` skill only), or `codex` / `copilot` / `greptile` (a review bot
   on GitHub, in addition to the local review); `review.ask_after_rounds` — the round limit (step 8).
-- `labels.closed` — the maintainer's closing label (default `done`). You never set it.
 - `knowledge_dir` — the knowledge base.
 
 **App-specific part:** what is particular to one repository (gate, install, starting the live test, state
@@ -61,7 +60,7 @@ is. If the evidence is missing, the item is not done.
 | 4 | Decisions | ✅ | who decided what (issue comment, user, decision tool) |
 | 5 | Build + automated tests | ✅ | number of new cases; how many fail on the base and why; the gate's numbers (passed, coverage) |
 | 6 | Live test | ✅ | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free |
-| 7 | PR | ✅ | PR URL, head SHA; follow-up issue numbers (7a), if any |
+| 7 | PR | ✅ | PR URL, head SHA; `closingIssuesReferences` lists the issue; follow-up issue numbers (7a), if any |
 | 8 | Review | ✅ | local review result; bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI |
 | 9 | Done | ✅ | read-back: `Status: Done · issue: OPEN` |
 | 10 | Cleanup | ✅ | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
@@ -132,7 +131,9 @@ repositories' main checkouts (the worktrees go next to them).
 | Creating a follow-up **GitHub issue** and tracking it (Todo) | part of the workflow — as in step 7a |
 | A follow-up as a **suggested task chip** (`spawn_task`) | **no** — the team starts work from issues only |
 | **Closing** the bot review without 👍 | **the maintainer's decision** — ask, as in step 8 |
-| **Closing** the issue, the closing label, **merging** the PR | **never** — the maintainer's |
+| **Linking** the issue for closing (`Closes #n` in the PR description) | part of the workflow — as in step 7 |
+| **Closing** the issue by hand (`gh issue close`) | after the merge, if the merge did not close it (as in "After the merge"); before the merge, only if the user asks |
+| **Merging** the PR | **never** — the maintainer's |
 | Deleting the remote branch **before** the merge | **never** — it closes the PR |
 
 ## 0. Start
@@ -326,14 +327,18 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
 ## 7. Commit and PR
 
 - Commit: `fix(#<n>): <summary in the configured language>`. In the body, the mechanism and the changes as
-  bullets, at the end `Ref #<n>` and the harness's attribution line. **Never a closing keyword**
-  (`Fixes/Closes/Resolves #n` — the merge would close the issue, and closing is the maintainer's). The
+  bullets, at the end `Ref #<n>` and the harness's attribution line. The closing keyword goes into the PR
+  description, not the commits: one place, and a commit's keyword cannot be withdrawn after the push. The
   `fix(#n):` prefix is not a trigger.
 - Push: `git push -u origin <branch>` (the upstream was unset, so name the branch explicitly).
 - PR: write the body with the `Write` tool to the scratchpad (`pr<n>.md`), then
   `gh pr create --base <default-branch> --head <branch> --body-file <scratchpad>/pr<n>.md`. A shell heredoc
   (`<<'EOF'`) breaks on the first apostrophe with "unexpected EOF". The description's sections:
-  1. `Ref #<n>`
+  1. `Closes #<n>` — GitHub's closing keyword: the merge closes the issue (as `completed`). One keyword per
+     issue if the PR covers several (`Closes #12, closes #14`). It only works for a PR into the default branch;
+     for another base, write `Ref #<n>` and close the issue after the merge ("After the merge"). If the PR
+     deliberately does only part of the issue (the user or a decision said so), `Ref #<n>` instead, and the
+     description says what is left.
   2. **The bug** (or **The need**) — the mechanism, at file:line level
   3. **The fix** — as bullets
   4. **Decisions** — a table (question · decision · who / confidence), if there was a decision round
@@ -344,6 +349,8 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
      the maintainer closed it, that fact with the follow-up issue's link
   8. **Not part of this PR (follow-up)** — with the follow-up issues' links (7a)
   9. the harness's PR attribution line
+- **Read the link back:** `gh pr view <pr> --json closingIssuesReferences` lists the issue (step 7's evidence).
+  If it is missing, fix the description (`gh pr edit <pr> --body-file …`) and read it back again.
 - Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
 - **Manual review list for the pane:** in step 7's `done` call, give the `checks` list — at most 13 short lines
   for the PR's human reviewer. Only what a person can judge and neither the automated tests nor the review bot
@@ -433,7 +440,7 @@ the UI cannot be started as a task, so do not use one. If a chip was created in 
 7. CI is shown by `mcp__ccd_pr__get_status` where available, otherwise `gh pr checks <pr>`. Auto-fix monitoring
    only if the user asks.
 
-## 9. Done — but not closed
+## 9. Done — the merge closes it
 
 ```bash
 HGA status-set <owner/repo> <n> Done
@@ -443,10 +450,10 @@ With a board, the Status becomes Done; without one, `labels.in_review` replaces 
 output, `issue: OPEN` is correct. If the issue is closed, that is a mistake: tell the user, but do not reopen it
 yourself. If the PR covers several claimed issues, set each one Done.
 
-**Closing belongs to the maintainer, and it is not "Close issue":** an issue is closed when its PR is merged, its
-status is Done, and the maintainer has added the closing label (`labels.closed`, default `done`). You do not add
-that label either. The issue's `CLOSED` state is a later, independent event — do not wait for it; a prerequisite
-with the closing label counts as complete (`HGA deps`).
+**Closing is GitHub's own:** the issue is closed when its `CLOSED` state says so — normally because the merge of
+the PR closed it through `Closes #n` (step 7). Do not close it by hand before the merge: the change is not on the
+default branch yet, and dependents would start on a closed prerequisite (`HGA deps` counts `CLOSED` as complete).
+There is no closing label. Do not wait for the merge either: the report goes out with the issue open and Done.
 
 ## 10. Cleanup — before the report
 
@@ -492,7 +499,7 @@ main issue's thread (or issue), and each other one gets a short line ("together 
 Write it in the configured language. The content:
 
 - ✅ Done: #n — PR link (head SHA), CI, the review's result (local review; bot rounds; 👍, or the maintainer's
-  closing with the follow-up issue), the issue is Done (open; closing is the maintainer's)
+  closing with the follow-up issue), the issue is Done (open; the merge closes it through `Closes #n`)
 - **Fix** in 1–2 lines; **Tests**: new cases, whether they fail on the base, the gate's numbers, live test (in
   which browser); **Live test verdict**: `PASSED` / `FAILED` / `NOT VERIFIED`, with the number of fix rounds
 - **Checklist:** `0–11 ✅` — or which item was skipped, and why
@@ -518,7 +525,10 @@ Then show the user the whole checklist with item 12 (the report's link).
 ## After the merge (when the user says so)
 
 1. `gh pr view <pr> --json state,mergedAt,mergeCommit`, and `HGA status …`. Expected: `MERGED`, the issue
-   `OPEN` + Done.
+   `CLOSED (COMPLETED)` + Done. If the issue is still open (the PR went to another base, or the keyword was
+   missing) and the PR covered it whole, close it: `gh issue close <n> --repo <owner/repo> --reason completed
+   --comment "Done in #<pr> (<merge-sha>)"`, then read back `gh issue view <n> --json state,stateReason`. A
+   PR with `Ref #<n>` (part of the issue) leaves it open.
 2. Remote branch: `git ls-remote --heads origin <branch>`; if it exists, delete it (10.4).
 3. A dated line in the knowledge base note with the merge commit's SHA, the follow-up issues' numbers and the
    report's link. This does not prove deployment either.

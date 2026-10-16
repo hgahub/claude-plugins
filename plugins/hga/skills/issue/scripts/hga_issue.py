@@ -30,7 +30,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
   status-set <owner/repo> <n> {Todo,"In Progress",Done}
       Sets the workflow status and reads it back. With a board: the Status field (option IDs are read from
       the project). Without a board: Todo = no status label, In Progress = the in-progress label,
-      Done = the in-review label (the closing label stays the maintainer's).
+      Done = the in-review label. Closing is GitHub's own: the PR's closing keyword at merge, or
+      `gh issue close`.
   track <owner/repo> <n> [--status Todo]
       Adds the issue to the configured board if it is not on it yet, then sets the status. Without a board
       it only sets the status labels.
@@ -96,7 +97,7 @@ DEFAULTS: dict = {
         "fields": {"status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort"},
         "statuses": {"todo": "Todo", "in_progress": "In Progress", "done": "Done"},
     },
-    "labels": {"in_progress": "in-progress", "in_review": "in-review", "closed": "done"},
+    "labels": {"in_progress": "in-progress", "in_review": "in-review"},
     "slack": None,
     "review": {"provider": "local", "ask_after_rounds": 5},
     "parallel": {"max_per_repo": 2, "usage_ceiling_pct": 80},
@@ -278,6 +279,8 @@ def cmd_doctor(_a) -> int:
     line(provider in REVIEW_PROVIDERS, "review provider", str(provider))
     for problem in config_problems(c):
         line(False, "configuration", problem)
+    if "closed" in (c.get("labels") or {}):
+        line(None, "labels.closed", "no longer used (issues close with GitHub's own closing) — remove it from the config")
     line(None, "Slack", f"channel {c['slack'].get('channel')}" if c.get("slack") else "not configured (GitHub comments)")
     line(None, "project board", c["github"].get("project") or "not configured (status labels)")
     return 1 if problems else 0
@@ -635,8 +638,6 @@ def cmd_status(a) -> int:
     print(f"{a.repo}#{a.num}: {issue['title']}")
     print(f"  issue state: {issue['state']}" + (f" ({issue['stateReason']})" if issue.get("stateReason") else ""))
     labels = label_names(issue)
-    if cfg()["labels"]["closed"] in labels:
-        print(f"  closing label: {cfg()['labels']['closed']} (closed by the maintainer)")
     if not project:
         print(f"  Status: {label_status(labels)} (labels; no project board configured)")
         return 0
@@ -1066,21 +1067,28 @@ TRIAGE_LABELS = {
 
 DEPS_Q = """
 query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){issue(number:$num){
-  blockedBy(first:50){nodes{number title state labels(first:20){nodes{name}}}}
-  blocking(first:50){nodes{number title state labels(first:20){nodes{name}}}}}}}
+  blockedBy(first:50){nodes{number title state stateReason}}
+  blocking(first:50){nodes{number title state stateReason}}}}}
 """
 
 
 def is_done(issue: dict) -> bool:
-    """Closed in the workflow's sense: the maintainer's closing label, or the CLOSED state."""
-    return issue.get("state") == "CLOSED" or cfg()["labels"]["closed"] in label_names(issue)
+    """Closed = GitHub's CLOSED state, whatever the reason (completed, not planned, duplicate)."""
+    return issue.get("state") == "CLOSED"
+
+
+def state_text(issue: dict) -> str:
+    """`closed · NOT_PLANNED`: the reason matters to a dependent, which may need vetting again."""
+    if not is_done(issue):
+        return "open"
+    return f"closed · {issue['stateReason']}" if issue.get("stateReason") else "closed"
 
 
 NEXT_Q = """
 query($o:String!,$n:String!,$after:String,$field:String!){repository(owner:$o,name:$n){
   issues(states:OPEN,first:100,after:$after,orderBy:{field:CREATED_AT,direction:ASC}){
     pageInfo{hasNextPage endCursor}
-    nodes{number title labels(first:20){nodes{name}} blockedBy(first:20){nodes{number state labels(first:20){nodes{name}}}}
+    nodes{number title labels(first:20){nodes{name}} blockedBy(first:20){nodes{number state}}
       projectItems(first:5){nodes{project{title}
         fieldValueByName(name:$field){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}}
 """
@@ -1100,8 +1108,11 @@ def print_deps(repo: str, num: int, issue: dict) -> list[int]:
         nodes = issue[key]["nodes"]
         print(f"  {label}: {'' if nodes else '—'}")
         for x in nodes:
-            print(f"    #{x['number']} [{'closed' if is_done(x) else 'open'} · {x['state']}] {x['title']}")
+            print(f"    #{x['number']} [{state_text(x)}] {x['title']}")
     open_blockers = [x["number"] for x in issue["blockedBy"]["nodes"] if not is_done(x)]
+    unplanned = [x["number"] for x in issue["blockedBy"]["nodes"] if x.get("stateReason") in ("NOT_PLANNED", "DUPLICATE")]
+    if unplanned:
+        print(f"  CLOSED WITHOUT COMPLETION: {', '.join(f'#{n}' for n in unplanned)} — check that this issue still holds")
     if open_blockers:
         print(f"  OPEN PREREQUISITE: {', '.join(f'#{n}' for n in open_blockers)}")
     return open_blockers
@@ -1158,13 +1169,10 @@ def bucket_issues(issues: list[dict], project: str | None) -> tuple[dict[str, li
     """Groups open issues. With a board, only issues on it count (Todo / In Progress / Done); without one,
     the status labels decide."""
     statuses = cfg()["github"]["statuses"]
-    lab = cfg()["labels"]
     buckets: dict[str, list[dict]] = {k: [] for k in BUCKET_TITLES}
     off_board = 0
     for i in issues:
         labels = label_names(i)
-        if lab["closed"] in labels:
-            continue
         if project:
             status = None
             for item in i["projectItems"]["nodes"]:

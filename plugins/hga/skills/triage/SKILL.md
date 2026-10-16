@@ -29,7 +29,7 @@ or when you stop it.
   every later step belong to the launched `hga:issue` session.
 - **Settings:** `HGA config` once at the start — `language` (everything written to GitHub and the knowledge
   base), `github.project` (board or labels), `slack`, `parallel.max_per_repo`, `parallel.usage_ceiling_pct`,
-  `labels.closed`, `knowledge_dir`.
+  `knowledge_dir`.
 - **One triage session per repository** (`HGA repo-check`). The launched implementation starts in its own
   app-made worktree (D.3), and `hga:issue`'s step 3 does the work in a `../<repo>-<n>` worktree opened from the
   main checkout — neither touches the triage session's folder.
@@ -38,11 +38,15 @@ or when you stop it.
   branch. Every claim gets the short SHA next to it.
 - **Measure on the real modules,** with fictitious or sample data; only read databases. The app's pitfalls and
   test data are on the knowledge base's `workflow/<app>.md` page.
-- **Closing belongs to the maintainer.** If the issue is already implemented or unnecessary, propose closing it.
-- **What closing is:** the PR merged, the status Done, and the maintainer added the closing label
-  (`labels.closed`, default `done`). That is enough: an issue with the closing label is closed, and its dependents'
-  prerequisite is met. "Close issue" (the `CLOSED` state) is **not** this — a later, independent event; do not
-  wait for it and do not ask for it. `HGA deps` / `next` count accordingly (closing label or `CLOSED` → closed).
+- **What closing is:** GitHub's `CLOSED` state — usually set by the merge of a PR with `Closes #n`, otherwise by
+  `gh issue close`. There is no closing label. `HGA deps` / `next` count `CLOSED` as closed whatever the reason;
+  `deps` prints the reason and flags a prerequisite closed as not planned or duplicate (`CLOSED WITHOUT
+  COMPLETION`) — then check that the dependent still holds.
+- **Closing an issue in triage:** if it is already implemented, unnecessary or a duplicate, propose closing it,
+  with the evidence (SHA and file, the other issue). Only on the user's yes: the comment first
+  (`gh issue comment <n> --repo <owner/repo> --body-file …`), then
+  `gh issue close <n> --repo <owner/repo> --reason completed` (implemented), `--reason "not planned"`
+  (unnecessary) or `--duplicate-of <m>`; read back `gh issue view <n> --json state,stateReason`.
 - **Outgoing calls with finished text, in a separate call.** Write the body with the `Write` tool to the
   scratchpad, and send it with `--body-file`.
 - **Helper script:** `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows
@@ -195,8 +199,8 @@ session starts in its own worktree, with the triage session's permission mode �
      The output line is the evidence (`Type: … · Priority: … · Effort: … · Iteration: …`); on a non-zero exit the
      issue does not start, and the report says what did not take effect.
    - **Labels:** you do not set them. From the repo's existing labels (`gh label list --repo <owner/repo>`) —
-     and a new one if justified — you propose, apart from the state labels (`ready-for-*`, `needs-info`) and the
-     closing label. In the report: "Label proposal: `x`, `y` (new: `z`)" — the maintainer adds and sets them.
+     and a new one if justified — you propose, apart from the state labels (`ready-for-*`, `needs-info`). In
+     the report: "Label proposal: `x`, `y` (new: `z`)" — the maintainer adds and sets them.
 3. **Launch**, if the session has the session tools (Claude Desktop): `mcp__ccd_session__start_session`,
    preceded by a bold title line and one sentence about it:
    - `initiation`: `user_asked` (continuous mode and branch D are the maintainer's request), `context`: `fresh`,

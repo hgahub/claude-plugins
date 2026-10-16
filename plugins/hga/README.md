@@ -60,7 +60,7 @@ Two layers, merged (`hga_issue.py config` prints the result):
       "fields": { "status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort" },
       "statuses": { "todo": "Todo", "in_progress": "In Progress", "done": "Done" }
     },
-    "labels": { "in_progress": "in-progress", "in_review": "in-review", "closed": "done" },
+    "labels": { "in_progress": "in-progress", "in_review": "in-review" },
     "slack": null,
     "review": { "provider": "local", "ask_after_rounds": 5 },
     "parallel": { "max_per_repo": 2, "usage_ceiling_pct": 80 }
@@ -75,7 +75,7 @@ Two layers, merged (`hga_issue.py config` prints the result):
 | `language` | Language of everything written outward: commits, PRs, issues, comments, Slack, notes. Code follows the repository's own conventions. |
 | `timezone` | `null` = the machine's; an IANA name makes "today" (Slack claims, iterations) the same for the whole team. |
 | `github.project` | `null` = no board: the status is kept with labels. Otherwise the project's title; its status field and option names map through `fields.status` and `statuses`. Iteration, Priority and Effort are used only if they exist. |
-| `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer). `closed` is the **maintainer's** closing label, in both modes — the agent never sets it, and triage treats an issue with it as complete. |
+| `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer). There is no closing label: issues close with GitHub's own closing — the PR's `Closes #n` at merge, or `gh issue close`. |
 | `slack` | `null` = claims and reports are GitHub comments on the issue. Otherwise `{"channel": "#dev", "channel_id": "C…"}`. |
 | `review.provider` | `local` (the `code-review` skill), `codex`, `copilot` or `greptile` (a bot on GitHub, in addition to the local review). `ask_after_rounds`: from this round on, the maintainer decides whether to close the review. |
 | `parallel` | `/hga:triage` launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |

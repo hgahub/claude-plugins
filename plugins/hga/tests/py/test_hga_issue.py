@@ -12,7 +12,7 @@ def test_defaults_without_any_configuration(hga, tmp_path):
     assert c["review"]["provider"] == "local"
     assert c["github"]["project"] is None
     assert c["slack"] is None
-    assert c["labels"] == {"in_progress": "in-progress", "in_review": "in-review", "closed": "done"}
+    assert c["labels"] == {"in_progress": "in-progress", "in_review": "in-review"}
     assert c["sources"] == {"team": None, "user": None}
     assert c["knowledge_dir"] == str(tmp_path / "kb")
 
@@ -53,18 +53,34 @@ def test_canonical_status(hga):
     assert hga.canonical_status("Done") == "done"
 
 
-def test_label_status_keeps_closing_label_separate(hga):
+def test_label_status(hga):
     assert hga.label_status(set()) == "Todo"
     assert hga.label_status({"in-progress"}) == "In Progress"
     assert hga.label_status({"in-progress", "in-review"}) == "Done"
-    # the maintainer's closing label is not a workflow status
     assert hga.label_status({"done"}) == "Todo"
 
 
-def test_is_done(hga):
-    assert hga.is_done({"state": "CLOSED", "labels": {"nodes": []}})
-    assert hga.is_done({"state": "OPEN", "labels": {"nodes": [{"name": "done"}]}})
-    assert not hga.is_done({"state": "OPEN", "labels": {"nodes": [{"name": "in-review"}]}})
+def test_is_done_is_the_closed_state(hga):
+    assert hga.is_done({"state": "CLOSED", "stateReason": "COMPLETED"})
+    assert hga.is_done({"state": "CLOSED", "stateReason": "NOT_PLANNED"})
+    # a label does not close an issue
+    assert not hga.is_done({"state": "OPEN", "labels": {"nodes": [{"name": "done"}]}})
+
+
+def test_print_deps_flags_prerequisites_closed_without_completion(hga, capsys):
+    deps = {
+        "blockedBy": {"nodes": [
+            {"number": 1, "title": "a", "state": "CLOSED", "stateReason": "COMPLETED"},
+            {"number": 2, "title": "b", "state": "CLOSED", "stateReason": "NOT_PLANNED"},
+            {"number": 3, "title": "c", "state": "OPEN", "stateReason": None},
+        ]},
+        "blocking": {"nodes": []},
+    }
+    assert hga.print_deps("acme/web-app", 9, deps) == [3]
+    out = capsys.readouterr().out
+    assert "#1 [closed · COMPLETED] a" in out and "#3 [open] c" in out
+    assert "CLOSED WITHOUT COMPLETION: #2" in out
+    assert "OPEN PREREQUISITE: #3" in out
 
 
 def issue(n, labels=(), blockers=(), board=None):
@@ -72,7 +88,7 @@ def issue(n, labels=(), blockers=(), board=None):
         "number": n,
         "title": f"t{n}",
         "labels": {"nodes": [{"name": x} for x in labels]},
-        "blockedBy": {"nodes": [{"number": b, "state": "OPEN", "labels": {"nodes": []}} for b in blockers]},
+        "blockedBy": {"nodes": [{"number": b, "state": "OPEN"} for b in blockers]},
         "projectItems": {"nodes": [] if board is None else [{"project": {"title": "Eng"}, "fieldValueByName": {"name": board}}]},
     }
 
@@ -86,7 +102,6 @@ def test_buckets_from_labels(hga):
         issue(5, ["in-progress"]),
         issue(6, ["in-review"]),
         issue(7),
-        issue(8, ["done"]),
     ], None)
     assert [r["number"] for r in buckets["ready"]] == [1]
     assert buckets["blocked"] == [{"number": 2, "title": "t2", "blockers": [9]}]
