@@ -4,6 +4,9 @@ App-specific pages for `/hga:issue`: whatever is particular to one repository. W
 skill's general description, the page wins. One page per app (`web-app.md`); a page may point to topic files
 (`web-app/live-test.md`) when it grows. Keep each page short: past ~100 lines, split it into topic files.
 
+`hga-guide.md` is not an app page: it is the team's short guide to using hga, written and refreshed by
+`/hga:init` from the configuration.
+
 Useful sections:
 
 - **Gate** — the full check before a PR (e.g. `just check`, `npm test && npm run lint`), and what to record.

@@ -125,3 +125,24 @@ def test_default_root_follows_the_machine_config(tmp_path, monkeypatch):
     assert kb_common.default_root() == "/srv/kb"
     monkeypatch.setenv("HGA_KNOWLEDGE_DIR", "/env/kb")
     assert kb_common.default_root() == "/env/kb"
+
+
+GUIDE = Path(__file__).resolve().parents[2] / "skills" / "init" / "templates" / "guide.md"
+GUIDE_FIELDS = {"DATE", "KNOWLEDGE_DIR", "REMOTE", "LANGUAGE", "PROJECT", "LABEL_IN_PROGRESS", "LABEL_IN_REVIEW",
+                "SLACK_CHANNEL", "REVIEW_PROVIDER", "ASK_AFTER_ROUNDS", "MAX_PER_REPO", "USAGE_CEILING_PCT"}
+
+
+def test_guide_template_fills_into_a_valid_page(tmp_path):
+    import re
+    text = GUIDE.read_text(encoding="utf-8")
+    assert set(re.findall(r"\{\{(\w+)\}\}", text)) == GUIDE_FIELDS
+    # what /hga:init does: drop the instructions comment, fill the values, keep the matching variant lines
+    page_text = text.split("-->\n", 1)[1].replace("{{DATE}}", "2026-10-16")
+    page_text = re.sub(r"\{\{\w+\}\}", "x", page_text)
+    page_text = re.sub(r"\[(remote|local only|board|no board|slack|no slack|bot|local)\] ", "", page_text)
+    assert page_text.startswith("---\n")
+    kb = tmp_path / "kb"
+    assert scaffold.main([str(kb)]) == 0
+    (kb / "workflow" / "hga-guide.md").write_text(page_text, encoding="utf-8")
+    errors, _w = validate.check(kb, validate.date(2026, 10, 16))
+    assert errors == []

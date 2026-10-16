@@ -1,6 +1,6 @@
 ---
 name: init
-description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, Slack channel, review provider, parallel limits). Also re-run it to check or repair a setup. Triggers include "set up hga", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
+description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, Slack channel, review provider, parallel limits), and write a short usage guide in the team's language (a knowledge base page, optionally a Docs copy). Also re-run it to check or repair a setup. Triggers include "set up hga", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
 user-invocable: true
 argument-hint: "[new | join <git URL> | check]"
 ---
@@ -22,11 +22,11 @@ Configuration has two layers (`HGA config` prints the merged result, with the fi
 | Layer | File | Holds |
 |---|---|---|
 | Team | `<knowledge_dir>/hga.config.json` — versioned with the knowledge base, shared | language, time zone, project board, labels, Slack, review provider, parallel limits |
-| Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), and any team field to override for this machine |
+| Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (this user's Docs copy of the guide, step 7), and any team field to override for this machine |
 
 Ask every choice with `AskUserQuestion` (the recommended option first, "(Recommended)"); detect what you can
 first, so the questions offer real values. With an argument, skip the matching question: `new`, `join <URL>`,
-or `check` (steps 1, 6 and 7 only).
+or `check` (steps 1, 6, 7 and 8 only).
 
 ## 1. Prerequisites
 
@@ -147,7 +147,7 @@ credentials, which they fix themselves.
   --color <hex> --description "<…>"`, skipping existing ones.
 - **A first app page:** if the user names an application, create `apps/<app>.md` from the template in
   `apps/README.md` with what you can verify now (repository, default branch, how to run the tests), and a
-  `workflow/<app>.md` stub — step 7 validates and commits them.
+  `workflow/<app>.md` stub — step 8 validates and commits them.
 
 ## 6. Repair
 
@@ -175,7 +175,33 @@ git -C <dir> commit -m "Repair the hga setup: <what> (hga)"
 [ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
 ```
 
-## 7. Check
+## 7. Guide
+
+A short page on how the team uses hga, with its own settings filled in: `<dir>/workflow/hga-guide.md`, from
+`$INIT/templates/guide.md` (the comment at its top says how to fill it in; it does not go into the page).
+
+- **When:** write it if it does not exist yet, or if this run wrote or changed the team configuration. Otherwise
+  (and always with `check`) compare its settings table with `HGA config`: if they differ, offer to rewrite it.
+  If its frontmatter no longer says `managed_by: hga-init`, the team has taken it over: show the differences
+  and ask, never overwrite it silently.
+- **How:** in the configured `language`, only the lines that match the configuration, the page starting with
+  its frontmatter (`verified_at` = today). Keep it as short as the template. Step 8 validates and commits it.
+
+**Docs copy** (an editable, shareable document on claude.ai):
+
+- Only if this session has the Claude Docs connector (a `docs` skill is listed, or the Artifact tool lists a
+  "Docs" type). Without it, skip and say that the knowledge base page is the guide.
+- **`guide_doc_url` is set** in the machine configuration → this user already has a copy: load the `docs` skill,
+  read that doc, and bring it in line with the page — if it has text the page does not (someone edited the
+  doc), show it and ask before replacing. If the doc is gone or not editable, ask whether to make a new one.
+- **Not set** → ask: "Docs copy of the guide (Recommended)" or "Only the knowledge base page". On yes, load the
+  `docs` skill and follow it to create a doc with the page's title and body (no frontmatter, no "Sources"
+  section; the tables as tables; the path of a piece of work as a diagram if the docs skill offers one). Then
+  write its URL into `~/.claude/hga/config.json` as `guide_doc_url` (read the file first, change only that key).
+- Say, with the link, that the doc is private until the user shares it, and that the knowledge base page is the
+  source: `/hga:init` refreshes the doc from it.
+
+## 8. Check
 
 ```bash
 python3 "$KB/build_map.py" "<dir>"
@@ -184,17 +210,17 @@ HGA config
 HGA doctor
 ```
 
-All must succeed (warnings allowed). If step 5 wrote pages, commit them (only those files), and push if the
-knowledge base has a remote:
+All must succeed (warnings allowed). If step 5 or 7 wrote pages, commit them (only those files), and push if
+the knowledge base has a remote — for a shared knowledge base, say first that the team will see them:
 
 ```bash
-git -C <dir> add apps/<app>.md workflow/<app>.md map/
-git -C <dir> commit -m "<app>: first app and workflow pages (hga)"
+git -C <dir> add workflow/hga-guide.md apps/<app>.md workflow/<app>.md map/   # whichever were written
+git -C <dir> commit -m "The hga guide and first app pages (hga)"
 [ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
 ```
 
 Then summarize in a short table: knowledge base (folder, remote), team
 configuration (language, board or labels, Slack or GitHub comments, review provider and round limit, limits),
-machine configuration, what was repaired, what was skipped and why. End with the next step: "Try
+machine configuration, the guide (page, Docs link), what was repaired, what was skipped and why. End with the next step: "Try
 `/hga:triage <owner/repo>` or `/hga:issue <issue URL>`." Mention that `/hga:init` can be re-run to change any of
 this.

@@ -11,7 +11,7 @@ reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, and **`/hga
 
 | | What it does |
 |---|---|
-| `/hga:init [new \| join <URL> \| check]` | Checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration, and on a re-run repairs what the check found |
+| `/hga:init [new \| join <URL> \| check]` | Checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration and a short usage guide in the team's language (`workflow/hga-guide.md`, optionally a Docs copy), and on a re-run repairs what the check found |
 | `/hga:intent [intent]` | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
 | `/hga:new-issue <intent>` | An issue from the intent: readiness gate, duplicate search, the body from the intent's sections, create and read back, board (Todo) and type, the issue number back into the intent |
 | `/hga:triage [issue]` | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
@@ -69,8 +69,8 @@ Two layers, merged (`hga_issue.py config` prints the result):
   }
   ```
 
-- **Machine** — `~/.claude/hga/config.json`: `knowledge_dir` (default `~/.hga/knowledge`), and any team field
-  to override on this machine.
+- **Machine** — `~/.claude/hga/config.json`: `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (the
+  user's Docs copy of the guide, if any), and any team field to override on this machine.
 
 | Key | Meaning |
 |---|---|
