@@ -25,7 +25,7 @@ export type IssueFile = Issue & { updatedAt: number; session: string; desktop?: 
 export type Running = IssueFile
 
 // The output of `HGA next <repo> --json` (skills/issue/scripts/hga_issue.py).
-export type IssueRow = { number: number; title: string; blockers: number[] }
+export type IssueRow = { number: number; title: string; blockers: number[]; assignees?: string[] }
 export type Bucket = 'ready' | 'needs_human' | 'blocked' | 'needs_info' | 'in_progress' | 'in_review' | 'untriaged'
 export type Issues = { repo: string; project: string | null; buckets: Record<Bucket, IssueRow[]>; off_board: number }
 

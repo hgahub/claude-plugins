@@ -152,8 +152,14 @@ mode) the user answered the launch question.
 1. **Cleanup:** archive the implementation sessions that are finished (branch D, point 7).
 2. `HGA next <owner/repo>`: ready, needs a human, blocked (with prerequisites), needs info, untriaged, in
    progress, in review.
-3. Today's claims: with Slack, `HGA midnight` → `slack_read_channel` `oldest` on `slack.channel_id`; without it,
-   the assignees of the ready issues. An issue already claimed drops out.
+3. Claims — two signals, and an issue either one marks drops out:
+   - **GitHub, independent of any Slack window:** `HGA next` puts In Progress issues in their own group, and
+     shows a ready issue's assignees (`[assigned: …]`). A claimed run sets In Progress right after its claim, so
+     yesterday's claims are caught here too.
+   - **Slack** (if set): today's claims — `HGA midnight` → `slack_read_channel` `oldest` on `slack.channel_id`.
+
+   Two launches can still race for one issue; `hga:issue`'s claim reads its claim back, and the later one
+   withdraws.
 4. **Proposal:** among the ready issues, the one that does not collide with running implementations and open PRs
    (same function, file, data format), with the reasoning. If none is ready, the untriaged one where branch A
    brings the most (oldest, largest impact). In continuous mode the proposed issue goes on to branch D if it is

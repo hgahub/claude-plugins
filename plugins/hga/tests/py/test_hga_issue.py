@@ -86,10 +86,11 @@ def test_print_deps_flags_prerequisites_closed_without_completion(hga, capsys):
     assert "OPEN PREREQUISITE: #3" in out
 
 
-def issue(n, labels=(), blockers=(), board=None):
+def issue(n, labels=(), blockers=(), board=None, assignees=()):
     return {
         "number": n,
         "title": f"t{n}",
+        "assignees": {"nodes": [{"login": x} for x in assignees]},
         "labels": {"nodes": [{"name": x} for x in labels]},
         "blockedBy": {"nodes": [{"number": b, "state": "OPEN"} for b in blockers]},
         "projectItems": {"nodes": [] if board is None else [{"project": {"title": "Eng"}, "fieldValueByName": {"name": board}}]},
@@ -107,7 +108,7 @@ def test_buckets_from_labels(hga):
         issue(7),
     ], None)
     assert [r["number"] for r in buckets["ready"]] == [1]
-    assert buckets["blocked"] == [{"number": 2, "title": "t2", "blockers": [9]}]
+    assert buckets["blocked"] == [{"number": 2, "title": "t2", "blockers": [9], "assignees": []}]
     assert [r["number"] for r in buckets["needs_human"]] == [3]
     assert [r["number"] for r in buckets["needs_info"]] == [4]
     assert [r["number"] for r in buckets["in_progress"]] == [5]
@@ -128,6 +129,19 @@ def test_buckets_from_board(hga):
     assert [r["number"] for r in buckets["in_progress"]] == [2]
     assert [r["number"] for r in buckets["in_review"]] == [3]
     assert off == 1
+
+
+def test_next_lists_assignees(hga, monkeypatch, capsys):
+    # the triage's second claim signal: an assigned ready issue shows who has it (older JSON had no field)
+    old = issue(2, ["ready-for-agent"])
+    del old["assignees"]
+    page = {"pageInfo": {"hasNextPage": False, "endCursor": None},
+            "nodes": [issue(1, ["ready-for-agent"], assignees=["bob"]), old]}
+    monkeypatch.setattr(hga, "gql", lambda q, **v: {"repository": {"issues": page}})
+    assert hga.main(["next", "acme/web-app"]) == 0
+    out = capsys.readouterr().out
+    assert "#1 t1  [assigned: bob]" in out
+    assert "#2 t2\n" in out
 
 
 def test_current_iteration(hga):
@@ -681,3 +695,226 @@ def test_metrics_reads_what_metrics_record_writes(hga, tmp_path, monkeypatch, ca
     assert sum(s["calls"] for s in sections) == sum(m["calls"] for m in models) == run["calls"]
     assert sum(s["api_cost_usd_est"] or 0 for s in sections) == pytest.approx(run["api_cost_usd_est"])
     assert sum(m["api_cost_usd_est"] for m in models) == pytest.approx(run["api_cost_usd_est"])
+
+
+# --- claim check ---------------------------------------------------------------------------------
+
+
+def comment(cid, minutes, body, user="bot-account"):
+    return {"id": cid, "created_at": at(minutes).isoformat().replace("+00:00", "Z"), "body": body, "user": user,
+            "url": f"https://github.com/acme/web-app/issues/18#issuecomment-{cid}"}
+
+
+def claims(hga, *comments):
+    return hga.parse_claims(list(comments))
+
+
+def check(hga, *, status="Todo", assignees=(), me="bot-account", cl=(), tag="aaaa1111", now=0, verb="fix",
+          since=None):
+    return hga.claim_check(status=status, assignees=list(assignees), me=me, claims=list(cl), tag=tag, now=at(now),
+                           verb=verb, since=None if since is None else at(since))
+
+
+def test_parse_claims_reads_the_session_tag_and_skips_withdrawn(hga):
+    cl = claims(hga,
+                comment(3, 5, "Claimed · fix · agent · session bbbb2222\nmore"),
+                comment(2, 5, "Claimed · fix · agent · session aaaa1111-and-the-rest"),
+                comment(1, 1, "Withdrawn · fix · agent · session cccc3333 — earlier claim: …"),
+                comment(4, 9, "a reply that mentions Claimed · fix"),
+                comment(5, 10, "claimed · implement · a person"))
+    # oldest first; the same second is ordered by GitHub's comment id
+    assert [(c["id"], c["session"]) for c in cl] == [(2, "aaaa1111"), (3, "bbbb2222"), (5, None)]
+
+
+def test_claim_check_free(hga):
+    code, lines = check(hga, assignees=["bot-account"], cl=claims(
+        hga, comment(1, -60 * 30, "Claimed · fix · old run · session dddd4444")))
+    # assigned to this very account (parallel sessions share it), and a claim older than a day: still free
+    assert code == 0
+    assert lines[-1].startswith("Verdict: free")
+    assert "Session: aaaa1111" in lines
+    assert f"Read back from: {at(-1).timestamp():.0f} " in "\n".join(lines)
+
+
+@pytest.mark.parametrize("kw, reason", [
+    ({"status": "In Progress"}, "Status In Progress"),
+    ({"status": "in progress"}, "Status in progress"),
+    ({"status": "Done"}, "only verify / re-verify"),
+    ({"assignees": ["alice", "bot-account"]}, "assigned to alice"),
+    ({"cl": "recent"}, "claimed by bot-account"),
+])
+def test_claim_check_taken(hga, kw, reason):
+    if kw.get("cl") == "recent":  # yesterday evening, outside a Slack read of today: still taken
+        kw["cl"] = claims(hga, comment(1, -60 * 14, "Claimed · fix · agent · session bbbb2222"))
+    code, lines = check(hga, **kw)
+    assert code == 5
+    assert lines[-1].startswith("Verdict: taken") and reason in lines[-1]
+
+
+def test_claim_check_done_is_free_for_a_verification(hga):
+    assert check(hga, status="Done", verb="re-verify")[0] == 0
+
+
+def test_claim_check_configured_status_names(hga, tmp_path):
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"statuses": {"in_progress": "Doing", "done": "Shipped"}}})
+    hga.CFG = {}
+    code, lines = check(hga, status="Doing")
+    assert code == 5 and "Status Doing" in lines[-1]
+    assert check(hga, status="Shipped")[0] == 5
+    assert check(hga, status="Shipped", verb="verify")[0] == 0
+    # the label path keeps its fixed names
+    assert check(hga, status="In Progress")[0] == 5
+
+
+def test_claim_check_own_latest_claim_continues(hga):
+    code, lines = check(hga, status="In Progress", cl=claims(hga, comment(1, -5, "Claimed · fix · a · session aaaa1111")))
+    assert code == 0 and lines[-1].startswith("Verdict: yours")
+
+
+def test_claim_check_resumed_run_that_lost_the_race_withdraws(hga):
+    other = comment(1, -6, "Claimed · fix · agent · session bbbb2222")
+    mine = comment(2, -5, "Claimed · fix · agent · session aaaa1111")
+    # this session's claim is the latest, but the other session posted first: it won
+    code, lines = check(hga, status="In Progress", cl=claims(hga, other, mine))
+    assert code == 5 and lines[-1].startswith("Verdict: later") and "session bbbb2222" in lines[1]
+    # a later claim of another session does not take it from the first one
+    later = comment(3, -4, "Claimed · fix · agent · session bbbb2222")
+    assert check(hga, status="In Progress", cl=claims(hga, mine, later))[0] == 0
+    # a claim more than a day before this session's is a dead run's: it does not count
+    stale = comment(0, -60 * 30, "Claimed · fix · agent · session cccc3333")
+    assert check(hga, status="In Progress", cl=claims(hga, stale, mine))[0] == 0
+
+
+def test_claim_read_back_first_and_later(hga):
+    mine = comment(10, 2, "Claimed · fix · agent · session aaaa1111")
+    other = comment(11, 2, "Claimed · fix · agent · session bbbb2222")
+    old = comment(5, -30, "Claimed · fix · agent · session cccc3333")  # before the window: the check saw it
+    # this session posted first (same second, lower id): it keeps the issue
+    code, lines = check(hga, cl=claims(hga, old, mine, other), since=0)
+    assert code == 0 and lines[-1].startswith("Verdict: first")
+    assert lines[0] == f"Your claim: {mine['url']} (comment id 10)"
+    # the other session was first: this one withdraws
+    code, lines = check(hga, tag="bbbb2222", cl=claims(hga, old, mine, other), since=0)
+    assert code == 5
+    assert lines[1].startswith("Earlier claim: ") and "session aaaa1111" in lines[1]
+    assert lines[-1].startswith("Verdict: later")
+    # a claim without a session tag (a person, an older plugin) counts as another session's
+    hand = comment(9, 1, "Claimed · fix · a person")
+    assert check(hga, cl=claims(hga, hand, mine), since=0)[0] == 5
+
+
+def test_claim_read_back_needs_the_own_claim(hga):
+    code, lines = check(hga, cl=claims(hga, comment(1, 2, "Claimed · fix · x · session bbbb2222")), since=0)
+    assert code == 4 and "post it first" in lines[-1]
+    assert check(hga, tag=None, cl=[], since=0)[0] == 4
+
+
+def fake_claim_api(hga, monkeypatch, comments, assignees=(), board=None, me="bot-account"):
+    def gh(*args):
+        if args[:2] == ("api", "user"):
+            return me + "\n"
+        if args[1] == "--paginate":
+            return "".join(json.dumps(c) + "\n" for c in comments)
+        return json.dumps(list(assignees))
+    monkeypatch.setattr(hga, "gh", gh)
+    monkeypatch.setattr(hga, "issue_items", lambda repo, num: {"title": "t18", "state": "OPEN", **issue(18, board=board)})
+    monkeypatch.setattr(hga.time, "sleep", lambda s: None)
+
+
+def test_cli_claim_check_before_and_after(hga, monkeypatch, capsys):
+    write(hga.Path(hga.cfg()["knowledge_dir"]) / "hga.config.json", {"github": {"project": "Eng"}})
+    hga.CFG = {}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "aaaa1111-2222-3333")
+    fake_claim_api(hga, monkeypatch, [], board="In Progress")
+    assert hga.main(["claim-check", "acme/web-app", "18"]) == 5
+    assert "Verdict: taken — Status In Progress" in capsys.readouterr().out
+
+    now = datetime.now(timezone.utc)
+    mine = {"id": 7, "created_at": now.isoformat(), "body": "Claimed · fix · agent · session aaaa1111",
+            "user": "bot-account", "url": "u7"}
+    fake_claim_api(hga, monkeypatch, [mine], board="Todo")
+    since = f"{(now - timedelta(minutes=1)).timestamp():.0f}"
+    assert hga.main(["claim-check", "acme/web-app", "18", "--since", since]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("acme/web-app#18: t18 · issue: OPEN")
+    assert "Your claim: u7 (comment id 7)" in out and "Verdict: first" in out
+    assert hga.main(["claim-check", "acme/web-app", "18", "--since", (now - timedelta(minutes=1)).isoformat()]) == 0
+
+
+# --- run start marker and outcomes ---------------------------------------------------------------
+
+
+def test_metrics_start_marker_is_replaced_by_the_record(hga, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"timezone": "UTC"})
+    transcripts(tmp_path, hga, monkeypatch)
+    state_file(tmp_path, hga, monkeypatch)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    assert hga.main(["metrics-start", "acme/web-app", "18"]) == 0
+    path = capsys.readouterr().out.strip()
+    marker = json.loads(open(path, encoding="utf-8").read())
+    assert (marker["schema"], marker["stage"], marker["finished"], marker["ended_at"]) == (1, "started", False, None)
+    assert (marker["started_at"], marker["sessions"], marker["verb"]) == ("2026-10-13T08:00:00+00:00", ["sess-1"], "fix")
+    validate = load("validate_kb", "knowledge/scripts/validate_kb.py")
+    assert validate.check(tmp_path / "kb", date(2026, 10, 15)) == ([], [])
+
+    # the record lands on the same file; a later marker call does not undo it
+    rec_path, rec = record(hga, capsys)
+    assert rec_path == path and rec["stage"] == "recorded"
+    assert hga.main(["metrics-start", "acme/web-app", "18"]) == 0
+    assert "already exists" in capsys.readouterr().err
+    assert json.loads(open(path, encoding="utf-8").read())["stage"] == "recorded"
+    assert len(list((tmp_path / "kb" / "metrics").rglob("*.json"))) == 1
+
+
+def test_metrics_start_needs_the_state_file(hga, tmp_path, monkeypatch, capsys):
+    (tmp_path / "kb").mkdir()
+    monkeypatch.setattr(hga, "ISSUE_DIR", tmp_path / "issue")
+    assert hga.main(["metrics-start", "acme/web-app", "18"]) == 4
+    assert "no issue pane state file" in capsys.readouterr().err
+    assert not (tmp_path / "kb" / "metrics").exists()
+
+
+def a_marker(issue, started, sessions=("s-x",)):
+    return {"schema": 1, "stage": "started", "repo": "acme/web-app", "issue": issue, "verb": "fix",
+            "started_at": started, "ended_at": None, "finished": False, "recorded_at": started,
+            "sessions": list(sessions)}
+
+
+def test_metrics_outcomes_and_abort_rate(hga, tmp_path, capsys):
+    m = metrics_kb(tmp_path)  # three records from before the markers: no outcome
+    d = m / "acme" / "web-app"
+    write(d / "20-20261010T070000Z.json", a_record(issue=20, started="2026-10-10T09:00:00+02:00", stage="recorded",
+                                                    sessions=["s-20"]))
+    write(d / "21-20261011T070000Z.json", a_record(issue=21, started="2026-10-11T09:00:00+02:00", stage="recorded",
+                                                    finished=False, sessions=["s-21"]))
+    write(d / "22-20261012T070000Z.json", a_marker(22, "2026-10-12T09:00:00+02:00"))  # never recorded
+    write(d / "23-20261015T230000Z.json", a_marker(23, "2026-10-16T01:00:00+02:00"))  # young: may still run
+    # the marker of a run whose record landed under another start (same issue, same session): counted once
+    write(d / "20-20261010T065959Z.json", a_marker(20, "2026-10-10T08:59:59+02:00", sessions=["s-20"]))
+
+    now = datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc)
+    rows, warnings = hga.collect_metrics(tmp_path / "kb", None, None, None, False, now=now)
+    assert warnings[-1].startswith("skipped 1 record(s) with an unknown schema")
+    runs = {r["issue"]: r for r in rows if r["kind"] == "run"}
+    assert {i: r["outcome"] for i, r in runs.items()} == {
+        3: None, 7: None, 9: None, 20: "finished", 21: "unfinished", 22: "aborted", 23: "open"}
+    assert runs[22]["wall_s"] is None and runs[22]["total_tokens"] is None
+    assert not [r for r in rows if r["issue"] == 22 and r["kind"] != "run"]  # a marker has no sections
+    assert {r["outcome"] for r in rows if r["issue"] == 20} == {"finished"}  # sections carry it too
+    assert hga.outcome_summary(rows, 24) == (
+        "runs with a start marker: 1 finished, 1 unfinished, 1 aborted, 1 open · abort rate 33% of 3 "
+        "(aborted = no record 24 h after the start; open = younger, not counted)")
+    # a longer threshold keeps the four-day-old run open
+    rows, _ = hga.collect_metrics(tmp_path / "kb", None, None, None, False, now=now, stale_hours=100)
+    assert {r["issue"]: r["outcome"] for r in rows if r["kind"] == "run"}[22] == "open"
+    assert hga.outcome_summary([r for r in rows if r["outcome"] is None], 24) is None
+
+
+def test_cli_metrics_prints_the_abort_rate(hga, tmp_path, capsys):
+    d = tmp_path / "kb" / "metrics" / "acme" / "web-app"
+    write(d / "22-20261012T070000Z.json", a_marker(22, "2026-10-12T09:00:00+02:00"))
+    assert hga.main(["metrics", "--format", "csv"]) == 0
+    captured = capsys.readouterr()
+    header, row = captured.out.splitlines()
+    assert dict(zip(header.split(","), row.split(",")))["outcome"] == "aborted"
+    assert "abort rate 100% of 1" in captured.err
