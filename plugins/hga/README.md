@@ -138,7 +138,14 @@ section's name opens or closes it.
   ✎ Build, ⌕ Review, ⚑ Finish. One accent color (the running step and the bar), green checks and a warning
   color — everything else dim; colors are theme keys.
 - The model reports the state with the `mcp__hga__step` tool (`issue`, `step` 0–12, `state`, `evidence`,
-  `verb`, `started_at`); `/hga:issue`'s checklist section requires a call at every state change.
+  `verb`, `started_at`, `checks`); `/hga:issue`'s checklist section requires a call at every state change.
+- A long evidence ends in `…` on a narrow pane: **double-click** the step's name to wrap the row onto several
+  lines, double-click again to bring it back to one.
+- **Manual review** (☑, under the Review section): with the PR, the model lists at most 13 points (`checks`) that
+  only a person can check; the reviewer ticks them by clicking ☐. The tick goes into the state file, and a point
+  with the same text keeps its tick when a new list arrives; an empty list reads "no highlighted manual review
+  point". The section stays open while a point is unticked, and the step tool's answer gives the standing too
+  (`Manual review: 2/5 ticked.`).
 - A button on the right of the footer (`🎫 web-app#142 8/13`, dim while the pane is closed) toggles the pane;
   so does `/issue-pane`. The first report opens the pane; once you close it, only a new issue reopens it.
 
@@ -156,8 +163,10 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
 
 ![The triage panel: branch B with the five verdicts, one running implementation, the issue groups](docs/triage-panel.png)
 
-- **Launch:** the implementation starts as a **subtask** of the triage session (`start_session`, with `cwd` =
-  the repository's main checkout): it shows nested under the triage in the sidebar, the triage gets a
+- **Launch:** the implementation starts as a **subtask** of the triage session (`start_session`,
+  `use_worktree: true`, without `cwd` — the main checkout is the same project, so the app would drop a `cwd`;
+  the work happens in a `../<repo>-<n>` worktree opened from the main checkout): it shows nested under the
+  triage in the sidebar, the triage gets a
   notification when it ends a turn, and archives it after the merge. Archiving the triage archives its subtasks
   too. (Before 0.2.0 a manual scheduled task, `hga-issue-<repo>-<n>`, launched it.)
 - **Activation:** loading `/hga:triage` (or the Skill tool), `/triage-pane`, a `next` run, or a `phase` call. The

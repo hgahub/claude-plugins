@@ -239,3 +239,77 @@ test('without its own state file the pane stays empty', async ($, on) => {
   await start($)
   expect(await pane($)).toMatch(/No issue is running/)
 })
+
+const mount = ($: Engine) =>
+  $.ui.mount({ plugin: 'hga', surface: 'desktop', component: 'Pane', requestId: 'hga-issue', props: { title: 'x', isFocused: false, bodyColumns: 50 } } as never)
+
+// A long evidence is cut on a narrow pane; a double click on the row opens it to several lines, the next one closes it.
+test('double click on a row: the evidence wraps, another double click restores it; a single click does not toggle', async ($, on) => {
+  const s = engine(on)
+  await start($)
+  const long = 'launch.json not needed (Bash path); worktree + local branch deleted; the remote branch stays until merge'
+  await step($, { issue: ISSUE, step: 10, state: 'in_progress', evidence: long })
+  const ui = await mount($)
+  const draw = async () =>
+    JSON.stringify(await $.ui.render({ surface: 'desktop', component: 'Pane', requestId: 'hga-issue', props: { title: 'x', isFocused: false, bodyColumns: 50 } } as never))
+  expect(await draw()).not.toContain(long)
+  await ui.press({ key: 'row-10' })
+  await s.clock.advance(1_000)
+  await ui.press({ key: 'row-10' })
+  expect(await draw()).not.toContain(long)
+  await ui.press({ key: 'row-10' })
+  expect(await draw()).toContain(`{"dimColor":true,"wrap":"wrap"},"children":["${long}"]`)
+  await s.clock.advance(1_000)
+  await ui.press({ key: 'row-10' })
+  await ui.press({ key: 'row-10' })
+  expect(await draw()).not.toContain(long)
+  await ui.unmount()
+})
+
+test('manual review: the list under Review, tickable, a same-text point keeps its tick, cut above 13', async ($, on) => {
+  engine(on)
+  const writes: { path: string; text: string }[] = []
+  mock.env(on, { HOME: '/home/test' })
+  on('session.id', () => ({ value: 'sess-1' }) as never)
+  on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
+  await start($)
+  const r = await step($, { issue: ISSUE, step: 7, state: 'done', checks: ['Migration is backward compatible', '  Permission:   admin only  ', ''] })
+  expect(r.result).toBe(`${ISSUE}: 1/13 done. Manual review: 0/2 ticked.`)
+  let drawn = await pane($)
+  expect(drawn).toContain('Manual review')
+  expect(drawn).toContain('0/2 ⌄')
+  expect(drawn).toContain('Permission: admin only')
+  // between the Review and the Finish sections
+  expect(drawn.indexOf('section-Review')).toBeGreaterThan(-1)
+  expect(drawn.indexOf('section-Manual review')).toBeGreaterThan(drawn.indexOf('section-Review'))
+  expect(drawn.indexOf('section-Manual review')).toBeLessThan(drawn.indexOf('section-Finish'))
+
+  const ui = await mount($)
+  await ui.press({ key: 'check-1' })
+  drawn = await pane($)
+  expect(drawn).toContain('1/2 ⌄')
+  expect(drawn).toContain('"strikethrough":true')
+  expect(JSON.parse(writes.at(-1)!.text).checks[1]).toEqual({ text: 'Permission: admin only', done: true })
+  await ui.unmount()
+
+  // A new list: a point with the same text keeps its tick, the others are new; cut above 13.
+  const more = ['Permission: admin only', ...Array.from({ length: 14 }, (_, k) => `point ${k}`)]
+  const r2 = await step($, { issue: ISSUE, step: 8, state: 'done', checks: more })
+  expect(r2.result).toContain('Manual review: 1/13 ticked.')
+  expect(r2.result).toContain('Only the first 13 points')
+  expect(await pane($)).not.toContain('Migration')
+
+  expect((await step($, { issue: ISSUE, step: 8, state: 'done', checks: 'one string' })).result).toStartWith('Invalid input')
+})
+
+test('manual review: an empty list = no highlighted point; without a list there is no section', async ($, on) => {
+  engine(on)
+  await start($)
+  await step($, { issue: ISSUE, step: 7, state: 'done' })
+  expect(await pane($)).not.toContain('Manual review')
+  await step($, { issue: ISSUE, step: 7, state: 'done', checks: [] })
+  const ui = await mount($)
+  await ui.press({ key: 'section-Manual review' })
+  expect(await pane($)).toContain('no highlighted manual review point')
+  await ui.unmount()
+})

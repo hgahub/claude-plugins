@@ -79,7 +79,7 @@ technical obstacle, with the reason; the live test only if both start paths of 6
    with the step's **last** action, or at the latest in the same message as the next step's `in_progress`.
 
 Parameters: `issue` = `owner/repo#n` (the main issue, also when a PR covers several), `step` = the number,
-`verb` = the claim verb. The **first call is step 0's `in_progress`**, with `started_at` = the `HGA now`
+`verb` = the claim verb, `checks` = the manual review list (step 7, see there). The **first call is step 0's `in_progress`**, with `started_at` = the `HGA now`
 timestamp: the pane's clock counts from it.
 
 This is part of the step, not paperwork afterwards. "I'll fill it in at the end" is not allowed: the pane is the
@@ -141,8 +141,10 @@ repositories' main checkouts (the worktrees go next to them).
    (`HGA tokens --since`) from it. Right after it, before the repo check: pane, step 0 `in_progress` with this
    `started_at` (see "Side pane").
 2. **Settings:** `HGA config` (see "Settings").
-3. **Repo check:** `HGA repo-check <owner/repo>` in the main checkout. On a mismatch (exit 4), do not claim and
-   do not open a worktree: tell the user, and restart from the checkout the script names. (Working in the wrong
+3. **Repo check:** `HGA repo-check <owner/repo>` where the session started. A worktree is a fine place too (a
+   session launched by the triage starts in its own): the work moves to a worktree opened from the main checkout
+   in step 3, so a worktree is no reason to stop. On a mismatch (exit 4), do not claim and do not open a
+   worktree: tell the user, and restart from the checkout the script names. (Working in the wrong
    checkout wastes the whole run.)
 4. **The issue:** `gh issue view <n> --repo <owner/repo> --json title,body,state,labels,assignees,updatedAt,comments`
    (not `--comments`: outside a terminal it prints only the comments, never the body), and
@@ -199,12 +201,13 @@ Other agents may work in the same checkout. Never switch branches in the main ch
 the session started in, if that is not the main checkout.
 
 `<main-checkout>` is the parent of the `git-common-dir`, **not the session's folder**. If the two differ
-(`--git-dir` ≠ `--git-common-dir`), the session started in someone else's worktree (for example the triage
-session's): no `checkout`, `switch` or commit there — the `worktree add` below still runs from the main
-checkout, and the work happens in `../<repo>-<n>`.
+(`--git-dir` ≠ `--git-common-dir`), the session started in a worktree — launched by the triage, in its own
+app-made worktree; in a worse case, in the triage session's. Either way: no `checkout`, `switch` or commit
+there — the `worktree add` below still runs from the main checkout, and the work happens in `../<repo>-<n>`.
+This is not an error; do not stop because of it.
 
 ```bash
-git rev-parse --path-format=absolute --git-dir --git-common-dir   # different → someone else's worktree
+git rev-parse --path-format=absolute --git-dir --git-common-dir   # different → started in a worktree
 git -C <main-checkout> reflog -6          # has anyone worked here recently?
 git -C <main-checkout> fetch origin
 git -C <main-checkout> worktree add -b fix/<n>-<short-name> ../<repo>-<n> origin/<default-branch>
@@ -244,8 +247,9 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
 
 ## 6. Live user test
 
-1. **Start** first with `preview_start`. Add a temporary configuration to the main checkout's
-   `.claude/launch.json`, with the command from the workflow page. Note first whether the file (and `.claude/`)
+1. **Start** first with `preview_start`. Add a temporary configuration to the `.claude/launch.json` of the
+   session's folder (`preview_start` reads it from there; for a session launched by the triage, that is its own
+   worktree, not the main checkout), with the command from the workflow page. Note first whether the file (and `.claude/`)
    existed: step 10 restores exactly that. If the file is new, it needs the whole shape:
    `{"version": "0.0.1", "configurations": [ … ]}`. For Python apps, the optional helper runs the worktree's
    venv and code, with the main checkout's `.env` if it has one:
@@ -341,6 +345,14 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
   8. **Not part of this PR (follow-up)** — with the follow-up issues' links (7a)
   9. the harness's PR attribution line
 - Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
+- **Manual review list for the pane:** in step 7's `done` call, give the `checks` list — at most 13 short lines
+  for the PR's human reviewer. Only what a person can judge and neither the automated tests nor the review bot
+  cover: a business rule's or a text's correctness, UI appearance and usability, permissions and privacy,
+  migration and backward compatibility, the points of a skipped live test, the risky choices of a decision
+  round. One concrete, checkable sentence per point, with the place (`file:line` or the screen) — not general
+  advice ("review the code"). If there is no such point, `checks: []` — do not fill the list for the sake of 13.
+  If the review rounds' fixes touch the list, send the whole list again in step 8's `done` call (a point with the
+  same text keeps its tick).
 
 ## 7a. Follow-up issues — as GitHub issues, tracked
 

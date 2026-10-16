@@ -30,8 +30,9 @@ or when you stop it.
 - **Settings:** `HGA config` once at the start — `language` (everything written to GitHub and the knowledge
   base), `github.project` (board or labels), `slack`, `parallel.max_per_repo`, `parallel.usage_ceiling_pct`,
   `labels.closed`, `knowledge_dir`.
-- **One triage session per repository, in that repository's main checkout** (`HGA repo-check`): the launched
-  implementation starts in the repository's main checkout, as a subtask of the triage session.
+- **One triage session per repository** (`HGA repo-check`). The launched implementation starts in its own
+  app-made worktree (D.3), and `hga:issue`'s step 3 does the work in a `../<repo>-<n>` worktree opened from the
+  main checkout — neither touches the triage session's folder.
 - **Today's default branch is the measure.** Read the code in a detached scratch worktree
   (`git worktree add --detach <scratchpad>/wt<n> origin/<default-branch>`); do not touch the main checkout's
   branch. Every claim gets the short SHA next to it.
@@ -163,8 +164,7 @@ mode) the user answered the launch question.
 A `ready-for-agent` issue is taken end to end by a new session with `hga:issue`. The triage starts it as a
 **subtask** (`mcp__ccd_session__start_session`): it shows nested under the triage session in the sidebar, the
 triage can list its family and message it, and it gets a notification when the subtask ends a turn. The
-session starts in the repository's main checkout, with the triage session's permission mode — run the triage
-in auto mode.
+session starts in its own worktree, with the triage session's permission mode — run the triage in auto mode.
 
 1. **Conditions** — all must hold, otherwise the issue waits, and the report says for what:
    - the label is `ready-for-agent`, and `HGA deps` shows no open prerequisite;
@@ -201,12 +201,12 @@ in auto mode.
    preceded by a bold title line and one sentence about it:
    - `initiation`: `user_asked` (continuous mode and branch D are the maintainer's request), `context`: `fresh`,
      `title`: `hga:issue <repo>#<n>`, `name`: `<repo>-<n>`;
-   - `cwd`: the repository's **main checkout**, as an absolute path — the parent folder of
-     `git rev-parse --path-format=absolute --git-common-dir`, not the triage session's folder;
-   - `use_worktree`: **false** — with `cwd` set, this means "the main checkout as it is"; `hga:issue` opens its
-     own worktree in step 3. In a session worktree, the repository's install step and `launch.json` would not be
-     where they usually are. Without `cwd`, `false` means the triage session's folder: a triage running in a
-     worktree would have the implementation switch branches inside the triage's worktree;
+   - `use_worktree`: **true**, **without `cwd`** — the session starts in its own, app-made worktree (from the
+     triage's base branch). It does not do the work there: `hga:issue`'s step 3 opens a `../<repo>-<n>` worktree
+     from the main checkout, and it does not switch branches in the session's folder. **Do not pass `cwd`**:
+     `start_session` honors it only for a folder that is not this project — the main checkout is the same
+     repository, so the app drops it, and `use_worktree: false` then means the triage session's folder (with a
+     triage running in a worktree, its branch too). So never `false`;
    - `prompt` (self-contained, because the session does not see this conversation): "Load the `hga:issue` skill
      with the Skill tool, and take this issue end to end: <issue URL>. The issue is finalized with `hga:triage`
      (`ready-for-agent`); the body's "Implementation" and "Acceptance criteria" sections are the contract. The
@@ -219,10 +219,10 @@ in auto mode.
 
    **Without those tools** (CLI, web), launch nothing: give the user the same prompt in a code block, and the
    command to start it in the repository's main checkout (`claude "<prompt>"`), then continue with branch C.
-4. **Check:** `mcp__ccd_session_mgmt__get_session` on the returned id: it runs, its `cwd` is the repository's
-   main checkout, and its `parentSessionId` is this session. **If the `cwd` is anything else** (for example the
-   triage's worktree): stop it at once with `mcp__ccd_session_mgmt__stop_session`, before the claim and the
-   branch, and the report tells the maintainer where it started — the issue does not start again until then.
+4. **Check:** `mcp__ccd_session_mgmt__get_session` on the returned id: it runs, and its `parentSessionId` is
+   this session. Its `cwd` is its own worktree, not the main checkout — that is fine, **do not stop it**. Even if
+   it started in the triage session's folder, do not: `hga:issue`'s step 3 does not switch branches in a folder
+   that is not the main checkout, and works in a worktree opened from it. The report says where it started.
 5. **Report:** the issue and the session's link (`[hga:issue <repo>#<n>](#<session_id>)`), the `HGA meta` line,
    and if any, the label proposal and the differing field proposals. Then back to branch C.
 6. **Feedback:** when the subtask ends a turn, the triage gets a notification with the start of its report.
@@ -236,5 +236,5 @@ in auto mode.
    from an earlier plugin version (`hga-issue-*`) is deleted under the same conditions with
    `delete_scheduled_task` (deleting it archives its session).
 
-**Done** when the subtask runs in the repository's main checkout and the report gave its link — or the report
+**Done** when the subtask runs and the report gave its link — or the report
 named the condition (or the card) the issue is waiting for, or (without the tools) the user has the prompt.

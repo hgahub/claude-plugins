@@ -2,7 +2,9 @@ export type StepState = 'in_progress' | 'done' | 'skipped'
 export type Step = { state: StepState; evidence: string }
 // The current issue: steps in the order of the issue skill's checklist (0–12), null = not started yet.
 // updatedAt: time of the last report; a finished issue's clock (step 12 done) stops here.
-export type Issue = { issue: string; verb: string; startedAt: number; steps: (Step | null)[]; updatedAt?: number }
+// checks: the PR's manual review points (the model writes them, the reviewer ticks them); [] = no such point.
+export type Check = { text: string; done: boolean }
+export type Issue = { issue: string; verb: string; startedAt: number; steps: (Step | null)[]; updatedAt?: number; checks?: Check[] }
 // The shared state file (~/.claude/hga/issue/<owner>-<repo>-<n>.json): the issue pane writes it, the triage panel reads it.
 // desktop: the desktop app's session id (CLAUDE_CODE_HOST_SESSION_ID, local_…); the triage panel jumps to this session.
 export type IssueFile = Issue & { updatedAt: number; session: string; desktop?: string }
@@ -47,7 +49,7 @@ export type IntentFile = Intent & { updatedAt: number; session: string }
 declare module 'claude-code' {
   // The mod's own tools: the generated MCP list only contains servers connected at load time.
   interface McpToolInputs {
-    'mcp__hga__step': { issue: string; step: number; state: string; evidence?: string; verb?: string; started_at?: string }
+    'mcp__hga__step': { issue: string; step: number; state: string; evidence?: string; verb?: string; started_at?: string; checks?: string[] }
     'mcp__hga__phase': { branch: string; issue?: string; step?: string; verdicts?: Record<string, string>; proposed?: string; decisions?: number }
     'mcp__hga__intent': { intent: string; step?: number; state?: string; evidence?: string; sections?: Record<string, string>; questions?: number; verdict?: string; issue?: string; file?: string }
   }
@@ -59,6 +61,8 @@ declare module 'claude-code' {
       issueOpen: boolean
       // sections opened by hand; null = default (only the running section)
       issueSections: string[] | null
+      // the steps opened to several lines by a double click
+      issueRows: number[]
       // triage panel. active: the triage skill was loaded in this session (or /triage-pane opened it); only then does it work.
       active: boolean
       open: boolean
