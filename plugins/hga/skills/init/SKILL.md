@@ -171,7 +171,7 @@ pushing say that it changes the team's knowledge base or settings:
 
 ```bash
 git -C <dir> add <the changed files>
-git -C <dir> commit -m "Repair the hga setup: <what> (hga)"
+git -C <dir> commit -m "Repair the hga setup: <what> (hga)" -- <the changed files>
 [ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
 ```
 
@@ -214,8 +214,9 @@ All must succeed (warnings allowed). If step 5 or 7 wrote pages, commit them (on
 the knowledge base has a remote — for a shared knowledge base, say first that the team will see them:
 
 ```bash
-git -C <dir> add workflow/hga-guide.md apps/<app>.md workflow/<app>.md map/   # whichever were written
-git -C <dir> commit -m "The hga guide and first app pages (hga)"
+P="workflow/hga-guide.md apps/<app>.md workflow/<app>.md map/<app>.md"   # whichever were written
+git -C <dir> add $P
+git -C <dir> commit -m "The hga guide and first app pages (hga)" -- $P
 [ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
 ```
 

@@ -216,6 +216,65 @@ def test_review_commands_refuse_local_provider(hga, capsys):
     assert "local" in capsys.readouterr().out
 
 
+HEAD = "abc1234" + "0" * 33
+COPILOT = {"login": "copilot-pull-request-reviewer[bot]", "type": "Bot"}
+
+
+def fake_review_api(hga, monkeypatch, reviews, inline=()):
+    """review-wait against canned GitHub answers (Copilot)."""
+    def gh(*args):
+        if args[:2] == ("pr", "view"):
+            return json.dumps({"headRefOid": HEAD})
+        path = args[1]
+        if path.endswith("/reviews"):
+            return json.dumps(reviews)
+        if path.startswith("repos/a/b/pulls/") and path.endswith("/comments"):
+            return json.dumps(list(inline))
+        return "[]"
+    monkeypatch.setattr(hga, "gh", gh)
+    monkeypatch.setattr(hga.time, "sleep", lambda s: None)
+
+
+def review(state, commit=HEAD, user=COPILOT, rid=7, body=""):
+    return {"id": rid, "state": state, "commit_id": commit, "user": user, "body": body, "html_url": "u"}
+
+
+def wait(hga, timeout="0.001"):
+    return hga.main(["review-wait", "a/b", "1", "--provider", "copilot", "--timeout-min", timeout, "--interval", "0"])
+
+
+def test_review_wait_clean_comment_review(hga, monkeypatch, capsys):
+    fake_review_api(hga, monkeypatch, [review("COMMENTED")])
+    assert wait(hga, "1") == 0
+    assert "no significant findings" in capsys.readouterr().out
+
+
+def test_review_wait_changes_requested_without_inline_is_a_finding(hga, monkeypatch, capsys):
+    fake_review_api(hga, monkeypatch, [review("CHANGES_REQUESTED", body="Missing null check in export.")])
+    assert wait(hga, "1") == 1
+    out = capsys.readouterr().out
+    assert "changes requested" in out and "Missing null check" in out and "👍" not in out
+
+
+def test_review_wait_ignores_dismissed_and_other_commits(hga, monkeypatch, capsys):
+    other = "abc1234" + "f" * 33  # same 7-character prefix, another commit
+    fake_review_api(hga, monkeypatch, [review("DISMISSED"), review("COMMENTED", commit=other, rid=8)])
+    assert wait(hga) == 2
+    assert "timeout" in capsys.readouterr().out
+
+
+def test_review_wait_ignores_people_named_like_the_bot(hga, monkeypatch, capsys):
+    fake_review_api(hga, monkeypatch, [review("COMMENTED", user={"login": "someone-copilot-unrelated", "type": "User"})])
+    assert wait(hga) == 2
+
+
+def test_review_wait_lists_inline_findings(hga, monkeypatch, capsys):
+    fake_review_api(hga, monkeypatch, [review("COMMENTED")],
+                    inline=[{"id": 3, "pull_request_review_id": 7, "path": "x.py", "line": 4, "body": "**high** Bug"}])
+    assert wait(hga, "1") == 1
+    assert "1 inline finding(s)" in capsys.readouterr().out
+
+
 def test_triage_labels_dropped_only_when_work_starts(hga):
     labels = {"bug", "ready-for-agent", "in-progress"}
     assert hga.triage_labels_to_drop("in_progress", labels) == ["ready-for-agent"]

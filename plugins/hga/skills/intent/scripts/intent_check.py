@@ -94,8 +94,12 @@ def check(text: str) -> dict:
         warnings.append("W_NO_EDGE_CASE: no scenario is marked \"(edge case)\"")
     if scenarios and criteria and len(scenarios) < len(criteria):
         warnings.append(f"W_FEW_SCENARIOS: {len(criteria)} criteria, {len(scenarios)} scenario(s)")
-    if coverage["current"] != "empty" and not re.search(r"\b[0-9a-f]{7,40}\b", find(sec, SECTIONS["current"]) or ""):
+    if coverage["current"] == "empty":
+        warnings.append("W_EMPTY_CURRENT: the \"current state\" section is empty")
+    elif not re.search(r"\b[0-9a-f]{7,40}\b", find(sec, SECTIONS["current"]) or ""):
         warnings.append("W_CURRENT_WITHOUT_SHA: the current state does not cite a commit SHA")
+    if coverage["constraints"] == "empty":
+        warnings.append("W_EMPTY_CONSTRAINTS: the \"constraints\" section is empty")
     if coverage["scope"] == "empty":
         warnings.append("W_EMPTY_SCOPE: the \"out of scope\" section is empty")
 
@@ -151,6 +155,9 @@ def self_test() -> None:
     assert r["verdict"] == "WARN" and len(r["warnings"]) == 2, r
     r = check(SAMPLE.replace("`4a81922`", "<sha>"))
     assert r["verdict"] == "BLOCK" and r["sections"]["current"] == "partial", r
+    r = check(re.sub(r"## (Current state|Constraints)\n- [^\n]+\n", "", SAMPLE))
+    assert r["verdict"] == "WARN" and r["score"] == 60, r
+    assert {w.split(":")[0] for w in r["warnings"]} == {"W_EMPTY_CURRENT", "W_EMPTY_CONSTRAINTS"}, r
     assert check(SAMPLE.replace("- Should it be colored? (not blocking)", "- none"))["questions"] == 0
     print("self-test OK")
 
