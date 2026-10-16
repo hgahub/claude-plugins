@@ -26,7 +26,7 @@ Configuration has two layers (`HGA config` prints the merged result, with the fi
 
 Ask every choice with `AskUserQuestion` (the recommended option first, "(Recommended)"); detect what you can
 first, so the questions offer real values. With an argument, skip the matching question: `new`, `join <URL>`,
-or `check` (steps 1 and 6 only).
+or `check` (steps 1, 6 and 7 only).
 
 ## 1. Prerequisites
 
@@ -43,13 +43,14 @@ Run `HGA doctor` and show its table. Before the first setup, the knowledge base 
 If a required item is missing, give the fix command and stop until the user has fixed it. Do not install
 anything yourself.
 
+
 ## 2. Knowledge base
 
 Read the machine layer first (`HGA config` → `knowledge_dir`, `sources.user`). Ask where the knowledge base
 should live if there is no machine configuration yet (default `~/.hga/knowledge`). Then:
 
 - **The folder exists and has `hga.config.json`** → it is set up. Show `git -C <dir> remote -v` and
-  `git -C <dir> status --short`, and go on to step 4.
+  `git -C <dir> status --short`, and go on to step 3.
 - **Otherwise ask:** "New knowledge base" or "Join the team's knowledge base".
 
 **New:**
@@ -57,25 +58,42 @@ should live if there is no machine configuration yet (default `~/.hga/knowledge`
 1. `python3 "$INIT/scripts/scaffold_kb.py" <dir>` — creates the skeleton from `templates/knowledge/` with today's
    date. Exit 3 means the folder is not empty: show what is in it, and ask whether to add only the missing files
    (`--add-missing`) or to choose another folder. Never delete or move the user's files.
-2. `git -C <dir> init -b main`.
-3. Ask whether to put it on GitHub as a **private** repository (recommended for a team; others join with its
-   URL). If yes, ask for the owner and the name (default `<user>/knowledge`), confirm, then
-   `gh repo create <owner>/<name> --private --source <dir>` (no push yet: step 3 commits first).
+2. If `<dir>/.git` does not exist yet: `git -C <dir> init`, then `git -C <dir> symbolic-ref HEAD refs/heads/main`
+   (the same as `git init -b main`, which git before 2.28 does not have). Leave an existing repository as it is.
+3. Ask where the shared copy should live:
+   - **"Private GitHub repository (Recommended for a team)"** — others join with its URL. Ask for the owner and
+     the name (default `<user>/knowledge`), confirm, then `gh repo create <owner>/<name> --private --source <dir>`.
+   - **"Another git host"** (GitLab, Bitbucket, the company's server) — the user creates an empty private
+     repository there and gives its URL; then `git -C <dir> remote add origin <URL>`. Credentials are the user's
+     git setup; the push in step 4 proves access.
+   - **"Local only"** — no remote; re-running `/hga:init` can add one later.
+
+   No push yet: step 4 commits first.
 
 **Join:**
 
-1. Ask for the git URL (or take it from the argument). `git clone <URL> <dir>` — only into a missing or empty
-   folder.
-2. If the clone has no `hga.config.json`, it is a new team setup: step 3 asks the team questions, and the commit
+1. Ask for the git URL (or take it from the argument) — any git host works. `git clone <URL> <dir>` — only into a
+   missing or empty folder.
+2. If the clone has no `hga.config.json`, it is a new team setup: step 4 asks the team questions, and the commit
    goes to the shared repository — say so before writing.
 
-## 3. Team configuration
+## 3. Machine configuration
+
+Do this before the team configuration: `HGA config` and `HGA doctor` find the knowledge base through this file,
+so without it step 4 would check the default folder instead of `<dir>`.
+
+Write `~/.claude/hga/config.json` with `{"knowledge_dir": "<dir>"}` if the folder is not the default or the file
+does not exist yet. Keep any existing keys: read it first, change only `knowledge_dir`. Overrides of team fields
+go here only if the user asks for them. Then `HGA config` must print `"knowledge_dir": "<dir>"`.
+
+## 4. Team configuration
 
 Skip this step if `<dir>/hga.config.json` exists, unless the user asked to change it (then show the current
 values and ask only about the changes). Otherwise start from `$INIT/templates/hga.config.json` and ask:
 
 1. **Language** of everything the plugin writes outward (commits, PRs, issues, Slack, notes): `en`
-   (Recommended), or another language code the user names.
+   (Recommended); the language of this conversation, if it is not English (its code, e.g. `de`); or another
+   language code the user names.
 2. **Time zone:** the system's (`null`, Recommended), or an IANA name (e.g. `Europe/Berlin`) when the team spans
    time zones and "today" must be the same for everyone.
 3. **GitHub project board:** list the owner's boards
@@ -88,16 +106,24 @@ values and ask only about the changes). Otherwise start from `$INIT/templates/hg
    channel. For a channel, find it with the Slack tools (`slack_search_channels`), confirm the name, and store
    `{"channel": "#name", "channel_id": "C…"}`. Read one message from it (`slack_read_channel`, limit 1) to prove
    access; if that fails, say so and store nothing.
-5. **Review provider:** "Local code-review only (Recommended)", "Codex", "Copilot", "Greptile". For a bot, the
-   bot must be installed on the repositories (Codex and Greptile as GitHub apps; Copilot code review enabled
-   for the account or organization): say so, and if the user names a repository, check whether the bot ever
-   reviewed a PR there (`gh api repos/<o>/<r>/pulls?state=all&per_page=20` + their reviews' authors) — report
-   what you found, do not block on it. Copilot and Greptile support is newer: mention it.
-6. **Parallel limits** (for `/hga:triage`'s launches): at most 2 running implementations per repository and an
+5. **Review provider:** "Local code-review only (Recommended)", "Codex", "Copilot", "Greptile". A bot reviews in
+   addition to the local review, not instead of it. The bot must be installed on the repositories (Codex and
+   Greptile as GitHub apps; Copilot code review enabled for the account or organization): say so, and if the
+   user names a repository, check whether the bot ever reviewed a PR there
+   (`gh api repos/<o>/<r>/pulls?state=all&per_page=20` + their reviews' authors) — report what you found, do
+   not block on it. Copilot and Greptile support is newer: mention it.
+6. **Review round limit** (`review.ask_after_rounds`): 5 (Recommended), or the user's number. From this round on,
+   `/hga:issue` asks the maintainer whether to close the review — the local review's rounds count too.
+7. **Parallel limits** (for `/hga:triage`'s launches): at most 2 running implementations per repository and an
    80% ceiling on the 5-hour plan usage (Recommended), or the user's numbers.
 
-Write the file with `Write`, then `HGA config` must print it back without errors, and `HGA doctor` must show no
-"configuration" problem. Then commit it with the skeleton:
+Write the file with `Write`, then read it back through the plugin:
+
+- `HGA config` must show `sources.team` = `<dir>/hga.config.json` and the values just chosen — if it shows the
+  defaults, step 3's machine configuration is missing or points elsewhere: fix that first;
+- `HGA doctor` must show no "configuration" problem.
+
+Then commit it with the skeleton:
 
 ```bash
 git -C <dir> add -A        # a fresh knowledge base: only the skeleton and the configuration are in it
@@ -106,13 +132,8 @@ git -C <dir> push -u origin main      # only if it has a remote
 ```
 
 For an existing, shared knowledge base, stage only `hga.config.json` (not `-A`), and say before pushing that it
-changes the team's settings.
-
-## 4. Machine configuration
-
-Write `~/.claude/hga/config.json` with `{"knowledge_dir": "<dir>"}` if the folder is not the default or the file
-does not exist yet. Keep any existing keys: read it first, change only `knowledge_dir`. Overrides of team fields
-go here only if the user asks for them.
+changes the team's settings. If the push fails on another host, show git's error: it is usually the user's
+credentials, which they fix themselves.
 
 ## 5. Optional, one question each
 
@@ -126,9 +147,35 @@ go here only if the user asks for them.
   --color <hex> --description "<…>"`, skipping existing ones.
 - **A first app page:** if the user names an application, create `apps/<app>.md` from the template in
   `apps/README.md` with what you can verify now (repository, default branch, how to run the tests), and a
-  `workflow/<app>.md` stub — step 6 validates and commits them.
+  `workflow/<app>.md` stub — step 7 validates and commits them.
 
-## 6. Check
+## 6. Repair
+
+On a re-run, and always with `check`: go through what `HGA doctor` (step 1) reported, and fix only on the user's
+yes — one question per item, the recommended fix first.
+
+- **`MISSING] knowledge base`** with a machine configuration → the folder was moved or deleted. Ask: point
+  `knowledge_dir` at the right folder (step 3), clone the team's knowledge base again (step 2, Join), or create
+  a new one (step 2, New).
+- **`MISSING] configuration`** → show the field, the file it comes from (`HGA config` → `sources`; a machine
+  override wins over the team file) and the problem; ask step 4's question for that field, write only that
+  field, and check again.
+- **`labels.closed`** → no longer used. Remove the key from the file that has it (read both layers), nothing
+  else.
+- **Template files the knowledge base lacks** (newer plugin versions add some):
+  `python3 "$INIT/scripts/scaffold_kb.py" <dir> --add-missing --dry-run` lists them without writing. Show the
+  list and ask — the team may have deleted a page on purpose — then run it without `--dry-run`.
+
+A change to the shared knowledge base is committed with only the files it touched (never `-A`), and before
+pushing say that it changes the team's knowledge base or settings:
+
+```bash
+git -C <dir> add <the changed files>
+git -C <dir> commit -m "Repair the hga setup: <what> (hga)"
+[ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
+```
+
+## 7. Check
 
 ```bash
 python3 "$KB/build_map.py" "<dir>"
@@ -147,6 +194,7 @@ git -C <dir> commit -m "<app>: first app and workflow pages (hga)"
 ```
 
 Then summarize in a short table: knowledge base (folder, remote), team
-configuration (language, board or labels, Slack or GitHub comments, review provider, limits), machine
-configuration, what was skipped and why. End with the next step: "Try `/hga:triage <owner/repo>` or
-`/hga:issue <issue URL>`." Mention that `/hga:init` can be re-run to change any of this.
+configuration (language, board or labels, Slack or GitHub comments, review provider and round limit, limits),
+machine configuration, what was repaired, what was skipped and why. End with the next step: "Try
+`/hga:triage <owner/repo>` or `/hga:issue <issue URL>`." Mention that `/hga:init` can be re-run to change any of
+this.

@@ -29,6 +29,21 @@ def test_fresh_scaffold_is_valid(tmp_path):
     assert (kb / "00-index.md").read_text(encoding="utf-8") == "mine"
 
 
+def test_scaffold_dry_run_lists_missing_files_without_writing(tmp_path, capsys):
+    kb = tmp_path / "kb"
+    assert scaffold.main([str(kb), "--dry-run"]) == 0
+    assert not kb.exists()
+    assert "would write 00-index.md" in capsys.readouterr().out
+    assert scaffold.main([str(kb)]) == 0
+    (kb / "apps" / "README.md").unlink()
+    capsys.readouterr()
+    assert scaffold.main([str(kb), "--add-missing", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "would write apps/README.md" in out
+    assert "1 file(s) missing" in out
+    assert not (kb / "apps" / "README.md").exists()
+
+
 def test_frontmatter_errors(tmp_path):
     (tmp_path / "no-front.md").write_text("# x\n", encoding="utf-8")
     page(tmp_path / "bad.md", "Bad", verified="31/01/2026", status="done")

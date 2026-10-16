@@ -5,7 +5,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
 
   config
       The merged configuration as JSON: defaults < team (`<knowledge_dir>/hga.config.json`) < user
-      (`~/.claude/hga/config.json`). Skills and panels read their settings from here.
+      (`~/.claude/hga/config.json`). Skills and panels read their settings from here. Shape problems go to
+      stderr as warnings (doctor counts them as missing items).
   doctor
       Checks the prerequisites (Python, git, gh login and scopes, uv, knowledge base, configuration).
       Exit code 1 if a required item is missing.
@@ -154,22 +155,46 @@ def load_config() -> dict:
 CFG: dict = {}
 
 
+def _text(v: object) -> bool:
+    return isinstance(v, str) and bool(v.strip())
+
+
+def _positive_int(v: object) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 1
+
+
 def config_problems(c: dict) -> list[str]:
-    """Shape checks for the merged configuration; an empty list means it is usable."""
+    """Shape checks for the merged configuration; an empty list means it is usable. Whether a named time zone
+    exists is doctor's own line (it depends on the machine's tz database, not on the file)."""
     out = []
-    if not isinstance(c.get("language"), str) or not c["language"]:
+    if not _text(c.get("language")):
         out.append("language must be a language code, e.g. \"en\"")
+    if c.get("timezone") is not None and not _text(c.get("timezone")):
+        out.append("timezone must be an IANA name, e.g. \"Europe/Berlin\", or null")
     gh_ = c.get("github") or {}
     if gh_.get("project") is not None and not isinstance(gh_.get("project"), str):
         out.append("github.project must be a project title or null")
+    if not _text((gh_.get("fields") or {}).get("status")):
+        out.append("github.fields.status must name the board's status field, e.g. \"Status\"")
+    statuses = gh_.get("statuses") or {}
+    for key in ("todo", "in_progress", "done"):
+        if not _text(statuses.get(key)):
+            out.append(f"github.statuses.{key} must name a status option, e.g. \"{DEFAULTS['github']['statuses'][key]}\"")
+    labels = c.get("labels") or {}
+    for key in ("in_progress", "in_review"):
+        if not _text(labels.get(key)):
+            out.append(f"labels.{key} must be a label name, e.g. \"{DEFAULTS['labels'][key]}\"")
     slack = c.get("slack")
     if slack is not None and not (isinstance(slack, dict) and slack.get("channel_id")):
         out.append("slack must be null or {\"channel\": \"#name\", \"channel_id\": \"C…\"}")
-    if (c.get("review") or {}).get("provider") not in REVIEW_PROVIDERS:
+    review = c.get("review") or {}
+    if review.get("provider") not in REVIEW_PROVIDERS:
         out.append(f"review.provider must be one of {', '.join(REVIEW_PROVIDERS)}")
+    if not _positive_int(review.get("ask_after_rounds")):
+        out.append("review.ask_after_rounds must be a positive whole number")
     par = c.get("parallel") or {}
     for key in ("max_per_repo", "usage_ceiling_pct"):
-        if not isinstance(par.get(key), int) or par[key] < 1:
+        if not _positive_int(par.get(key)):
             out.append(f"parallel.{key} must be a positive whole number")
     return out
 
@@ -1313,6 +1338,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.cmd == "config":
             print(json.dumps(cfg(), ensure_ascii=False, indent=2))
+            for problem in config_problems(cfg()):
+                print(f"warning: configuration: {problem}", file=sys.stderr)
             return 0
         if a.cmd == "midnight":
             now = datetime.now(local_tz())

@@ -221,3 +221,33 @@ def test_doctor_after_init_requires_the_knowledge_base(hga, tmp_path, capsys):
     write(tmp_path / "user.json", {"knowledge_dir": str(tmp_path / "kb")})
     hga.main(["doctor"])
     assert "MISSING] knowledge base" in capsys.readouterr().out
+
+
+def test_config_problems_defaults_are_clean(hga):
+    assert hga.config_problems(hga.load_config()) == []
+
+
+def test_config_problems_catch_bad_fields(hga, tmp_path):
+    write(tmp_path / "kb" / "hga.config.json", {
+        "timezone": "",
+        "github": {"fields": {"status": ""}, "statuses": {"done": None}},
+        "labels": {"in_review": " "},
+        "review": {"provider": "codex", "ask_after_rounds": 0},
+        "parallel": {"max_per_repo": True},
+    })
+    text = "\n".join(hga.config_problems(hga.load_config()))
+    assert "timezone must be" in text
+    assert "github.fields.status" in text
+    assert "github.statuses.done" in text and "github.statuses.todo" not in text
+    assert "labels.in_review" in text and "labels.in_progress" not in text
+    assert "review.ask_after_rounds" in text
+    assert "parallel.max_per_repo" in text  # a boolean is not a number
+    assert "review.provider" not in text
+
+
+def test_cli_config_warns_on_problems_but_prints(hga, tmp_path, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"review": {"ask_after_rounds": "5"}})
+    assert hga.main(["config"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["review"]["ask_after_rounds"] == "5"
+    assert "warning: configuration: review.ask_after_rounds" in captured.err

@@ -11,7 +11,7 @@ reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, and **`/hga
 
 | | What it does |
 |---|---|
-| `/hga:init [new \| join <URL> \| check]` | Checks the prerequisites, creates or joins the knowledge base, writes the team and machine configuration |
+| `/hga:init [new \| join <URL> \| check]` | Checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration, and on a re-run repairs what the check found |
 | `/hga:intent [intent]` | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
 | `/hga:new-issue <intent>` | An issue from the intent: readiness gate, duplicate search, the body from the intent's sections, create and read back, board (Todo) and type, the issue number back into the intent |
 | `/hga:triage [issue]` | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
@@ -43,7 +43,9 @@ Then run `/hga:init` once per machine. Update with `claude plugin update hga@hga
 - Optional: a Slack MCP connector (claims and reports in a channel), Claude in Chrome or the built-in browser of
   the desktop app (live tests), a review bot on your repositories (Codex, Copilot or Greptile).
 
-`/hga:init check` (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor`) shows what is missing.
+`/hga:init check` (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor`) shows what is missing; the
+check also offers to repair it — a moved knowledge base, an invalid configuration field, a leftover
+`labels.closed`, template files a newer plugin version added.
 
 ## Configuration
 
@@ -79,6 +81,9 @@ Two layers, merged (`hga_issue.py config` prints the result):
 | `slack` | `null` = claims and reports are GitHub comments on the issue. Otherwise `{"channel": "#dev", "channel_id": "C…"}`. |
 | `review.provider` | `local` (the `code-review` skill), `codex`, `copilot` or `greptile` (a bot on GitHub, in addition to the local review). `ask_after_rounds`: from this round on, the maintainer decides whether to close the review. |
 | `parallel` | `/hga:triage` launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |
+
+`hga_issue.py config` prints a malformed field as a warning on stderr (the JSON still comes out); `doctor` counts
+it as a missing item.
 
 ## The knowledge base
 

@@ -1,11 +1,12 @@
 """Creates a new hga knowledge base from the plugin's template.
 
-Usage: python scaffold_kb.py <target-dir> [--add-missing]
+Usage: python scaffold_kb.py <target-dir> [--add-missing] [--dry-run]
 
 Copies templates/knowledge/ into <target-dir> and fills in today's date. A missing or empty target is
 created; a non-empty one is refused (exit 3) unless --add-missing is given, which only adds the files that
-do not exist yet and never overwrites. Prints every file it wrote. Does not run git and does not write
-hga.config.json — /hga:init does both.
+do not exist yet and never overwrites. Prints every file it wrote. --dry-run writes nothing and prints the
+files it would write (with --add-missing: the template files an existing knowledge base lacks). Does not
+run git and does not write hga.config.json — /hga:init does both.
 
 Exit code: 0 done, 3 target not empty, 2 wrong usage.
 """
@@ -20,7 +21,7 @@ from pathlib import Path
 TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "knowledge"
 
 
-def scaffold(target: Path, add_missing: bool = False, today: str | None = None) -> list[str]:
+def scaffold(target: Path, add_missing: bool = False, today: str | None = None, dry_run: bool = False) -> list[str]:
     today = today or date.today().isoformat()
     written = []
     for src in sorted(TEMPLATE.rglob("*")):
@@ -29,6 +30,9 @@ def scaffold(target: Path, add_missing: bool = False, today: str | None = None) 
         rel = src.relative_to(TEMPLATE)
         dst = target / rel
         if dst.exists():
+            continue
+        if dry_run:
+            written.append(rel.as_posix())
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         text = src.read_text(encoding="utf-8").replace("{{DATE}}", today)
@@ -45,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("target")
     ap.add_argument("--add-missing", action="store_true", help="add missing files to a non-empty folder")
+    ap.add_argument("--dry-run", action="store_true", help="write nothing, list the files it would write")
     a = ap.parse_args(argv)
     target = Path(a.target).expanduser()
     if target.exists() and not target.is_dir():
@@ -54,6 +59,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"not empty: {target} — choose another folder, or add only the missing files with --add-missing",
               file=sys.stderr)
         return 3
+    if a.dry_run:
+        missing = scaffold(target, a.add_missing, dry_run=True)
+        for rel in missing:
+            print(f"would write {rel}")
+        print(f"{len(missing)} file(s) missing from {target}")
+        return 0
     target.mkdir(parents=True, exist_ok=True)
     written = scaffold(target, a.add_missing)
     for rel in written:
