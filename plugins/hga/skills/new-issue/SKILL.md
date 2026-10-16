@@ -68,8 +68,8 @@ work (zsh does not split it into words).
    new capability; `Task` otherwise. Fields shown as `n/a` do not exist for this owner: skip them. Priority,
    Effort, the iteration and the state label belong to the triage; do not set them.
 9. **Back into the intent:** frontmatter `issue: <owner/repo>#<n>`, `intent_status: issue`, ` (#<n>)` at the end
-   of the `title` (so the map links it to the issue's later notes). Then `build_map.py`, `validate_kb.py`, and
-   commit (`<app>: intent → #<n>`) and push as `hga:knowledge` says.
+   of the `title` (so the map links it to the issue's later notes). Then commit it (`<app>: intent → #<n>`)
+   with `kb_commit.py`, as `hga:knowledge` says: it rebuilds the map, validates, commits and pushes.
 10. **Report:** the issue's link, the `HGA meta` line, the ICHK verdict, and the next step:
     `/hga:triage <issue URL>`. If the session has the `mcp__hga__intent` tool, report with the `issue` field.
 

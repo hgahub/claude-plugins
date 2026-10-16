@@ -225,10 +225,15 @@ in the team's numbers. It reads the pane's state file, so step 0's `in_progress`
 HGA metrics-start <owner/repo> <n>
 ```
 
-It prints the marker's path: the same file the metrics record will overwrite in step 12. Validate, commit
-**only that file** and push it with the commands of step 12's metrics record (commit message `<repo>: run
-start (#<n>)`). If it fails (no state file, a push error), say so in step 1's evidence and go on: the marker
-is bookkeeping, it never blocks the work.
+It prints the marker's path: the same file the metrics record will overwrite in step 12. Commit **only that
+file** and push it with `kb_commit.py`, which validates first and commits nothing on an error:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/kb_commit.py" -C "<knowledge_dir>" -m "<repo>: run start (#<n>)" -- "<the marker's path>"
+```
+
+If it fails (no state file, a validation or push error), say so in step 1's evidence and go on: the marker is
+bookkeeping, it never blocks the work.
 
 ## 2. In Progress
 
@@ -525,8 +530,9 @@ There is no closing label. Do not wait for the merge either: the report goes out
 - A new, lasting finding: a note in the knowledge base's `notes/` (frontmatter, `## Sources and verification`:
   commit SHAs, commands, issue/PR URL, the claim's link), as the `hga:knowledge` skill says. Without a merge, say
   that it is not evidence of deployment. For a large PR, record whether there was a local review and how many
-  bot rounds followed. Then rebuild the map, validate, commit your pages and push (the knowledge skill's
-  commands). The evidence is the commit SHA after the push — or the commit SHA alone if the knowledge base has
+  bot rounds followed. Then commit your pages with `kb_commit.py` (the knowledge skill's command: it rebuilds
+  the map, validates, commits only your pages and pushes, under the knowledge base's lock). The evidence is the
+  commit SHA after the push — or the commit SHA alone if the knowledge base has
   no remote (`git remote` is empty: a local-only knowledge base is a valid setup). Step 11 is `skipped` only if a
   push to an existing remote fails, with the reason, because the note then exists only on this machine.
 - Memory: only what the repository does not reveal and what matters to the next session (a new rule, a trap,
@@ -583,16 +589,11 @@ HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2
 
 It prints the record's path (`<knowledge_dir>/metrics/<owner>/<repo>/<n>-<start>.json`, one file per run of
 the issue, so parallel sessions never write the same file). It overwrites the run marker of step 1 (the same
-file): from now on the run counts as finished, not aborted. Validate, then commit **only that file** and push
-it as in step 11:
+file): from now on the run counts as finished, not aborted. Commit **only that file** and push it as in step
+11 — the helper validates first and commits nothing on an error:
 
 ```bash
-K="<knowledge_dir>"
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/validate_kb.py" "$K"
-R="<the record's path>"   # only this file: other sessions may be writing too
-git -C "$K" add "$R"
-git -C "$K" commit -m "<repo>: metrics record (#<n>)" -- "$R"   # not what others staged
-[ -n "$(git -C "$K" remote)" ] && git -C "$K" pull --rebase --autostash --quiet && git -C "$K" push --quiet
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/kb_commit.py" -C "<knowledge_dir>" -m "<repo>: metrics record (#<n>)" -- "<the record's path>"
 ```
 
 Then step 12 `done` again, with the evidence `<report link> · <the record's path relative to the knowledge
