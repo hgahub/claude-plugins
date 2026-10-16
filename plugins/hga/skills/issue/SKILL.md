@@ -65,7 +65,7 @@ is. If the evidence is missing, the item is not done.
 | 9 | Done | ✅ | read-back: `Status: Done · issue: OPEN` |
 | 10 | Cleanup | ✅ | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
 | 11 | Knowledge | ✅ | the note's path; `validate_kb` 0 errors; commit SHA after push (or the commit SHA, if the knowledge base has no remote) |
-| 12 | Report | ✅ | link to the report message or comment |
+| 12 | Report | ✅ | link to the report message or comment; the metrics record's path and its commit SHA |
 
 Marks: ✅ done, with evidence · ⏳ in progress · ⬜ not started · ⚠️ skipped (only on explicit exclusion or a
 technical obstacle, with the reason; the live test only if both start paths of 6.1 failed).
@@ -109,7 +109,7 @@ after the review and the merge.
 Helper script (standard library + `gh`):
 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (on Windows `python`) —
 `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`, `tokens --since <iso-start>`,
-`status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
+`metrics-record <owner/repo> <n>`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
 `review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr>`, `deps <owner/repo> <n>`. In the examples
 below `HGA` means this command. Write it out in full in every Bash call, or define a shell function first —
 `hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
@@ -491,7 +491,8 @@ There is no closing label. Do not wait for the merge either: the report goes out
 ## 12. Report — the last step
 
 **Precondition:** the pane shows steps 0–11 (`done` or `skipped`). If not, make up the missing calls first —
-the report does not go out until then. After sending: step 12 `done` with the message's link.
+the report does not go out until then. After sending: step 12 `done` with the message's link, then the metrics
+record (below), then step 12 `done` once more with the record's path added.
 
 **Where:** with Slack, in the claim's **thread** (`thread_ts` = the claim's `message_ts`), without broadcast;
 without Slack, as a comment on the issue. If the PR covers several claimed issues, the full report goes to the
@@ -520,7 +521,35 @@ Write it in the configured language. The content:
   response files' `usage` fields.
 - **Follow-up** — the follow-up issues' links (#n · half a sentence), in one line (7a).
 
-Then show the user the whole checklist with item 12 (the report's link).
+**Metrics record — right after step 12's first `done`.** The durable, machine-readable copy of the numbers
+above, for the team's later aggregation (the knowledge base's `metrics/README.md` has the schema). It reads the
+pane's state file: the start, each step's start and end, and the account's five-hour usage at the start and at
+step 12's `done` — so that call must come first. Pass the difficulty you reported and the review's rounds (the
+bot rounds of step 8, or the local review's rounds without a bot); with several sessions, each with `--session`:
+
+```bash
+HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2
+```
+
+It prints the record's path (`<knowledge_dir>/metrics/<owner>/<repo>/<n>-<start>.json`, one file per run of
+the issue, so parallel sessions never write the same file). Validate, then commit **only that file** and push
+it as in step 11:
+
+```bash
+K="<knowledge_dir>"
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/validate_kb.py" "$K"
+git -C "$K" add <the record's path>   # only this file: other sessions may be writing too
+git -C "$K" commit -m "<repo>: metrics record (#<n>)"
+[ -n "$(git -C "$K" remote)" ] && git -C "$K" pull --rebase --autostash --quiet && git -C "$K" push --quiet
+```
+
+Then step 12 `done` again, with the evidence `<report link> · <the record's path relative to the knowledge
+base> @ <commit SHA>`; the pane keeps the first `done`'s time and five-hour snapshot. If `metrics-record`
+fails (no state file: the pane was not in the session) or the push fails, the report still stands: say so in
+the evidence instead of the path. The five-hour usage in the record is the whole account's, context only —
+it does not go into the report.
+
+Then show the user the whole checklist with item 12 (the report's link and the record's path).
 
 ## After the merge (when the user says so)
 

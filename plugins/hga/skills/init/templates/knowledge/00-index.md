@@ -22,6 +22,7 @@ The rules are in [policies/source-order.md](policies/source-order.md).
 | What do we know about issue #N, or a topic? | [map/](map/README.md), then [notes/](notes/README.md) |
 | How does `/hga:issue` start, test and live-test app X? | [workflow/](workflow/README.md) |
 | Known contradictions between sources and measurements | [quality/](quality/README.md) |
+| How long did an issue take, how many tokens did it use? | [metrics/](metrics/README.md) (JSON, one per run) |
 | Raw input not processed yet | [inbox/](inbox/README.md) |
 
 ## How to answer from here

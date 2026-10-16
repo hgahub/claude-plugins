@@ -8,6 +8,7 @@ number, or else the first word. For every app with notes, map/<app>.md lists eac
 `verified_at`, `status`, issue numbers (from the file name and `#NNN` in the title) and related notes:
 wikilinks in both directions, and `#NNN` mentions of the same app's issues in both directions.
 Map pages carry a marker; ones whose app no longer has notes are removed. Do not edit them by hand.
+Only notes/ is read: the metrics records (metrics/**/*.json) are not notes and are not on the map.
 
 Exit code: 0 done, 2 wrong usage.
 """

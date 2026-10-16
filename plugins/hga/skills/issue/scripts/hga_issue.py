@@ -22,10 +22,20 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       Wall-clock time since the start (or until --until). If the session transcript is available, it also
       breaks it down: active time, review wait (idle while a `review-wait` runs), and pauses (idle gaps of
       at least --pause-min minutes outside review waits, plus waits for an AskUserQuestion answer).
-  tokens [--since <iso>] [--session <id>]...
+  tokens [--since <iso>] [--until <iso>] [--session <id>]...
       The session's real token use from the transcript's `usage` fields, subagents included, de-duplicated
-      by message id: API calls, output, fresh input, cache write, cache read. --since isolates the issue's
-      own part of a longer session.
+      by message id: API calls, output, fresh input, cache write, cache read. --since and --until isolate the
+      issue's own part of a longer session (--until is exclusive).
+  metrics-record <owner/repo> <n> [--difficulty easy|medium|hard] [--review-rounds N] [--until <iso>]
+                 [--session <id>]... [--pause-min 15]
+      Writes the issue's durable metrics record into the knowledge base and prints its path:
+      `<knowledge_dir>/metrics/<owner>/<repo>/<n>-<start, UTC>.json`, one file per run of the issue (a later
+      run starts later), so parallel sessions never touch the same file. It reads the issue pane's state
+      file (`~/.claude/hga/issue/<owner>-<repo>-<n>.json`) for the start, the step times and the five-hour
+      usage snapshots, and the transcripts for the elapsed breakdown, the tokens (in total, per section of
+      the checklist and per model). The end is --until, else step 12's end, else now. The sessions are the
+      --session ones, else this session and the one in the state file. The schema is in the knowledge
+      base's metrics/README.md.
   status <owner/repo> <n>
       The issue's workflow status: on the project board if one is configured, otherwise from labels.
   status-set <owner/repo> <n> {Todo,"In Progress",Done}
@@ -78,7 +88,7 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
 try:
@@ -390,7 +400,8 @@ USAGE_KEYS = (
 )
 
 
-def count_tokens(files: list[Path], since: datetime | None) -> dict[str, Counter]:
+def count_tokens(files: list[Path], since: datetime | None, until: datetime | None = None) -> dict[str, Counter]:
+    """Token use per model in [since, until), each API response once (subagent transcripts repeat ids)."""
     seen: set[str] = set()
     per_model: dict[str, Counter] = defaultdict(Counter)
     for f in files:
@@ -401,8 +412,10 @@ def count_tokens(files: list[Path], since: datetime | None) -> dict[str, Counter
             usage, mid, model = m.get("usage"), m.get("id"), m.get("model") or "?"
             if not usage or not mid or mid in seen or model == "<synthetic>":
                 continue
-            if since and o.get("timestamp") and parse_ts(o["timestamp"]) < since:
-                continue
+            if (since or until) and o.get("timestamp"):
+                t = parse_ts(o["timestamp"])
+                if (since and t < since) or (until and t >= until):
+                    continue
             seen.add(mid)
             per_model[model]["calls"] += 1
             for key, _label in USAGE_KEYS:
@@ -420,9 +433,15 @@ def cmd_tokens(a) -> int:
         print(f"no transcript for this session: {', '.join(ids)}", file=sys.stderr)
         return 4
     since = parse_ts(a.since) if a.since else None
-    per_model = count_tokens(main + subs, since)
+    until = parse_ts(a.until) if a.until else None
+    per_model = count_tokens(main + subs, since, until)
     total = sum(per_model.values(), Counter())
-    scope = f"since {since.astimezone(local_tz()):%m-%d %H:%M}" if since else "the whole session"
+    bounds = []
+    if since:
+        bounds.append(f"since {since.astimezone(local_tz()):%m-%d %H:%M}")
+    if until:
+        bounds.append(f"until {until.astimezone(local_tz()):%m-%d %H:%M}")
+    scope = " ".join(bounds) or "the whole session"
     print(f"Session: {', '.join(ids)} · {len(main)} transcript(s) + {len(subs)} subagent transcript(s) · {scope}")
     if len(per_model) > 1:
         for model, c in sorted(per_model.items(), key=lambda kv: -kv[1]["calls"]):
@@ -524,7 +543,8 @@ def breakdown(entries: list[tuple[datetime, dict]], start: datetime, now: dateti
     review_idle = 0.0
     pause = 0.0
     pauses: list[tuple[datetime, datetime, float, str]] = []
-    timeline = entries + [(now, {})]
+    # The start is on the timeline too: a section's window can open long before its first message.
+    timeline = [(start, {})] + entries + [(now, {})]
     for i in range(len(timeline) - 1):
         t0, t1 = timeline[i][0], timeline[i + 1][0]
         gap = (t1 - t0).total_seconds()
@@ -557,6 +577,20 @@ def breakdown(entries: list[tuple[datetime, dict]], start: datetime, now: dateti
     }
 
 
+def timeline_entries(main: list[Path], start: datetime, end: datetime) -> list[tuple[datetime, dict]]:
+    """The main transcripts' messages between start and end, in time order (the input of breakdown)."""
+    entries: list[tuple[datetime, dict]] = []
+    for f in main:
+        for o in read_jsonl(f):
+            if o.get("type") not in ("user", "assistant", "queue-operation") or not o.get("timestamp"):
+                continue
+            t = parse_ts(o["timestamp"])
+            if start <= t <= end:
+                entries.append((t, o))
+    entries.sort(key=lambda e: e[0])
+    return entries
+
+
 def cmd_elapsed(a) -> int:
     start = parse_ts(a.start)
     now = parse_ts(a.until) if a.until else datetime.now(local_tz())
@@ -570,16 +604,7 @@ def cmd_elapsed(a) -> int:
         print(f"Report line: {head}")
         return 0
 
-    entries: list[tuple[datetime, dict]] = []
-    for f in main:
-        for o in read_jsonl(f):
-            if o.get("type") not in ("user", "assistant", "queue-operation") or not o.get("timestamp"):
-                continue
-            t = parse_ts(o["timestamp"])
-            if start <= t <= now:
-                entries.append((t, o))
-    entries.sort(key=lambda e: e[0])
-    b = breakdown(entries, start, now, a.pause_min)
+    b = breakdown(timeline_entries(main, start, now), start, now, a.pause_min)
 
     print(f"Wall clock: {head}")
     print(f"Active: {round(b['active'] / 60)} min")
@@ -592,6 +617,178 @@ def cmd_elapsed(a) -> int:
         spans = ", ".join(f"{_hm(t0)}–{_hm(t1)}" for t0, t1, _s, _w in b["pauses"])
         tail += f", pauses {round(b['pause'] / 60)} ({spans})"
     print(f"Report line: {head}{tail} min")
+    return 0
+
+
+# --- metrics record ------------------------------------------------------------------------------
+
+ISSUE_DIR = Path.home() / ".claude" / "hga" / "issue"
+METRICS_SCHEMA = 1
+# The issue pane's checklist and sections (hooks/issue-pane.tsx: STEPS, SECTIONS); keep them in step.
+STEP_NAMES = (
+    "Start", "Claim", "In Progress", "Worktree", "Decisions", "Build + tests",
+    "Live test", "PR", "Review", "Done", "Cleanup", "Knowledge", "Report",
+)
+SECTIONS = (("Prepare", 0, 4), ("Build", 5, 6), ("Review", 7, 8), ("Finish", 9, 12))
+DIFFICULTIES = ("easy", "medium", "hard")
+
+
+def state_file(repo: str, num: int) -> Path:
+    """The issue pane's state file; the name is the pane's: owner/repo#n with every other character run as `-`."""
+    return ISSUE_DIR / (re.sub(r"[^A-Za-z0-9_-]+", "-", f"{repo}#{num}") + ".json")
+
+
+def _ms(v: object) -> datetime | None:
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+        return datetime.fromtimestamp(v / 1000, local_tz())
+    return None
+
+
+def _iso(t: datetime | None) -> str | None:
+    return t.astimezone(local_tz()).isoformat(timespec="seconds") if t else None
+
+
+def _token_fields(c: Counter) -> dict[str, int]:
+    return {"calls": c["calls"], **{key: c[key] for key, _label in USAGE_KEYS}}
+
+
+def _tokens(per_model: dict[str, Counter]) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
+    """(total, per model) in the record's shape: the API's own usage field names."""
+    total = sum(per_model.values(), Counter())
+    return _token_fields(total), {m: _token_fields(c) for m, c in sorted(per_model.items())}
+
+
+def section_bounds(steps: list, start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+    """Splits [start, end] into one window per section, without gaps or overlaps, so the sections' tokens add
+    up to the total. A section starts at its earliest step time; a section without times takes no time. Work
+    that goes back to an earlier step (a fix during the review) counts in the section that is running then."""
+    found: list[datetime | None] = []
+    for _title, lo, hi in SECTIONS:
+        times = []
+        for st in steps[lo : hi + 1]:
+            if isinstance(st, dict):
+                t = _ms(st.get("startedAt")) or _ms(st.get("endedAt"))
+                if t:
+                    times.append(t)
+        found.append(min(times) if times else None)
+    # From the back: a section without times starts where the next one does (zero length), and none starts
+    # after a later one (a step reported out of order pulls the boundary back). Within [start, end].
+    begins = [start] * len(SECTIONS)
+    nxt = end
+    for i in range(len(SECTIONS) - 1, 0, -1):
+        if found[i] is not None:
+            nxt = min(nxt, found[i])  # type: ignore[type-var]
+        begins[i] = max(nxt, start)
+    return [(begins[i], begins[i + 1] if i + 1 < len(begins) else end) for i in range(len(begins))]
+
+
+def _elapsed_fields(b: dict) -> dict:
+    return {
+        "wall_s": round(b["wall"]),
+        "active_s": round(b["active"]),
+        "review_wait_s": round(b["review_idle"]),
+        "review_wait_runs": b["review_runs"],
+        "pause_s": round(b["pause"]),
+        "pauses": [{"from": _iso(t0), "to": _iso(t1), "seconds": round(secs), "reason": why}
+                   for t0, t1, secs, why in b["pauses"]],
+    }
+
+
+def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: datetime,
+                   difficulty: str | None, review_rounds: int | None, pause_min: float) -> dict:
+    """The record of one run of the issue (schema 1; see the knowledge base's metrics/README.md)."""
+    start = _ms(state.get("startedAt"))
+    if start is None:
+        raise SystemExit("the state file has no startedAt")
+    steps = list(state.get("steps") or [])
+    steps += [None] * (len(STEP_NAMES) - len(steps))
+    end = max(end, start)
+    main, subs = session_files(sessions)
+    entries = timeline_entries(main, start, end) if main else []
+
+    def elapsed(t0: datetime, t1: datetime) -> dict:
+        if not main:  # no transcript: only the wall clock is known
+            return {"wall_s": round((t1 - t0).total_seconds()), "active_s": None, "review_wait_s": None,
+                    "review_wait_runs": None, "pause_s": None, "pauses": []}
+        return _elapsed_fields(breakdown([e for e in entries if t0 <= e[0] <= t1], t0, t1, pause_min))
+
+    total, models = _tokens(count_tokens(main + subs, start, end)) if main else (None, {})
+    sections = []
+    for (title, lo, hi), (t0, t1) in zip(SECTIONS, section_bounds(steps, start, end)):
+        tok, mod = _tokens(count_tokens(main + subs, t0, t1)) if main else (None, {})
+        sections.append({
+            "title": title, "steps": [lo, hi], "from": _iso(t0), "to": _iso(t1),
+            "elapsed": elapsed(t0, t1), "tokens": tok, "models": mod,
+        })
+    snaps = state.get("fiveHour") or {}
+
+    def snap(k: str) -> dict | None:
+        v = snaps.get(k)
+        if not isinstance(v, dict) or not isinstance(v.get("percentUsed"), (int, float)):
+            return None
+        return {"at": _iso(_ms(v.get("at"))), "percent_used": v["percentUsed"]}
+
+    return {
+        "schema": METRICS_SCHEMA,
+        "repo": repo,
+        "issue": num,
+        "verb": state.get("verb") or None,
+        "started_at": _iso(start),
+        "ended_at": _iso(end),
+        "finished": isinstance(steps[12], dict) and steps[12].get("state") == "done",
+        "recorded_at": _iso(datetime.now(local_tz())),
+        "sessions": sessions,
+        "transcripts": {"main": len(main), "subagents": len(subs)},
+        "difficulty": difficulty,
+        "review_rounds": review_rounds,
+        "elapsed": elapsed(start, end),
+        "tokens": total,
+        "models": models,
+        "sections": sections,
+        "steps": [
+            {"step": i, "name": name, "state": st.get("state") if isinstance(st, dict) else None,
+             "started_at": _iso(_ms(st.get("startedAt"))) if isinstance(st, dict) else None,
+             "ended_at": _iso(_ms(st.get("endedAt"))) if isinstance(st, dict) else None}
+            for i, (name, st) in enumerate(zip(STEP_NAMES, steps))
+        ],
+        # Account-wide: every session of the account moves it, so it is context, never this issue's cost.
+        "five_hour": {"scope": "account", "start": snap("start"), "end": snap("end")},
+    }
+
+
+def cmd_metrics_record(a) -> int:
+    path = state_file(a.repo, a.num)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"no issue pane state file: {path} (the pane's step tool writes it)", file=sys.stderr)
+        return 4
+    except json.JSONDecodeError as e:
+        print(f"invalid JSON in {path}: {e}", file=sys.stderr)
+        return 4
+    kdir = Path(cfg()["knowledge_dir"])
+    if not kdir.is_dir():
+        print(f"no knowledge base at {kdir}: run /hga:init", file=sys.stderr)
+        return 4
+    sessions = list(a.session or [])
+    if not sessions:
+        for sid in (os.environ.get("CLAUDE_CODE_SESSION_ID"), state.get("session")):
+            if sid and sid not in sessions:
+                sessions.append(sid)
+    steps = state.get("steps") or []
+    report = steps[12] if len(steps) > 12 and isinstance(steps[12], dict) else {}
+    end = parse_ts(a.until) if a.until else _ms(report.get("endedAt")) or datetime.now(local_tz())
+    rec = metrics_record(state, a.repo, a.num, sessions, end, a.difficulty, a.review_rounds, a.pause_min)
+    if not rec["transcripts"]["main"]:
+        print(f"warning: no transcript for {', '.join(sessions) or 'this session'}: only wall-clock times",
+              file=sys.stderr)
+    owner, name = split_repo(a.repo)
+    start_utc = _ms(state["startedAt"]).astimezone(timezone.utc)  # type: ignore[union-attr]
+    out = kdir / "metrics" / owner.lower() / name.lower() / f"{a.num}-{start_utc:%Y%m%dT%H%M%SZ}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(rec, ensure_ascii=False, indent=2) + "\n")
+    print(out)
     return 0
 
 
@@ -1287,7 +1484,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pause-min", type=float, default=15)
     p = sub.add_parser("tokens")
     p.add_argument("--since")
+    p.add_argument("--until")
     p.add_argument("--session", action="append")
+    p = sub.add_parser("metrics-record")
+    p.add_argument("repo")
+    p.add_argument("num", type=int)
+    p.add_argument("--difficulty", choices=DIFFICULTIES)
+    p.add_argument("--review-rounds", type=int)
+    p.add_argument("--until")
+    p.add_argument("--session", action="append")
+    p.add_argument("--pause-min", type=float, default=15)
     p = sub.add_parser("status")
     p.add_argument("repo")
     p.add_argument("num", type=int)
@@ -1353,6 +1559,7 @@ def main(argv: list[str] | None = None) -> int:
             "repo-check": cmd_repo_check,
             "elapsed": cmd_elapsed,
             "tokens": cmd_tokens,
+            "metrics-record": cmd_metrics_record,
             "status": cmd_status,
             "status-set": cmd_status_set,
             "track": cmd_track,

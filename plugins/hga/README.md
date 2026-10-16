@@ -105,6 +105,7 @@ to it afterwards.
   quality/           contradictions between sources and measurements
   policies/          source-order.md, the evidence rules
   map/               generated note map per app
+  metrics/           one JSON metrics record per /hga:issue run (step 12 writes it)
   hga.config.json    the team configuration
 ```
 
@@ -115,6 +116,23 @@ to it afterwards.
 - **After writing:** `build_map.py` (the note map), `validate_kb.py` (frontmatter, links, credential-like
   content), then commit and push the own pages (not `git add -A`). The skills do this themselves; both scripts
   are in `skills/knowledge/scripts/`.
+
+### The metrics record
+
+At the end of step 12, `hga_issue.py metrics-record <owner/repo> <n>` writes the run's numbers as JSON to
+`metrics/<owner>/<repo>/<n>-<start>.json` in the knowledge base, and the skill commits that one file. One file
+per run, so parallel sessions never conflict and a re-run of the issue gets a new file. A record holds:
+
+- the start and end, and each of the 13 steps' start and end (the issue pane stamps them);
+- the elapsed breakdown — wall clock, active time, review wait, pauses — for the run and for each section
+  (Prepare, Build, Review, Finish);
+- tokens from the session transcripts (subagents included), in total, per section and per model;
+- the difficulty and the review rounds as reported;
+- the account's five-hour usage at the start and the end. This is account-wide (every session moves it), so it
+  is context, never the issue's cost.
+
+The schema (`"schema": 1`) is in the knowledge base's `metrics/README.md`; `validate_kb.py` checks each
+record. Records are data for aggregation per repository and period; nothing reads them back into a session.
 
 ## Review providers
 
@@ -157,7 +175,8 @@ section's name opens or closes it.
   ![The footer button: the issue and its progress](docs/footer-button.png)
 
 - Every report writes its state to `~/.claude/hga/issue/<owner>-<repo>-<n>.json`: from there the triage panel
-  sees the implementations running in parallel. After a plugin update or restart the pane restores the session's
+  sees the implementations running in parallel. The file also keeps each step's start and end and the
+  five-hour usage at step 0's start and step 12's `done`: the metrics record is made from them. After a plugin update or restart the pane restores the session's
   own issue from that file.
 
 ### Triage panel
