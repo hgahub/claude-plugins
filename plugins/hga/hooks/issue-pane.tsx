@@ -64,7 +64,7 @@ const STEP_SPEC = {
       verb: { type: 'string', description: 'The claim verb: implement, fix, verify, re-verify.' },
       step: { type: 'integer', minimum: 0, maximum: 12, description: 'The checklist number: 0 Start … 12 Report.' },
       state: { type: 'string', enum: STATES },
-      evidence: { type: 'string', description: 'Short evidence or the reason for skipping, in one line (SHA, test count, status, URL).' },
+      evidence: { type: 'string', description: 'Short evidence or the reason for skipping, in one line (SHA, test count, status, URL). Required for done and skipped; a step reported again in the same state keeps its evidence.' },
       started_at: {
         type: 'string',
         description: 'When the work really started, ISO 8601 (the `HGA now` value of step 0, e.g. 2026-10-13T08:53:05+02:00); the clock counts from here.',
@@ -279,7 +279,14 @@ export const register: Register = on => {
     const t = await $.clock.now()
     const prev = await read($, issue)
     const base: Issue = prev !== null && prev.issue === id ? prev : { issue: id, verb: '', startedAt: t, steps: STEPS.map(() => null) }
-    const evidence = typeof e.evidence === 'string' ? e.evidence.replace(/\s+/g, ' ').trim() : ''
+    const reported = typeof e.evidence === 'string' ? e.evidence.replace(/\s+/g, ' ').trim() : ''
+    // A finished step needs its evidence (✅ only with read-back evidence). A finished step reported again without
+    // one (e.g. only its check list changes) keeps the evidence it has.
+    const was = base.steps[step]
+    const evidence = reported === '' && state !== 'in_progress' && was?.state === state ? was.evidence : reported
+    if (state !== 'in_progress' && evidence === '') {
+      return { result: `Invalid input: a ${state} step needs its evidence (${state === 'done' ? 'the read-back result' : 'the reason'}).` }
+    }
     // The model may report steps late: the real start is step 0's timestamp. A future or invalid value does not count.
     const given = typeof e.started_at === 'string' ? Date.parse(e.started_at) : NaN
     const startOk = Number.isFinite(given) && given <= t

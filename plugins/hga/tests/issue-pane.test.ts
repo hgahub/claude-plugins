@@ -87,10 +87,28 @@ test('invalid input gets an error and writes no state', async ($, on) => {
   expect(await pane($)).toMatch(/No issue is running.*\/triage-pane/)
 })
 
+test('a done or skipped step needs evidence; a finished step reported again keeps its own', async ($, on) => {
+  engine(on)
+  await start($)
+  expect((await step($, { issue: ISSUE, step: 0, state: 'done' })).result).toStartWith('Invalid input')
+  expect((await step($, { issue: ISSUE, step: 0, state: 'done', evidence: '   ' })).result).toStartWith('Invalid input')
+  expect((await step($, { issue: ISSUE, step: 6, state: 'skipped' })).result).toContain('the reason')
+  expect(await pane($)).toMatch(/No issue is running/)
+  expect((await step($, { issue: ISSUE, step: 5, state: 'in_progress' })).result).toBe(`${ISSUE}: 0/13 done.`)
+  // in_progress evidence is not a finished step's evidence
+  expect((await step($, { issue: ISSUE, step: 5, state: 'done' })).result).toStartWith('Invalid input')
+  await step($, { issue: ISSUE, step: 5, state: 'done', evidence: '12 passed' })
+  expect((await step($, { issue: ISSUE, step: 5, state: 'done', checks: ['Rollback tested'] })).result).toContain('1/13 done')
+  const ui = await mount($)
+  await ui.press({ key: 'section-Build' })
+  expect(await pane($)).toContain('12 passed')
+  await ui.unmount()
+})
+
 test('a different issue starts a new pane', async ($, on) => {
   const s = engine(on)
   await start($)
-  await step($, { issue: ISSUE, step: 0, state: 'done' })
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
   await step($, { issue: 'acme/api#42', step: 1, state: 'in_progress' })
   const drawn = await pane($)
   expect(drawn).toContain('api#42')
@@ -112,9 +130,9 @@ test('the elapsed time updates every minute', async ($, on) => {
 test("a finished issue's clock stops at the last report", async ($, on) => {
   const s = engine(on)
   await start($)
-  await step($, { issue: ISSUE, step: 0, state: 'done' })
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
   await s.clock.advance(15 * 60_000)
-  await step($, { issue: ISSUE, step: 12, state: 'done' })
+  await step($, { issue: ISSUE, step: 12, state: 'done', evidence: 'ok' })
   await s.clock.advance(30 * 60_000)
   expect(await pane($)).toContain('◷ 0:15')
 })
@@ -139,7 +157,7 @@ test('footer: only the built-in drawing without an issue; with one, a progress b
   expect(await ui.find({ type: 'Button' })).toBeUndefined()
   await ui.unmount()
 
-  await step($, { issue: ISSUE, step: 0, state: 'done' })
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
   expect(s.opened.length).toBe(1)
   ui = await footer($)
   expect(await ui.find({ key: 'engine' })).toBeDefined()
@@ -155,9 +173,9 @@ test('footer: only the built-in drawing without an issue; with one, a progress b
 test('after closing, further reports do not reopen it; a new issue does', async ($, on) => {
   const s = engine(on)
   await start($)
-  await step($, { issue: ISSUE, step: 0, state: 'done' })
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
   await $.command.run({ command: 'issue-pane', args: '' } as never)
-  await step($, { issue: ISSUE, step: 1, state: 'done' })
+  await step($, { issue: ISSUE, step: 1, state: 'done', evidence: 'ok' })
   expect(s.opened.length).toBe(1)
   await step($, { issue: 'acme/api#42', step: 0, state: 'in_progress' })
   expect(s.opened.length).toBe(2)
@@ -167,14 +185,14 @@ test('counts from the given start (late report); ignores a future or invalid sta
   const s = engine(on)
   await s.clock.set(Date.parse('2026-10-13T10:00:00+02:00'))
   await start($)
-  await step($, { issue: ISSUE, step: 0, state: 'done', started_at: '2026-10-13T08:53:00+02:00' })
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok', started_at: '2026-10-13T08:53:00+02:00' })
   expect(await pane($)).toContain('◷ 1:07')
 
-  const future = await step($, { issue: ISSUE, step: 1, state: 'done', started_at: '2026-10-13T11:00:00+02:00' })
+  const future = await step($, { issue: ISSUE, step: 1, state: 'done', evidence: 'ok', started_at: '2026-10-13T11:00:00+02:00' })
   expect(future.result).toContain('ignored')
   expect(await pane($)).toContain('◷ 1:07')
 
-  const invalid = await step($, { issue: ISSUE, step: 2, state: 'done', started_at: 'yesterday morning' })
+  const invalid = await step($, { issue: ISSUE, step: 2, state: 'done', evidence: 'ok', started_at: 'yesterday morning' })
   expect(invalid.result).toContain('ignored')
   expect(await pane($)).toContain('◷ 1:07')
 })
@@ -202,7 +220,7 @@ test('every report writes the shared state file for the triage panel; a write er
 test('without a file system the report works the same', async ($, on) => {
   engine(on)
   await start($)
-  expect((await step($, { issue: ISSUE, step: 0, state: 'done' })).result).toBe(`${ISSUE}: 1/13 done.`)
+  expect((await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })).result).toBe(`${ISSUE}: 1/13 done.`)
 })
 
 // After a plugin update or restart the session's memory is empty, the state file remains.
@@ -273,7 +291,7 @@ test('manual review: the list under Review, tickable, a same-text point keeps it
   on('session.id', () => ({ value: 'sess-1' }) as never)
   on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
   await start($)
-  const r = await step($, { issue: ISSUE, step: 7, state: 'done', checks: ['Migration is backward compatible', '  Permission:   admin only  ', ''] })
+  const r = await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok', checks: ['Migration is backward compatible', '  Permission:   admin only  ', ''] })
   expect(r.result).toBe(`${ISSUE}: 1/13 done. Manual review: 0/2 ticked.`)
   let drawn = await pane($)
   expect(drawn).toContain('Manual review')
@@ -294,7 +312,7 @@ test('manual review: the list under Review, tickable, a same-text point keeps it
 
   // A new list: a point with the same text keeps its tick, the others are new; cut above 13.
   const more = ['Permission: admin only', ...Array.from({ length: 14 }, (_, k) => `point ${k}`)]
-  const r2 = await step($, { issue: ISSUE, step: 8, state: 'done', checks: more })
+  const r2 = await step($, { issue: ISSUE, step: 8, state: 'done', evidence: 'ok', checks: more })
   expect(r2.result).toContain('Manual review: 1/13 ticked.')
   expect(r2.result).toContain('Only the first 13 points')
   expect(await pane($)).not.toContain('Migration')
@@ -305,7 +323,7 @@ test('manual review: the list under Review, tickable, a same-text point keeps it
 test('manual review: an empty list = no highlighted point; without a list there is no section', async ($, on) => {
   engine(on)
   await start($)
-  await step($, { issue: ISSUE, step: 7, state: 'done' })
+  await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok' })
   expect(await pane($)).not.toContain('Manual review')
   await step($, { issue: ISSUE, step: 7, state: 'done', checks: [] })
   const ui = await mount($)
@@ -382,7 +400,7 @@ test("five-hour usage: snapshot at step 0's start and at step 12 done, account-w
   await start($)
   await step($, { issue: ISSUE, step: 0, state: 'in_progress' })
   pct = 30
-  await step($, { issue: ISSUE, step: 0, state: 'done' })
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
   await step($, { issue: ISSUE, step: 12, state: 'in_progress' })
   expect(JSON.parse(writes.at(-1)!.text).fiveHour).toEqual({ start: { at: 1_000_000, percentUsed: 21.5 } })
   await s.clock.advance(60_000)

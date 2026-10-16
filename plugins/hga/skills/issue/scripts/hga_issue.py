@@ -64,6 +64,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       Waits until the review bot has reviewed the given (or the PR's current) head commit, then prints the
       result, the round number, the severity breakdown and the inline findings. From round
       `review.ask_after_rounds` on, it says to ask the maintainer about closing the review.
+      Copilot and Greptile: only the bot's submitted reviews of that exact commit count (a dismissed one does
+      not); requested changes without inline comments are findings too, printed from the review's body.
       Exit codes: 0 no findings, 1 findings, 2 timeout, 3 the review failed.
   deps <owner/repo> <n>
       The issue's native dependencies: what blocks it (prerequisites) and what it blocks. Read-only.
@@ -1330,7 +1332,9 @@ def provider_of(a) -> str:
 
 
 def is_bot(c: dict, provider: str) -> bool:
-    return bool(PROVIDERS[provider]["login"].search((c.get("user") or {}).get("login") or ""))
+    """The provider's bot: a Bot account (not a person whose name happens to contain the provider's)."""
+    user = c.get("user") or {}
+    return user.get("type") == "Bot" and bool(PROVIDERS[provider]["login"].search(user.get("login") or ""))
 
 
 def severity_of(body: str) -> str:
@@ -1400,10 +1404,20 @@ def wait_codex(a, head: str) -> tuple[int | None, str | None]:
     return (None if status == "Completed" else 3), sha
 
 
+# A dismissed review is no result; a pending one is not submitted yet.
+COUNTED_REVIEW_STATES = {"APPROVED", "COMMENTED", "CHANGES_REQUESTED"}
+
+
+def head_reviews(reviews: list[dict], head: str) -> list[dict]:
+    """The submitted reviews of the head commit (`head` is the full SHA, or the prefix --sha gave)."""
+    return [r for r in reviews
+            if r.get("state") in COUNTED_REVIEW_STATES and (r.get("commit_id") or "").startswith(head)]
+
+
 def wait_review(a, provider: str, head: str) -> tuple[int | None, dict | None]:
     deadline = time.monotonic() + a.timeout_min * 60
     while time.monotonic() < deadline:
-        done = [r for r in bot_reviews(a.repo, a.pr, provider) if (r.get("commit_id") or "").startswith(head[:7])]
+        done = head_reviews(bot_reviews(a.repo, a.pr, provider), head)
         if done:
             r = done[-1]
             print(f"Review ({provider}): {r.get('state', '?').title()} · commit {head[:7]}")
@@ -1419,7 +1433,8 @@ def cmd_review_wait(a) -> int:
         print("review provider is local: the review is the code-review skill's rounds, there is nothing to wait for")
         return 4
     head = a.sha or json.loads(gh("pr", "view", str(a.pr), "--repo", a.repo, "--json", "headRefOid"))["headRefOid"]
-    comments = None
+    comments = review = None
+    changes_requested = False
     if provider == "codex":
         code, sha = wait_codex(a, head)
         if code is not None:
@@ -1441,20 +1456,28 @@ def cmd_review_wait(a) -> int:
             c for c in json.loads(gh("api", f"repos/{a.repo}/pulls/{a.pr}/comments", "--paginate"))
             if c.get("pull_request_review_id") == review["id"]
         ]
-        clean_result = not inline
+        # Requested changes without inline comments are findings in the review's body, not a clean result
+        changes_requested = review.get("state") == "CHANGES_REQUESTED"
+        clean_result = not inline and not changes_requested
     if comments is None:
         comments = json.loads(gh("api", f"repos/{a.repo}/issues/{a.pr}/comments", "--paginate"))
     rounds = count_rounds(provider, bot_reviews(a.repo, a.pr, provider), comments)
     if clean_result:
         print(f"Round: {rounds} · Result: no significant findings (👍)")
         return 0
-    sev = Counter(severity_of(c.get("body") or "") for c in inline)
-    sev_txt = ", ".join(f"{p}: {n}" for p, n in sorted(sev.items()))
-    print(f"Round: {rounds} · Result: {len(inline)} inline finding(s) ({sev_txt})")
-    for c in inline:
-        body = c.get("body") or ""
-        print(f"- {severity_of(body)} · {c['path']}:{c.get('line') or c.get('original_line')} · id {c['id']}"
-              f" · {finding_title(body)[:160]}")
+    if changes_requested and not inline:
+        print(f"Round: {rounds} · Result: changes requested in the review's body, no inline findings"
+              f" · {review.get('html_url') or ''}")
+        for ln in (review.get("body") or "").strip().splitlines()[:20]:
+            print(f"  {ln}")
+    else:
+        sev = Counter(severity_of(c.get("body") or "") for c in inline)
+        sev_txt = ", ".join(f"{p}: {n}" for p, n in sorted(sev.items()))
+        print(f"Round: {rounds} · Result: {len(inline)} inline finding(s) ({sev_txt})")
+        for c in inline:
+            body = c.get("body") or ""
+            print(f"- {severity_of(body)} · {c['path']}:{c.get('line') or c.get('original_line')} · id {c['id']}"
+                  f" · {finding_title(body)[:160]}")
     ask_at = int(cfg()["review"].get("ask_after_rounds") or 5)
     if rounds >= ask_at:
         print(

@@ -210,7 +210,8 @@ By the write rules of `hga:knowledge`:
 1. The file goes to `<knowledge_dir>/notes/<intent>.md` (the map takes the app from the `<app>-` prefix).
 2. `build_map.py`, then `validate_kb.py` — `0` is green.
 3. If the knowledge base is a git repository: commit and push your own pages (the note and the changed
-   `map/<app>.md`), not `-A`: `git -C "$K" commit -m "<app>: intent — <topic>"`.
+   `map/<app>.md`), not `-A`: `git -C "$K" add <paths>`, then `git -C "$K" commit -m "<app>: intent — <topic>"
+   -- <paths>` (with the paths, the commit leaves out what other sessions staged).
 
 ### 7. Issue
 
