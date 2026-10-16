@@ -1,17 +1,25 @@
 # hga — from GitHub issue to reviewed pull request
 
-One Claude Code plugin with four skills and two live panes. An issue's path: **`/hga:triage`** prepares it,
-**`/hga:issue`** takes it to a reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, and
-**`/hga:init`** sets everything up.
+One Claude Code plugin with six skills, three live panes and a progress band. An issue's path:
+**`/hga:intent`** turns a few sentences into an intent.md in the knowledge base, by interviewing and research,
+**`/hga:new-issue`** makes an issue from it, **`/hga:triage`** prepares it, **`/hga:issue`** takes it to a
+reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, and **`/hga:init`** sets everything up.
+
+```
+/hga:intent → /hga:new-issue → /hga:triage → /hga:issue
+```
 
 | | What it does |
 |---|---|
 | `/hga:init [new \| join <URL> \| check]` | Checks the prerequisites, creates or joins the knowledge base, writes the team and machine configuration |
+| `/hga:intent [intent]` | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
+| `/hga:new-issue <intent>` | An issue from the intent: readiness gate, duplicate search, the body from the intent's sections, create and read back, board (Todo) and type, the issue number back into the intent |
 | `/hga:triage [issue]` | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
 | `/hga:issue <issue>` | Claim (Slack or GitHub) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → Done → cleanup → knowledge base → report, on a verified checklist |
 | `/hga:knowledge [question]` | Reads and writes the knowledge base, with dates and sources |
 | `/issue-pane` | Toggles the issue pane (the running issue's 13 steps) |
 | `/triage-pane [refresh \| owner/repo]` | Toggles the triage dashboard |
+| `/intent-pane` | Toggles the intent pane (the band above the prompt comes by itself) |
 
 > The panes are built on Claude Code's mod API (early access, it may change from release to release). Written
 > and tested with Claude Code 2.1.289. The skills work without the panes.
@@ -85,7 +93,8 @@ to it afterwards.
   apps/              one page per application
   environments/      hosts, ports, deployments
   architecture/      what calls what
-  notes/             new, dated findings (/hga:issue step 11 writes here): <app>-<issue>-<topic>.md
+  notes/             new, dated findings (/hga:issue step 11 writes here): <app>-<issue>-<topic>.md,
+                     and the intents of /hga:intent: <app>-intent-<topic>.md
   inbox/             raw input waiting to be processed
   workflow/          /hga:issue's app-specific pages (start, gate, live test, pitfalls)
   quality/           contradictions between sources and measurements
@@ -147,6 +156,10 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
 
 ![The triage panel: branch B with the five verdicts, one running implementation, the issue groups](docs/triage-panel.png)
 
+- **Launch:** the implementation starts as a **subtask** of the triage session (`start_session`, with `cwd` =
+  the repository's main checkout): it shows nested under the triage in the sidebar, the triage gets a
+  notification when it ends a turn, and archives it after the merge. Archiving the triage archives its subtasks
+  too. (Before 0.2.0 a manual scheduled task, `hga-issue-<repo>-<n>`, launched it.)
 - **Activation:** loading `/hga:triage` (or the Skill tool), `/triage-pane`, a `next` run, or a `phase` call. The
   repository comes from the session's git remote; `/triage-pane owner/repo` switches.
 - **Running:** from the issue pane's state files, every minute. An unfinished issue silent for 60 minutes is
@@ -159,6 +172,36 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
   `/issue`). If a pane command cannot be registered, the mod says so in a toast; the panes still work from the
   footer button and the skills.
 
+### Intent pane and progress band
+
+Shows `/hga:intent`'s run, in the same color scheme as the other two panes.
+
+- **Pane** (`/intent-pane`): at the top the intent's name and the issue, below it the **full picture** bar — the
+  coverage of the intent.md's eight sections (✓ done = 1, ◐ partial = ½, ○ empty), the number of open questions
+  and the readiness gate's verdict (PASS green, WARN yellow, BLOCK red). Then the nine stations (Intent, Context,
+  Interview, Research, Draft, Approval, Knowledge base, Issue, Handoff) with their evidence, and the sections one
+  by one.
+- **Progress band above the prompt:** the whole path in one row —
+  `◎ web-app-intent-xlsx-source  ◐ Intent 6/8 · 1 question · WARN › ○ Issue › ○ Triage › ○ Build  ✕`.
+  Issue turns green with the issue number, Triage shows its branch if it runs in the same session
+  (`mcp__hga__phase`), and Build shows the counter and the clock from the issue's state file
+  (`~/.claude/hga/issue/`), whichever session it runs in. Clicking the intent's name opens the pane, `✕` hides
+  the band (a new intent shows it again); during a survey the band gives way.
+- The model reports with the `mcp__hga__intent` tool (`intent`, `step` 0–8 + `state`, `evidence`, `sections`,
+  `questions`, `verdict`, `file`, `issue`); only the changed fields are needed.
+- Every report writes the state to `~/.claude/hga/intent/<intent>.json`. After a plugin update or restart, at
+  start and on `/intent-pane`, the intent comes back from there — only the session's own (by the `session`
+  field). If the write fails, the pane works the same.
+
+### The readiness gate
+
+`skills/intent/scripts/intent_check.py <intent.md> [--json]` — without a model: from 100 points, −45 per error
+and −20 per warning; BLOCK if there is an error, PASS from 85. Errors: a missing title; an empty problem, desired
+outcome or affected section; no numbered criterion; no "Given … when … then …" scenario; a `[blocking]` open
+question; a leftover placeholder (`<…>`, TBD, TODO). Warnings: no edge case, fewer scenarios than criteria, a
+current state without a SHA, an empty "Out of scope". The `##` headings and the scenario keywords are fixed
+English markers, whatever the configured language. Self-test: `--self-test`.
+
 ## Development
 
 ```
@@ -168,7 +211,7 @@ claude plugin test plugins/hga
 python3 -m pytest plugins/hga/tests/py
 ```
 
-Only one hooks module can be loaded per plugin, so `hooks/register.tsx` calls both panes' `register`. An event
-without a matcher can be bound only once: both panes' `ui.close` filter on `id`, and the triage panel's
-`session.start` uses a `{ cwd: /(?:)/ }` matcher that matches every session. `isInteractive` is not a usable
+Only one hooks module can be loaded per plugin, so `hooks/register.tsx` calls the three panes' `register`. An
+event without a matcher can be bound only once: the panes' `ui.close` filter on `id`, and the triage panel's
+`session.start` uses a `{ cwd: /(?:)/ }` matcher, the intent pane's `{ cwd: /^/ }`, both matching every session. `isInteractive` is not a usable
 filter: the desktop app runs in SDK mode, where it is false.

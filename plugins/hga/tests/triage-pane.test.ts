@@ -236,7 +236,8 @@ test('if /triage-pane cannot be registered, a toast says so, and the clock and s
   const s = engine(on, { registerFails: true })
   on('skill.prompt', ($, e) => ({ text: e.text }) as never)
   await start($)
-  expect(s.toasts[0]).toContain('/triage-pane could not be registered')
+  // The issue and intent panes toast about their own commands too: the order is not fixed.
+  expect(s.toasts.join(' | ')).toContain('/triage-pane could not be registered')
   await $.skill.prompt({ skill: 'hga:triage', text: 'x' })
   await s.clock.advance(0)
   expect(s.opened).toEqual(['🧭 web-app'])

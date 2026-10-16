@@ -22,12 +22,17 @@ Then run `/hga:init` in Claude Code. Update with `claude plugin update hga@hga-p
 Takes GitHub issues from triage to a reviewed pull request, with a shared, evidence-based knowledge base:
 
 - `/hga:init` — prerequisites, knowledge base (new or the team's), team and machine configuration;
+- `/hga:intent` — turns a few sentences into an intent.md in the knowledge base, by interviewing and research,
+  with a readiness gate;
+- `/hga:new-issue` — makes a GitHub issue from the intent, and puts it on the board;
 - `/hga:triage` — vets an issue, finalizes it into an implementable brief, picks the next one, launches a
-  parallel implementation session;
+  parallel implementation session as its subtask;
 - `/hga:issue` — claim, In Progress, worktree, tests, live browser test, PR, review (local, Codex, Copilot or
   Greptile), Done, cleanup, knowledge base and a measured report, on a verified checklist;
 - `/hga:knowledge` — reads and writes the knowledge base, with dates and sources;
-- two live panes: `/issue-pane` (the running issue's steps) and `/triage-pane` (the repository's dashboard).
+- three live panes: `/intent-pane` (the intent's stations and coverage), `/issue-pane` (the running issue's
+  steps) and `/triage-pane` (the repository's dashboard), and a progress band above the prompt
+  (Intent → Issue → Triage → Build).
 
 GitHub is required; Slack, a GitHub project board and a review bot are optional. Details:
 [plugins/hga/README.md](plugins/hga/README.md).

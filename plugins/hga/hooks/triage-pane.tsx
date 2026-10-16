@@ -326,7 +326,7 @@ export const register: Register = on => {
     return result
   })
 
-  // Our own close does not go through ui.close; this follows the pane's ×. The matcher is needed: both panes of the
+  // Our own close does not go through ui.close; this follows the pane's ×. The matcher is needed: all panes of the
   // plugin register from the same hooks module, and an event without a matcher can be bound only once.
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const result = await next(e)

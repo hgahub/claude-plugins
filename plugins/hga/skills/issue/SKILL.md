@@ -195,9 +195,16 @@ issue is not on the board yet, `HGA track <owner/repo> <n>` first.
 
 ## 3. Worktree — your own work, separate from the shared checkout
 
-Other agents may work in the same checkout. Never switch branches in the main checkout.
+Other agents may work in the same checkout. Never switch branches in the main checkout — nor in the folder
+the session started in, if that is not the main checkout.
+
+`<main-checkout>` is the parent of the `git-common-dir`, **not the session's folder**. If the two differ
+(`--git-dir` ≠ `--git-common-dir`), the session started in someone else's worktree (for example the triage
+session's): no `checkout`, `switch` or commit there — the `worktree add` below still runs from the main
+checkout, and the work happens in `../<repo>-<n>`.
 
 ```bash
+git rev-parse --path-format=absolute --git-dir --git-common-dir   # different → someone else's worktree
 git -C <main-checkout> reflog -6          # has anyone worked here recently?
 git -C <main-checkout> fetch origin
 git -C <main-checkout> worktree add -b fix/<n>-<short-name> ../<repo>-<n> origin/<default-branch>
@@ -267,7 +274,7 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
    so; the browser and the port check in 6.5 use the reported port.
 
    **If `preview_start` comes back declined, do not give up** ("The user declined starting the … server": in an
-   unattended, auto-mode run — a scheduled start — the app declines server starts by itself, no human saw it).
+   unattended, auto-mode run — a scheduled start or a session launched by the triage — the app declines server starts by itself, no human saw it).
    Then start the same command with the **Bash tool, in the background** (`run_in_background: true`), from the
    configuration's `runtimeExecutable` + `runtimeArgs`. Check the start from the background process's output and
    an `until curl -sf -o /dev/null http://localhost:<port>/; do sleep 2; done` loop (with the `Monitor` tool and

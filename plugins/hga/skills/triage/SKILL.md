@@ -31,7 +31,7 @@ or when you stop it.
   base), `github.project` (board or labels), `slack`, `parallel.max_per_repo`, `parallel.usage_ceiling_pct`,
   `labels.closed`, `knowledge_dir`.
 - **One triage session per repository, in that repository's main checkout** (`HGA repo-check`): the launched
-  implementation starts in the triage session's folder.
+  implementation starts in the repository's main checkout, as a subtask of the triage session.
 - **Today's default branch is the measure.** Read the code in a detached scratch worktree
   (`git worktree add --detach <scratchpad>/wt<n> origin/<default-branch>`); do not touch the main checkout's
   branch. Every claim gets the short SHA next to it.
@@ -78,6 +78,10 @@ A prerequisite is a native "blocked by" edge (`HGA block`), not text: branch C a
    - `git fetch origin`; the worktree on the default branch.
    - Knowledge base (`hga:knowledge`): the app's page, its map, and the issue's earlier notes (search `notes/`
      for the issue number), with their dates.
+   - **An issue that came from an intent** (the body's first line is an `**Intent:**` link, written by
+     `/hga:intent` and `/hga:new-issue`): read the `notes/<app>-intent-*.md` page too. Its "Decisions" and
+     "Clarification log" are the author's already answered questions — do not ask them again; question 3 starts
+     from its "Open questions".
 2. **Still current?**
    - **Is it implemented already?** Search for the behavior by its concept (function, data field, rule), and
      say where you searched.
@@ -110,7 +114,7 @@ validated, and the worktree is gone.
 3. **The body** is the implementer's contract (GitHub's edit history keeps the old one). `Write` it to the
    scratchpad, in this structure:
    ```
-   **Ref:** <origin: issue / PR / review round> · related: #… (why)
+   **Ref:** <origin: issue / PR / review round / intent link> · related: #… (why)
    ## Goal                     one or two sentences: what must be true after the issue
    ## Current behavior         the mechanism, with function and type names
    ## What we measured         date, default-branch SHA, environment, steps, result
@@ -140,7 +144,7 @@ mode) the user answered the launch question.
 
 ## C. Next issue
 
-1. **Cleanup:** delete the launchers that are finished (branch D, point 7).
+1. **Cleanup:** archive the implementation sessions that are finished (branch D, point 7).
 2. `HGA next <owner/repo>`: ready, needs a human, blocked (with prerequisites), needs info, untriaged, in
    progress, in review.
 3. Today's claims: with Slack, `HGA midnight` → `slack_read_channel` `oldest` on `slack.channel_id`; without it,
@@ -156,20 +160,23 @@ mode) the user answered the launch question.
 
 ## D. Launch — a parallel implementation session
 
-A `ready-for-agent` issue is taken end to end by a new session, visible in the sidebar, with `hga:issue`. The
-launcher is a manual (unscheduled) scheduled task with the id `hga-issue-<repo>-<n>`; the session starts in the
-triage session's folder, in auto permission mode.
+A `ready-for-agent` issue is taken end to end by a new session with `hga:issue`. The triage starts it as a
+**subtask** (`mcp__ccd_session__start_session`): it shows nested under the triage session in the sidebar, the
+triage can list its family and message it, and it gets a notification when the subtask ends a turn. The
+session starts in the repository's main checkout, with the triage session's permission mode — run the triage
+in auto mode.
 
 1. **Conditions** — all must hold, otherwise the issue waits, and the report says for what:
    - the label is `ready-for-agent`, and `HGA deps` shows no open prerequisite;
-   - **at most `parallel.max_per_repo` running implementations per repository** (default 2): the
-     `list_scheduled_tasks` tasks starting with `hga-issue-<repo>-` that have a `running` run according to
-     `list_task_runs`;
+   - **at most `parallel.max_per_repo` running implementations per repository** (default 2): the rows of
+     `mcp__ccd_session_mgmt__list_sessions` (`linked: true`) titled `hga:issue <repo>#` that are working (not
+     idle, not archived). Implementations launched by an earlier plugin version as scheduled tasks
+     (`hga-issue-<repo>-*`) count too while they have a `running` run according to `list_task_runs`;
    - it does not collide with any running implementation's issue (same function, file, data format — from the
      issues' "Implementation" sections and the open PRs' files). On a collision,
      `HGA block <owner/repo> <n> --by <running issue>`, and the issue starts after it;
    - the 5-hour plan usage is below `parallel.usage_ceiling_pct`.
-2. **Issue metadata — before the launcher, read back:**
+2. **Issue metadata — before the launch, read back:**
    - First read what is already set: `HGA meta <owner/repo> <n>`. Fields shown as `n/a` do not exist for this
      owner or board: skip them.
    - **Type**, from the issue body and branch A: `Bug` (a measured deviation from the expected behavior),
@@ -190,26 +197,44 @@ triage session's folder, in auto permission mode.
    - **Labels:** you do not set them. From the repo's existing labels (`gh label list --repo <owner/repo>`) —
      and a new one if justified — you propose, apart from the state labels (`ready-for-*`, `needs-info`) and the
      closing label. In the report: "Label proposal: `x`, `y` (new: `z`)" — the maintainer adds and sets them.
-3. **Launcher**, if the session has the scheduled-tasks tools (Claude Desktop):
-   `mcp__scheduled-tasks__create_scheduled_task`, without a schedule:
-   - `taskId`: `hga-issue-<repo>-<n>`, `title`: `hga:issue <repo>#<n>`, `notifyOnCompletion`: true;
+3. **Launch**, if the session has the session tools (Claude Desktop): `mcp__ccd_session__start_session`,
+   preceded by a bold title line and one sentence about it:
+   - `initiation`: `user_asked` (continuous mode and branch D are the maintainer's request), `context`: `fresh`,
+     `title`: `hga:issue <repo>#<n>`, `name`: `<repo>-<n>`;
+   - `cwd`: the repository's **main checkout**, as an absolute path — the parent folder of
+     `git rev-parse --path-format=absolute --git-common-dir`, not the triage session's folder;
+   - `use_worktree`: **false** — with `cwd` set, this means "the main checkout as it is"; `hga:issue` opens its
+     own worktree in step 3. In a session worktree, the repository's install step and `launch.json` would not be
+     where they usually are. Without `cwd`, `false` means the triage session's folder: a triage running in a
+     worktree would have the implementation switch branches inside the triage's worktree;
    - `prompt` (self-contained, because the session does not see this conversation): "Load the `hga:issue` skill
      with the Skill tool, and take this issue end to end: <issue URL>. The issue is finalized with `hga:triage`
      (`ready-for-agent`); the body's "Implementation" and "Acceptance criteria" sections are the contract. The
      merge is the maintainer's: stop after the report, and wait for their message."
+   - `background` (at least 80 characters): the repository, that the triage launches it as a parallel
+     implementation, that at most `parallel.max_per_repo` run per repository, and the issue's `HGA meta` line.
+   - If the app refuses the start because the turn was started by an event (a subtask's notification, in
+     continuous mode) rather than by the maintainer, send the same brief with `initiation`: `own_initiative` —
+     it becomes a card the maintainer starts with one click. The report says that the issue waits on the card.
 
    **Without those tools** (CLI, web), launch nothing: give the user the same prompt in a code block, and the
    command to start it in the repository's main checkout (`claude "<prompt>"`), then continue with branch C.
-4. **Start:** `mcp__scheduled-tasks__run_scheduled_task`, then `mcp__ccd_session_mgmt__get_session` on the
-   returned id, where available: it runs, and its `cwd` is the repository's checkout.
+4. **Check:** `mcp__ccd_session_mgmt__get_session` on the returned id: it runs, its `cwd` is the repository's
+   main checkout, and its `parentSessionId` is this session. **If the `cwd` is anything else** (for example the
+   triage's worktree): stop it at once with `mcp__ccd_session_mgmt__stop_session`, before the claim and the
+   branch, and the report tells the maintainer where it started — the issue does not start again until then.
 5. **Report:** the issue and the session's link (`[hga:issue <repo>#<n>](#<session_id>)`), the `HGA meta` line,
    and if any, the label proposal and the differing field proposals. Then back to branch C.
-6. **Feedback:** at the end of the run (after `hga:issue`'s report) the triage session gets a notification; the
-   slot is free, the next ready issue can go. The maintainer writes about the merge directly to the
-   implementation session.
-7. **Cleanup (branch C, point 1):** deleting a launcher also archives its session, so delete it
-   (`delete_scheduled_task`) only when the issue is Done, the PR is `MERGED`, and the session has finished the
-   post-merge steps too (according to `list_events`).
+6. **Feedback:** when the subtask ends a turn, the triage gets a notification with the start of its report.
+   After `hga:issue`'s report the slot is free, and the next ready issue can go; if it stopped with a question
+   or an error, tell the maintainer. The maintainer writes about the merge directly to the implementation
+   session (or the triage forwards it: `mcp__ccd_session_mgmt__send_message`).
+7. **Cleanup (branch C, point 1):** archive the subtask (`mcp__ccd_session_mgmt__archive_session`) when the
+   issue is Done, the PR is `MERGED`, and the session has finished the post-merge steps too (according to
+   `list_events`). **Archiving the triage archives its subtasks too**: if the triage has to be closed while an
+   implementation is not merged yet, detach it first (`mcp__ccd_session_mgmt__detach_session`). A scheduled task
+   from an earlier plugin version (`hga-issue-*`) is deleted under the same conditions with
+   `delete_scheduled_task` (deleting it archives its session).
 
-**Done** when the session runs in the repository's checkout and the report gave its link — or the report named
-the condition the issue is waiting for, or (without the tools) the user has the prompt.
+**Done** when the subtask runs in the repository's main checkout and the report gave its link — or the report
+named the condition (or the card) the issue is waiting for, or (without the tools) the user has the prompt.

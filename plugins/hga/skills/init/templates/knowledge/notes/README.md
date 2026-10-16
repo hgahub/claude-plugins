@@ -1,10 +1,11 @@
 # notes/
 
-New, dated findings: one note per finding or per issue. This is where `/hga:issue` (step 11) and
-`/hga:triage` write. Canonical pages elsewhere change only with evidence; a note can be written any time.
+New, dated findings: one note per finding or per issue. This is where `/hga:issue` (step 11), `/hga:triage`
+and `/hga:intent` write. Canonical pages elsewhere change only with evidence; a note can be written any time.
 
 File name: `<app>-<issue>-<topic>.md` (e.g. `web-app-142-csv-export.md`), or `<app>-<topic>.md` without an
-issue. The map (`map/<app>.md`) takes the app from the prefix and the issue from the number. Link related
+issue. An intent of `/hga:intent` is `<app>-intent-<topic>.md`; `/hga:new-issue` adds the issue number to its
+title. The map (`map/<app>.md`) takes the app from the prefix and the issue from the number. Link related
 notes with `[[file-name-without-extension]]`.
 
 Template:

@@ -29,11 +29,27 @@ export type Phase = {
   decisions: number | null
 }
 
+// The hga:intent's position (from the intent tool). The sections are the intent.md's: how complete the picture is.
+export type Coverage = 'empty' | 'partial' | 'done'
+export type Intent = {
+  intent: string
+  steps: (Step | null)[]
+  sections: Record<string, Coverage>
+  questions: number | null
+  // the readiness gate of intent_check.py: PASS | WARN | BLOCK
+  verdict: string | null
+  issue: string | null
+  file: string | null
+}
+// The intent's state file (~/.claude/hga/intent/<intent>.json): after a restart the pane comes back from it.
+export type IntentFile = Intent & { updatedAt: number; session: string }
+
 declare module 'claude-code' {
   // The mod's own tools: the generated MCP list only contains servers connected at load time.
   interface McpToolInputs {
     'mcp__hga__step': { issue: string; step: number; state: string; evidence?: string; verb?: string; started_at?: string }
     'mcp__hga__phase': { branch: string; issue?: string; step?: string; verdicts?: Record<string, string>; proposed?: string; decisions?: number }
+    'mcp__hga__intent': { intent: string; step?: number; state?: string; evidence?: string; sections?: Record<string, string>; questions?: number; verdict?: string; issue?: string; file?: string }
   }
   interface PluginState {
     hga: {
@@ -58,6 +74,12 @@ declare module 'claude-code' {
       // groups opened/closed by hand (finished, issue groups); null = default
       triageOpen: string[] | null
       limits: Limits
+      // intent pane and the band above the prompt
+      intent: Intent | null
+      intentOpen: boolean
+      intentHidden: boolean
+      // the issue's state file (~/.claude/hga/issue/), once the implementation runs
+      intentRunning: IssueFile | null
     }
   }
 }
