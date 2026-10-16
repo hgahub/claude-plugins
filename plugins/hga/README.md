@@ -16,7 +16,7 @@ went, and **`/hga:init`** sets everything up.
 | `/hga:intent [intent]` | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
 | `/hga:new-issue <intent>` | An issue from the intent: readiness gate, duplicate search, the body from the intent's sections, create and read back, board (Todo) and type, the issue number back into the intent |
 | `/hga:triage [issue]` | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
-| `/hga:issue <issue>` | Claim (Slack or GitHub) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → Done → cleanup → knowledge base → report, on a verified checklist |
+| `/hga:issue <issue>` | Claim (Slack or GitHub, read back: the earliest claim wins) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → Done → cleanup → knowledge base → report, on a verified checklist |
 | `/hga:knowledge [question]` | Reads and writes the knowledge base, with dates and sources |
 | `/hga:dashboard [refresh]` | A claude.ai Dashboard over the metrics records: lead time, elapsed per section, tokens and an API-price cost estimate per section and model, review rounds, the account's five-hour usage — filterable by repository and period; creates it on first use, refreshes it afterwards |
 | `/issue-pane` | Toggles the issue pane (the running issue's 13 steps) |
@@ -133,6 +133,11 @@ per run, so parallel sessions never conflict and a re-run of the issue gets a ne
 - the difficulty and the review rounds as reported;
 - the account's five-hour usage at the start and the end. This is account-wide (every session moves it), so it
   is context, never the issue's cost.
+
+Once the claim holds (step 1), `hga_issue.py metrics-start <owner/repo> <n>` writes a **run marker** to the same
+path (`"stage": "started"`), which the record overwrites at step 12. A marker that is still there a day after
+its start is a run that never reached the report: the aggregate reports it as `aborted`, and the dashboard shows
+the abort rate.
 
 The schema (`"schema": 1`) is in the knowledge base's `metrics/README.md`; `validate_kb.py` checks each
 record. Records are data for aggregation per repository and period; nothing reads them back into a session.

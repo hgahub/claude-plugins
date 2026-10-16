@@ -1,6 +1,6 @@
 ---
 name: dashboard
-description: Use when someone wants to see how the hga issue runs went — lead times, elapsed time per section, tokens, an API-price cost estimate, review rounds, plan usage — across repositories and over a period. Aggregates the knowledge base's metrics records (written by /hga:issue step 12) with `hga_issue.py metrics`, then creates a claude.ai Dashboard artifact on first use or refreshes the existing one with the new rows. Triggers include "hga dashboard", "metrics dashboard", "how fast do we solve issues", "how many tokens did the issues take", "refresh the dashboard", "show the issue metrics".
+description: Use when someone wants to see how the hga issue runs went — lead times, elapsed time per section, tokens, an API-price cost estimate, review rounds, aborted runs, plan usage — across repositories and over a period. Aggregates the knowledge base's metrics records (written by /hga:issue step 12) with `hga_issue.py metrics`, then creates a claude.ai Dashboard artifact on first use or refreshes the existing one with the new rows. Triggers include "hga dashboard", "metrics dashboard", "how fast do we solve issues", "how many tokens did the issues take", "refresh the dashboard", "show the issue metrics".
 user-invocable: true
 argument-hint: "[refresh]"
 ---
@@ -40,8 +40,9 @@ HGA metrics --cost --format csv > "$F"
 ```
 
 All repositories and all dates: the dashboard filters them itself. Show the stderr lines to the user (skipped
-records, models without a price, the cost note). Count the `kind=run` rows: with none, there is nothing to
-show yet — say that `/hga:issue` writes a record at the end of step 12, and stop. The file is a few hundred
+records, models without a price, the cost note, the outcome counts with the abort rate). Count the `kind=run`
+rows: with none, there is nothing to show yet — say that `/hga:issue` writes a run marker once its claim holds
+and the record at the end of step 12, and stop. The file is a few hundred
 bytes per run; above 8 MB (the type's limit) say so and narrow it with `--since`.
 
 The rows (one table, the `kind` column tells them apart; the schema of the records behind them is in
@@ -49,7 +50,7 @@ The rows (one table, the `kind` column tells them apart; the schema of the recor
 
 | `kind` | One row per | Filled columns |
 |---|---|---|
-| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `difficulty`, `review_rounds`; `wall_s`, `active_s`, `review_wait_s`, `pause_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
+| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `outcome`, `difficulty`, `review_rounds`; `wall_s`, `active_s`, `review_wait_s`, `pause_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
 | `section` | run and section (`section`: Prepare, Build, Review, Finish; `section_index` 0–3) | the run's identity columns, elapsed, tokens, `api_cost_usd_est` |
 | `model` | run, section and model (`model`: the model id) | the run's identity columns, `section`, tokens, `api_cost_usd_est` |
 
@@ -63,6 +64,13 @@ The rows (one table, the `kind` column tells them apart; the schema of the recor
   an issue.
 - A run without a transcript has empty token and cost cells, and only `wall_s`; a run without step times has
   all its time in Prepare. Empty cells are gaps, not zeros.
+- `outcome` (on every row of the run): `finished` / `unfinished` — the run wrote its record (step 12 `done` or
+  not); `aborted` — only its start marker exists, 24 hours after the start (`--stale-hours`): the run never
+  reached the report; `open` — only the marker, younger than that: it may still be going on; **empty** — a
+  record from before the markers existed, which never had one. An `aborted` or `open` run has a run row only:
+  no times, tokens or sections.
+- **Abort rate** = `aborted` / (`finished` + `unfinished` + `aborted`). `open` runs and runs with an empty
+  `outcome` are left out of both sides: an older run could not have been counted as aborted.
 
 ## 3. Say who can read it
 
@@ -121,14 +129,17 @@ range. A calc or chart that reads the rows filters them by both.
 
 From top to bottom:
 
-1. **Tiles** (each a `dash.calc` over the filtered `kind=run` rows): runs, finished runs, median lead time
-   (`wall_s`), median active time, total tokens, `api_cost_usd_est` total — labeled "API-price estimate (not
-   the subscription cost)" — and median review rounds.
+1. **Tiles** (each a `dash.calc` over the filtered `kind=run` rows): runs, finished runs, **abort rate** (as
+   defined in section 2, with "n of m runs" under it, and "no runs with a marker" instead of 0 % when m is 0),
+   median lead time (`wall_s`), median active time, total tokens, `api_cost_usd_est` total — labeled
+   "API-price estimate (not the subscription cost)" — and median review rounds. The lead-time, time and token
+   figures come from runs with a record (`outcome` not `aborted` / `open`).
 2. **Lead time per issue** — one bar per run (`repo#issue`, by start), length `wall_s`, colored by
    `difficulty` (easy / medium / hard / not reported), with `active_s` as a thinner bar inside it; the tooltip
    adds review wait, pauses, verb and review rounds.
-3. **Solving speed** — per week of `date`: finished runs (bars) and the median lead time (line), so the trend
-   shows whether issues get done faster.
+3. **Solving speed** — per week of `date`: finished runs (bars), aborted runs (a second, muted bar beside
+   them), and the median lead time (line), so the trend shows whether issues get done faster and fewer runs
+   die on the way.
 4. **Elapsed by section** — one stacked bar per run from the `kind=section` rows, Prepare → Build → Review →
    Finish, in `wall_s`; a toggle to show the shares (100 %) instead.
 5. **Tokens and estimated cost by section and model** — from the `kind=model` rows over the filtered period:
@@ -141,14 +152,15 @@ From top to bottom:
    `five_hour_start_at`/`_pct` to `five_hour_end_at`/`_pct`, colored by repository; the subtitle says it is the
    whole account's usage (all sessions, parallel ones included), context for the period, not the issue's cost.
    Runs without both snapshots are left out, and the chart says how many.
-8. **Runs** — a table of the filtered `kind=run` rows (run, repo, issue, start, lead time, active, difficulty,
-   rounds, tokens, cost estimate), newest first, keyed on `run`.
+8. **Runs** — a table of the filtered `kind=run` rows (run, repo, issue, start, outcome, lead time, active,
+   difficulty, rounds, tokens, cost estimate), newest first, keyed on `run`; aborted runs stand out.
 
 A filter that leaves no rows shows "No runs in this period" in each chart, not an empty axis.
 
 ## 7. Hand over
 
-In the configured language, briefly: the link; what it shows (how many runs, repositories, period); that the
+In the configured language, briefly: the link; what it shows (how many runs, repositories, period, the abort
+rate and since when markers exist); that the
 cost is an estimate at API list prices, not the subscription's cost, and the five-hour usage is account-wide
 context; that it is a snapshot as of now, refreshed by `/hga:dashboard refresh` (after new `/hga:issue` runs);
 and that it is private until shared, and whoever can open it can read the attached rows. On a refresh: the

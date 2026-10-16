@@ -26,6 +26,10 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       The session's real token use from the transcript's `usage` fields, subagents included, de-duplicated
       by message id: API calls, output, fresh input, cache write, cache read. --since and --until isolate the
       issue's own part of a longer session (--until is exclusive).
+  metrics-start <owner/repo> <n> [--session <id>]...
+      Writes the run's start marker (`"stage": "started"`, schema 1) once the claim holds, at the path the
+      run's record will have (below), and prints it. The record replaces it at step 12; a marker never
+      replaced is an aborted run. An existing record of the run is left alone.
   metrics-record <owner/repo> <n> [--difficulty easy|medium|hard] [--review-rounds N] [--until <iso>]
                  [--session <id>]... [--pause-min 15]
       Writes the issue's durable metrics record into the knowledge base and prints its path:
@@ -37,11 +41,14 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       --session ones, else this session and the one in the state file. The schema is in the knowledge
       base's metrics/README.md.
   metrics [--repo <owner/repo>] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--format json|csv] [--cost]
+          [--stale-hours 24]
       Every schema-1 metrics record of the knowledge base as flat rows for charts (records with another
       schema are skipped with a warning): `kind` = `run` (one per run: elapsed, tokens, the account's
       five-hour usage at start and end), `section` (one per run and section: Prepare, Build, Review,
       Finish) and `model` (one per run, section and model: tokens). --since/--until filter on the run's
-      start date (both inclusive). --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
+      start date (both inclusive). `outcome` on every row: `finished` / `unfinished` (a record), `aborted`
+      (only the start marker, older than --stale-hours), `open` (a younger marker), empty for records from
+      before the markers; stderr gets the counts and the abort rate. --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
       list prices (a table in this script), an estimate, not what a Claude subscription costs.
   status <owner/repo> <n>
       The issue's workflow status: on the project board if one is configured, otherwise from labels.
@@ -67,6 +74,14 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       Copilot and Greptile: only the bot's submitted reviews of that exact commit count (a dismissed one does
       not); requested changes without inline comments are findings too, printed from the review's body.
       Exit codes: 0 no findings, 1 findings, 2 timeout, 3 the review failed.
+  claim-check <owner/repo> <n> [--verb V] [--since <unix|iso>]
+      Before the claim: whether the issue is free — taken (exit 5) if its workflow status is In Progress
+      (Done too, unless --verb is verify / re-verify), it is assigned to another GitHub account, or another
+      session posted a `Claimed · …` comment in the last 24 hours. These GitHub signals do not depend on
+      the Slack read's window. It prints this session's tag (the claim line carries it) and `Read back
+      from`: the start of the read-back window. After the claim, with --since = that value: the read-back
+      — it waits a few seconds, then the earliest `Claimed · …` comment since then wins (exit 0); if
+      another session's came first, this one withdraws (exit 5). Exit 4 if this session's claim is missing.
   deps <owner/repo> <n>
       The issue's native dependencies: what blocks it (prerequisites) and what it blocks. Read-only.
       Exit code 3 if a prerequisite is still open.
@@ -76,7 +91,7 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       The triage state label: sets it, removes the other two, creates the label in the repo if missing.
   next <owner/repo> [--json]
       The open issues grouped: ready, needs a human, blocked (with prerequisites), needs info, untriaged,
-      in progress, in review. Read-only.
+      in progress, in review, each with its assignees. Read-only.
 
 The session (`--session`) defaults to the CLAUDE_CODE_SESSION_ID environment variable; transcripts live
 in `~/.claude/projects/*/<id>.jsonl` (subagents in `<id>/subagents/*.jsonl`).
@@ -740,6 +755,7 @@ def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: d
 
     return {
         "schema": METRICS_SCHEMA,
+        "stage": "recorded",
         "repo": repo,
         "issue": num,
         "verb": state.get("verb") or None,
@@ -766,25 +782,79 @@ def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: d
     }
 
 
-def cmd_metrics_record(a) -> int:
+def run_marker(state: dict, repo: str, num: int, sessions: list[str]) -> dict:
+    """The run's start marker (schema 1, `stage: "started"`): written once the claim holds, at the path the
+    run's record will have, so the record replaces it. A marker that is never replaced is an aborted run."""
+    start = _ms(state.get("startedAt"))
+    if start is None:
+        raise SystemExit("the state file has no startedAt")
+    return {
+        "schema": METRICS_SCHEMA, "stage": "started", "repo": repo, "issue": num,
+        "verb": state.get("verb") or None, "started_at": _iso(start), "ended_at": None, "finished": False,
+        "recorded_at": _iso(datetime.now(local_tz())), "sessions": sessions,
+    }
+
+
+def _load_run(a) -> tuple[dict, Path, list[str]] | None:
+    """The pane's state file, the knowledge base and the sessions — shared by metrics-start and -record."""
     path = state_file(a.repo, a.num)
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         print(f"no issue pane state file: {path} (the pane's step tool writes it)", file=sys.stderr)
-        return 4
+        return None
     except json.JSONDecodeError as e:
         print(f"invalid JSON in {path}: {e}", file=sys.stderr)
-        return 4
+        return None
     kdir = Path(cfg()["knowledge_dir"])
     if not kdir.is_dir():
         print(f"no knowledge base at {kdir}: run /hga:init", file=sys.stderr)
-        return 4
-    sessions = list(a.session or [])
+        return None
+    sessions = list(getattr(a, "session", None) or [])
     if not sessions:
         for sid in (os.environ.get("CLAUDE_CODE_SESSION_ID"), state.get("session")):
             if sid and sid not in sessions:
                 sessions.append(sid)
+    return state, kdir, sessions
+
+
+def record_path(kdir: Path, repo: str, num: int, state: dict) -> Path:
+    owner, name = split_repo(repo)
+    start_utc = _ms(state.get("startedAt"))
+    if start_utc is None:
+        raise SystemExit("the state file has no startedAt")
+    return kdir / "metrics" / owner.lower() / name.lower() / f"{num}-{start_utc.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}.json"
+
+
+def _write_json(out: Path, data: dict) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def cmd_metrics_start(a) -> int:
+    loaded = _load_run(a)
+    if loaded is None:
+        return 4
+    state, kdir, sessions = loaded
+    out = record_path(kdir, a.repo, a.num, state)
+    try:
+        existing = json.loads(out.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        existing = None
+    if isinstance(existing, dict) and existing.get("stage") != "started":
+        print("note: the run's record already exists; the marker does not replace it", file=sys.stderr)
+    else:
+        _write_json(out, run_marker(state, a.repo, a.num, sessions))
+    print(out)
+    return 0
+
+
+def cmd_metrics_record(a) -> int:
+    loaded = _load_run(a)
+    if loaded is None:
+        return 4
+    state, kdir, sessions = loaded
     steps = state.get("steps") or []
     report = steps[12] if len(steps) > 12 and isinstance(steps[12], dict) else {}
     end = parse_ts(a.until) if a.until else _ms(report.get("endedAt")) or datetime.now(local_tz())
@@ -792,12 +862,8 @@ def cmd_metrics_record(a) -> int:
     if not rec["transcripts"]["main"]:
         print(f"warning: no transcript for {', '.join(sessions) or 'this session'}: only wall-clock times",
               file=sys.stderr)
-    owner, name = split_repo(a.repo)
-    start_utc = _ms(state["startedAt"]).astimezone(timezone.utc)  # type: ignore[union-attr]
-    out = kdir / "metrics" / owner.lower() / name.lower() / f"{a.num}-{start_utc:%Y%m%dT%H%M%SZ}.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps(rec, ensure_ascii=False, indent=2) + "\n")
+    out = record_path(kdir, a.repo, a.num, state)
+    _write_json(out, rec)
     print(out)
     return 0
 
@@ -830,7 +896,7 @@ COST_COLUMN = "api_cost_usd_est"
 COST_NOTE = (f"{COST_COLUMN}: an estimate at Anthropic API list prices ({API_PRICES_AS_OF}), "
              "not what a Claude subscription costs")
 METRICS_COLUMNS = (
-    "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "difficulty",
+    "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "outcome", "difficulty",
     "review_rounds", "section", "section_index", "model",
     "wall_s", "active_s", "review_wait_s", "pause_s",
     "calls", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
@@ -880,14 +946,15 @@ def _models_cost(models: dict, unpriced: set[str]) -> float | None:
     return round(total, 6)
 
 
-def metrics_rows(rec: dict, run: str, cost: bool, unpriced: set[str]) -> list[dict]:
+def metrics_rows(rec: dict, run: str, cost: bool, unpriced: set[str], outcome: str | None = None) -> list[dict]:
     """A schema-1 record as flat rows: one for the run, one per section, one per section and model."""
     five = rec.get("five_hour") or {}
     start5, end5 = five.get("start") or {}, five.get("end") or {}
     base = {
         "run": run, "repo": rec.get("repo"), "issue": rec.get("issue"), "verb": rec.get("verb"),
         "date": (rec.get("started_at") or "")[:10] or None, "started_at": rec.get("started_at"),
-        "ended_at": rec.get("ended_at"), "finished": rec.get("finished"), "difficulty": rec.get("difficulty"),
+        "ended_at": rec.get("ended_at"), "finished": rec.get("finished"), "outcome": outcome,
+        "difficulty": rec.get("difficulty"),
         "review_rounds": rec.get("review_rounds"),
     }
     empty = {k: None for k in METRICS_COLUMNS}
@@ -921,14 +988,51 @@ def _day(s: str) -> str:
         raise SystemExit(f"not a date (YYYY-MM-DD): {s}")
 
 
+OUTCOMES = ("finished", "unfinished", "aborted", "open")
+STALE_HOURS = 24
+
+
+def run_outcome(rec: dict, now: datetime, stale_hours: float) -> str | None:
+    """`finished` / `unfinished` (a record, step 12 done or not), `aborted` (only the start marker, older than
+    stale_hours), `open` (only the marker, still young: the run may be going on). None for a record from before
+    the markers (no `stage`): it never had a marker, so it does not count in the abort rate."""
+    stage = rec.get("stage")
+    if stage == "started":
+        try:
+            start = parse_ts(rec.get("started_at") or "")
+        except ValueError:
+            return "aborted"
+        return "aborted" if now - start >= timedelta(hours=stale_hours) else "open"
+    if stage is None:
+        return None
+    return "finished" if rec.get("finished") is True else "unfinished"
+
+
+def outcome_summary(rows: list[dict], stale_hours: float) -> str | None:
+    """One line over the run rows' outcomes, with the abort rate: aborted / (finished + unfinished + aborted)."""
+    n = Counter(r["outcome"] for r in rows if r["kind"] == "run" and r["outcome"])
+    if not n:
+        return None
+    closed = n["finished"] + n["unfinished"] + n["aborted"]
+    rate = f"abort rate {100 * n['aborted'] / closed:.0f}% of {closed}" if closed else "abort rate n/a"
+    parts = [f"{n[k]} {k}" for k in OUTCOMES if n[k]]
+    return (f"runs with a start marker: {', '.join(parts)} · {rate} (aborted = no record {stale_hours:g} h after "
+            "the start; open = younger, not counted)")
+
+
 def collect_metrics(kdir: Path, repo: str | None, since: str | None, until: str | None,
-                    cost: bool) -> tuple[list[dict], list[str]]:
-    """The rows of every schema-1 record under <kdir>/metrics/ that matches the filters, and the warnings."""
+                    cost: bool, now: datetime | None = None,
+                    stale_hours: float = STALE_HOURS) -> tuple[list[dict], list[str]]:
+    """The rows of every schema-1 record under <kdir>/metrics/ that matches the filters, and the warnings.
+    A start marker replaced by its run's record is gone; one whose run wrote its record under another start
+    (same issue, a shared session) is dropped too, so a run counts once."""
+    now = now or datetime.now(timezone.utc)
     rows: list[dict] = []
     warnings: list[str] = []
     unknown: Counter = Counter()
     unpriced: set[str] = set()
     root = kdir / "metrics"
+    found: list[tuple[Path, dict]] = []
     for path in sorted(root.rglob("*.json")) if root.is_dir() else []:
         try:
             rec = json.loads(path.read_text(encoding="utf-8"))
@@ -944,7 +1048,20 @@ def collect_metrics(kdir: Path, repo: str | None, since: str | None, until: str 
         day = (rec.get("started_at") or "")[:10]
         if (since and day < since) or (until and day > until):
             continue
-        rows += metrics_rows(rec, path.relative_to(root).with_suffix("").as_posix(), cost, unpriced)
+        found.append((path, rec))
+
+    def ident(r: dict) -> tuple[str, object]:
+        return str(r.get("repo") or "").lower(), r.get("issue")
+
+    recorded: dict[tuple[str, object], set[str]] = defaultdict(set)
+    for _path, rec in found:
+        if rec.get("stage") != "started":
+            recorded[ident(rec)].update(x for x in rec.get("sessions") or [] if isinstance(x, str))
+    for path, rec in found:
+        if rec.get("stage") == "started" and recorded[ident(rec)] & set(rec.get("sessions") or []):
+            continue
+        rows += metrics_rows(rec, path.relative_to(root).with_suffix("").as_posix(), cost, unpriced,
+                             run_outcome(rec, now, stale_hours))
     for schema, n in sorted(unknown.items()):
         warnings.append(f"skipped {n} record(s) with an unknown schema ({schema})")
     if unpriced:
@@ -962,9 +1079,12 @@ def cmd_metrics(a) -> int:
         return 4
     since = _day(a.since) if a.since else None
     until = _day(a.until) if a.until else None
-    rows, warnings = collect_metrics(kdir, a.repo, since, until, a.cost)
+    rows, warnings = collect_metrics(kdir, a.repo, since, until, a.cost, stale_hours=a.stale_hours)
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
+    summary = outcome_summary(rows, a.stale_hours)
+    if summary:
+        print(f"note: {summary}", file=sys.stderr)
     if a.cost:
         print(f"note: {COST_NOTE}", file=sys.stderr)
     columns = list(METRICS_COLUMNS) + ([COST_COLUMN] if a.cost else [])
@@ -1147,6 +1267,120 @@ def cmd_track(a) -> int:
                 "--url", f"https://github.com/{a.repo}/issues/{a.num}",
             )
     return cmd_status_set(a)
+
+
+# --- claim check: before the claim, and the read-back after it -----------------------------------
+
+# The claim comment's machine-read first words (whatever the configured language), and its session tag.
+CLAIM_RE = re.compile(r"^\s*Claimed\s*·", re.I)
+SESSION_TAG_RE = re.compile(r"·\s*session\s+([0-9A-Za-z_-]{4,})", re.I)
+CLAIM_RECENT_H = 24  # a claim comment this recent counts as taken in the check before the claim
+CLAIM_MARGIN_S = 60  # the read-back window starts this much before the check (clock skew)
+CLAIM_SETTLE_S = 3  # the read-back waits this long, so a parallel claim posted just now is listed
+VERIFY_VERBS = ("verify", "re-verify")
+EXIT_TAKEN = 5
+
+
+def session_tag(sid: str | None = None) -> str | None:
+    """This session's tag in the claim line: the session id's first 8 characters."""
+    sid = sid if sid is not None else os.environ.get("CLAUDE_CODE_SESSION_ID")
+    return sid[:8] if sid else None
+
+
+def parse_claims(comments: list[dict]) -> list[dict]:
+    """The issue's claim comments, oldest first (GitHub's time, then its comment id for the same second).
+    A withdrawn claim is edited to start with "Withdrawn", so it is no longer listed."""
+    out = []
+    for c in comments:
+        body = c.get("body") or ""
+        if not CLAIM_RE.match(body):
+            continue
+        tag = SESSION_TAG_RE.search(body.splitlines()[0])
+        out.append({"id": c.get("id"), "at": parse_ts(c["created_at"]), "author": c.get("user") or "?",
+                    "url": c.get("url") or "", "session": tag.group(1)[:8] if tag else None})
+    return sorted(out, key=lambda c: (c["at"], c["id"] or 0))
+
+
+def _claim_line(c: dict) -> str:
+    who = c["author"] + (f", session {c['session']}" if c["session"] else "")
+    return f"{_iso(c['at'])} by {who}: {c['url']}"
+
+
+def claim_check(*, status: str | None, assignees: list[str], me: str | None, claims: list[dict],
+                tag: str | None, now: datetime, verb: str | None = None,
+                since: datetime | None = None) -> tuple[int, list[str]]:
+    """The verdict and its lines. Without `since`: the check before the claim — taken if the issue is In
+    Progress (Done too, unless the verb verifies), assigned to another account, or claimed by another session
+    in the last 24 hours. With `since` (the read-back after the claim): the earliest claim posted since then
+    wins; a later one withdraws."""
+    if since is not None:
+        window = [c for c in claims if c["at"] >= since]
+        mine = next((c for c in window if tag and c["session"] == tag), None)
+        if mine is None:
+            return 4, [f"Verdict: no claim of this session (session {tag}) since {_iso(since)} — post it first"]
+        lines = [f"Your claim: {mine['url']} (comment id {mine['id']})"]
+        key = (mine["at"], mine["id"] or 0)
+        earlier = [c for c in window if not (tag and c["session"] == tag) and (c["at"], c["id"] or 0) < key]
+        if earlier:
+            first = earlier[0]
+            return EXIT_TAKEN, lines + [f"Earlier claim: {_claim_line(first)}",
+                                        f"Verdict: later — withdraw your claim and stop ({first['author']} was first)"]
+        return 0, lines + ["Verdict: first — the issue is yours"]
+    if claims and tag and claims[-1]["session"] == tag:
+        return 0, [f"Your claim: {claims[-1]['url']} (comment id {claims[-1]['id']})",
+                   "Verdict: yours — this session's claim is the latest; continue"]
+    reasons = []
+    if status and status.strip().lower() in ("in progress", "in_progress"):
+        reasons.append(f"Status {status}")
+    elif status and status.strip().lower() == "done" and (verb or "").lower() not in VERIFY_VERBS:
+        reasons.append(f"Status {status} (implemented, waiting for the merge; only verify / re-verify take it)")
+    other_accounts = [x for x in assignees if not me or x.lower() != me.lower()]
+    if other_accounts:
+        reasons.append(f"assigned to {', '.join(other_accounts)}")
+    others = [c for c in claims if not (tag and c["session"] == tag)]
+    recent = [c for c in others if now - c["at"] <= timedelta(hours=CLAIM_RECENT_H)]
+    if recent:
+        reasons.append(f"claimed by {recent[-1]['author']} at {_iso(recent[-1]['at'])}")
+    lines = [f"Status: {status or 'unknown'} · assignees: {', '.join(assignees) or 'none'} · claims: {len(claims)}"]
+    lines += [f"  claim {_claim_line(c)}" for c in claims[-5:]]
+    lines.append(f"Session: {tag or 'unknown (no CLAUDE_CODE_SESSION_ID)'}")
+    start = now - timedelta(seconds=CLAIM_MARGIN_S)
+    lines.append(f"Read back from: {start.timestamp():.0f} ({_iso(start)})")
+    if reasons:
+        return EXIT_TAKEN, lines + [f"Verdict: taken — {'; '.join(reasons)}"]
+    return 0, lines + ["Verdict: free — claim it, then read it back"]
+
+
+def workflow_status(issue: dict, project: str | None) -> str | None:
+    """The status the workflow keeps: the board's Status field (None if not on the board), or the labels."""
+    if not project:
+        return label_status(label_names(issue))
+    for n in issue["projectItems"]["nodes"]:
+        if n["project"]["title"] == project:
+            return (n.get("fieldValueByName") or {}).get("name")
+    return None
+
+
+def cmd_claim_check(a) -> int:
+    since = None
+    if a.since:
+        since = (datetime.fromtimestamp(float(a.since), local_tz()) if re.fullmatch(r"\d+(\.\d+)?", a.since)
+                 else parse_ts(a.since))
+        time.sleep(CLAIM_SETTLE_S)
+    owner, name = split_repo(a.repo)
+    issue = issue_items(a.repo, a.num)
+    assignees = json.loads(gh("api", f"repos/{owner}/{name}/issues/{a.num}", "--jq", "[.assignees[].login]"))
+    raw = gh("api", "--paginate", f"repos/{owner}/{name}/issues/{a.num}/comments", "--jq",
+             ".[] | {id, created_at, body, user: .user.login, url: .html_url}")
+    comments = [json.loads(ln) for ln in raw.splitlines() if ln.strip()]
+    me = gh("api", "user", "--jq", ".login").strip() or None
+    code, lines = claim_check(
+        status=workflow_status(issue, project_name(a)), assignees=assignees, me=me, claims=parse_claims(comments),
+        tag=session_tag(), now=datetime.now(local_tz()), verb=a.verb, since=since,
+    )
+    print(f"{a.repo}#{a.num}: {issue['title']} · issue: {issue['state']}")
+    print("\n".join(lines))
+    return code
 
 
 # --- issue metadata: type, Priority / Effort, iteration ------------------------------------------
@@ -1519,6 +1753,7 @@ query($o:String!,$n:String!,$after:String,$field:String!){repository(owner:$o,na
   issues(states:OPEN,first:100,after:$after,orderBy:{field:CREATED_AT,direction:ASC}){
     pageInfo{hasNextPage endCursor}
     nodes{number title labels(first:20){nodes{name}} blockedBy(first:20){nodes{number state}}
+      assignees(first:10){nodes{login}}
       projectItems(first:5){nodes{project{title}
         fieldValueByName(name:$field){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}}
 """
@@ -1631,7 +1866,8 @@ def bucket_issues(issues: list[dict], project: str | None) -> tuple[dict[str, li
             key = "needs_human"
         else:
             key = "untriaged"
-        buckets[key].append({"number": i["number"], "title": i["title"], "blockers": blockers})
+        assignees = [x["login"] for x in ((i.get("assignees") or {}).get("nodes") or [])]
+        buckets[key].append({"number": i["number"], "title": i["title"], "blockers": blockers, "assignees": assignees})
     return buckets, off_board
 
 
@@ -1656,6 +1892,7 @@ def cmd_next(a) -> int:
         rows = [
             f"#{r['number']} {r['title']}"
             + (f"  [prerequisites: {', '.join(f'#{n}' for n in r['blockers'])}]" if key == "blocked" else "")
+            + (f"  [assigned: {', '.join(r['assignees'])}]" if r["assignees"] else "")
             for r in buckets[key]
         ]
         print(f"{title}: {len(rows)}")
@@ -1710,6 +1947,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--format", choices=("json", "csv"), default="json")
     p.add_argument("--cost", action="store_true", help=f"add {COST_COLUMN}: an estimate at API list prices, "
                                                         "not a subscription cost")
+    p.add_argument("--stale-hours", type=float, default=STALE_HOURS,
+                   help="a start marker without its record this long after the start is an aborted run")
+    p = sub.add_parser("metrics-start")
+    p.add_argument("repo")
+    p.add_argument("num", type=int)
+    p.add_argument("--session", action="append")
     p = sub.add_parser("status")
     p.add_argument("repo")
     p.add_argument("num", type=int)
@@ -1733,6 +1976,12 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--sha")
             p.add_argument("--timeout-min", type=float, default=30)
             p.add_argument("--interval", type=float, default=20)
+    p = sub.add_parser("claim-check")
+    p.add_argument("repo")
+    p.add_argument("num", type=int)
+    p.add_argument("--verb", help="the claim verb: verify / re-verify may take an issue that is Done")
+    p.add_argument("--since", help="the read-back after the claim: the check's `Read back from` value")
+    p.add_argument("--project")
     p = sub.add_parser("deps")
     p.add_argument("repo")
     p.add_argument("num", type=int)
@@ -1775,6 +2024,7 @@ def main(argv: list[str] | None = None) -> int:
             "repo-check": cmd_repo_check,
             "elapsed": cmd_elapsed,
             "tokens": cmd_tokens,
+            "metrics-start": cmd_metrics_start,
             "metrics-record": cmd_metrics_record,
             "metrics": cmd_metrics,
             "status": cmd_status,
@@ -1783,6 +2033,7 @@ def main(argv: list[str] | None = None) -> int:
             "meta": cmd_meta,
             "review-request": cmd_review_request,
             "review-wait": cmd_review_wait,
+            "claim-check": cmd_claim_check,
             "deps": cmd_deps,
             "block": cmd_block,
             "triage-state": cmd_triage_state,

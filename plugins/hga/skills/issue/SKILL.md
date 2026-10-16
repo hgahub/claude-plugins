@@ -58,7 +58,7 @@ is. If the evidence is missing, the item is not done.
 | # | Step | | Evidence |
 |---|---|---|---|
 | 0 | Start: repo, issue, duplicates, knowledge base | ✅ | timestamp; `HGA repo-check` OK; issue OPEN + status; duplicate search result; knowledge pages read and their dates |
-| 1 | Claim | ✅ | today's claims checked (nobody else); the claim's message `ts` or comment URL |
+| 1 | Claim | ✅ | `claim-check`: free; the claim's message `ts` or comment URL; the read-back: first; the run marker's path @ commit SHA |
 | 2 | In Progress | ✅ | `HGA status-set` read-back: `Status: In Progress · issue: OPEN` |
 | 3 | Worktree | ✅ | branch name + base SHA; upstream unset |
 | 4 | Decisions | ✅ | who decided what (issue comment, user, decision tool) |
@@ -113,7 +113,7 @@ after the review and the merge.
 Helper script (standard library + `gh`):
 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (on Windows `python`) —
 `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`, `tokens --since <iso-start>`,
-`metrics-record <owner/repo> <n>`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
+`claim-check <owner/repo> <n>`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n>`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
 `review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr>`, `deps <owner/repo> <n>`. In the examples
 below `HGA` means this command. Write it out in full in every Bash call, or define a shell function first —
 `hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
@@ -130,6 +130,7 @@ repositories' main checkouts (the worktrees go next to them).
 |---|---|
 | The claim (Slack message, or issue comment + self-assignment) | Slack: only with a standing permission in the user's `~/.claude/CLAUDE.md` (`/hga:init` offers the snippet); without it, ask once. GitHub comment: part of the request |
 | The "done" report in the claim's thread (or as an issue comment) | part of the workflow — one message, as in step 12 |
+| Withdrawing a claim that lost the read-back (a reply in its thread, or editing its comment) | part of the claim, as in step 1 |
 | **Any other Slack message** — an interim "PR ready", a question, another channel | **ask first**, or use a draft (`slack_send_message_draft`) |
 | Issue status (In Progress, Done), status labels, PR, review request, replies to review comments | part of the request |
 | Creating a follow-up **GitHub issue** and tracking it (Todo) | part of the workflow — as in step 7a |
@@ -166,28 +167,66 @@ repositories' main checkouts (the worktrees go next to them).
 
 ## 1. Claim
 
+The claim is check, post, **read back**: two sessions can both find the issue free and both post, so the
+earliest claim wins, and the later one withdraws. Parallel sessions often share one GitHub account, so the
+claim line carries this **session's tag** (`claim-check` prints it as `Session:`) to tell them apart. Write the
+claim line exactly in the form below, whatever the configured language: scripts and other sessions read it.
+
+**Check first — both modes:** `HGA claim-check <owner/repo> <n> --verb <verb>`. It reads the GitHub signals,
+which do not depend on any Slack window: the workflow status (board or label), the assignees, and the
+`Claimed · …` comments of the last 24 hours. Exit 5 (`Verdict: taken — …`): **do not start** — tell the user
+the reason, and stop (the user may tell you to take it over, e.g. a run of theirs that died). Exit 0: note the
+`Session:` tag and the `Read back from:` value (a Unix time) for the read-back. `Verdict: yours` means this
+session's claim is the latest (a resumed run): skip the post and the read-back.
+
 **With Slack** (`slack` set):
 
-1. `HGA midnight` → the `oldest` parameter of `slack_read_channel` on `slack.channel_id` (today's messages only).
-2. If **someone else claimed** the same issue or PR **today**: **do not start**. Tell the user, and stop.
-3. If it is free, post the claim, **and only then start working**. One line, this format:
+1. `HGA midnight` → the `oldest` parameter of `slack_read_channel` on `slack.channel_id` (today's messages).
+   If **someone else claimed** the same issue or PR **today**: **do not start**. Tell the user, and stop. (A
+   claim from yesterday is past this window; the check above covers it through the status.)
+2. If it is free, post the claim. One line, this format:
    ```
-   <your name or agent name> · <repo> · #142 https://github.com/acme/web-app/issues/142 · fix
+   <your name or agent name> · <repo> · #142 https://github.com/acme/web-app/issues/142 · fix · session <tag>
    ```
    The verb: `implement` / `fix` / `verify` / `re-verify`. For a verification of someone else's work, add the
    head SHA. If a closely related issue goes into the same PR, it gets its own claim (one line per issue).
+3. **Read back:** `slack_read_channel` again, `oldest` = the `Read back from` value. Among the messages that
+   claim the same issue (its repo and `#<n>`), the one with the **smallest `ts`** wins. If it is yours, start
+   working. If another one came first, **withdraw**: reply in your claim's thread `withdrawn — earlier claim:
+   <link to it>`, tell the user, and stop. Do nothing else for the issue (no status, no worktree).
 4. The returned `message_ts` is the thread id. **Every further message goes there**, if any goes at all (see
    the table above).
 
 **Without Slack** (`slack` is `null`):
 
-1. `gh issue view <n> --repo <owner/repo> --json assignees,comments`: if someone else is assigned, or claimed
-   it in a comment today, **do not start** — tell the user, and stop.
-2. Claim it: `gh issue edit <n> --repo <owner/repo> --add-assignee @me`, then a one-line comment:
+1. Claim it: `gh issue edit <n> --repo <owner/repo> --add-assignee @me`, then a one-line comment:
    ```
-   Claimed · fix · <your name or agent name>
+   Claimed · fix · <your name or agent name> · session <tag>
    ```
    (the verb as above). The comment's URL is the evidence; the report goes to the same issue.
+2. **Read back:** `HGA claim-check <owner/repo> <n> --verb <verb> --since <Read back from>`. It waits a few
+   seconds, then the earliest `Claimed · …` comment since then wins. Exit 0 (`Verdict: first`): start working.
+   Exit 5 (`Verdict: later`): **withdraw** — edit your comment (its id is on the `Your claim:` line) so that it
+   no longer counts as a claim:
+   ```bash
+   gh api -X PATCH repos/<owner>/<repo>/issues/comments/<id> -f body="Withdrawn · fix · <name> · session <tag> — earlier claim: <url>"
+   ```
+   and, only if the earlier claim's author is another account, `gh issue edit <n> --repo <owner/repo>
+   --remove-assignee @me` (with a shared account, the assignment is the winner's too). Tell the user, and
+   stop. Exit 4: your comment is not listed — post it, then read back again.
+
+**Run marker — right after the claim holds** (both modes, only if the session has the `mcp__hga__step` tool):
+the start of this run, for the metrics, so that a run that never reaches the report still counts (as aborted)
+in the team's numbers. It reads the pane's state file, so step 0's `in_progress` call must have gone out:
+
+```bash
+HGA metrics-start <owner/repo> <n>
+```
+
+It prints the marker's path: the same file the metrics record will overwrite in step 12. Validate, commit
+**only that file** and push it with the commands of step 12's metrics record (commit message `<repo>: run
+start (#<n>)`). If it fails (no state file, a push error), say so in step 1's evidence and go on: the marker
+is bookkeeping, it never blocks the work.
 
 ## 2. In Progress
 
@@ -541,7 +580,8 @@ HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2
 ```
 
 It prints the record's path (`<knowledge_dir>/metrics/<owner>/<repo>/<n>-<start>.json`, one file per run of
-the issue, so parallel sessions never write the same file). Validate, then commit **only that file** and push
+the issue, so parallel sessions never write the same file). It overwrites the run marker of step 1 (the same
+file): from now on the run counts as finished, not aborted. Validate, then commit **only that file** and push
 it as in step 11:
 
 ```bash
