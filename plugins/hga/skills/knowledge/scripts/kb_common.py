@@ -41,6 +41,12 @@ def pages(root: Path) -> list[Path]:
     return out
 
 
+def metrics_records(root: Path) -> list[Path]:
+    """The issue metrics records (metrics/<owner>/<repo>/*.json, written by hga_issue.py metrics-record)."""
+    base = root / "metrics"
+    return sorted(base.rglob("*.json")) if base.is_dir() else []
+
+
 def split_frontmatter(text: str) -> tuple[dict[str, str] | None, str, int]:
     """Returns (fields, body, body's first line number). Fields is None if there is no frontmatter block."""
     lines = text.splitlines()

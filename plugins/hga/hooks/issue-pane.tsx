@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ResolveInput } from 'claude-code'
 
-import type { Issue, IssueFile, StepState } from '../types'
+import type { Issue, IssueFile, Step, StepState, UsageSnapshot } from '../types'
 
 const PANE = 'hga-issue'
 const TOOL = 'mcp__hga__step'
@@ -91,6 +91,30 @@ const cut = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, Math.ma
 // owner/repo#n → repo#n: the owner is the same for most issues, and the pane is narrow.
 const short = (id: string) => id.replace(/^[^/#\s]+\//, '')
 const finished = (j: Issue) => j.steps.filter(l => l !== null && l.state !== 'in_progress').length
+
+// The step's times for the metrics record: in_progress keeps an earlier start (a repeated report, or a step
+// opened again) and drops the end; done / skipped stamps the end and keeps the start. A finished step reported
+// again (its evidence amended) keeps its end. A step reported done without an in_progress gets no start (step 0
+// takes the given started_at): the record falls back on the step before it.
+export function stamp(prev: Step | null, state: StepState, evidence: string, t: number, start?: number): Step {
+  const startedAt = prev?.startedAt ?? start ?? (state === 'in_progress' ? t : undefined)
+  return {
+    state,
+    evidence,
+    ...(startedAt === undefined ? {} : { startedAt }),
+    ...(state === 'in_progress' ? {} : { endedAt: prev !== null && prev.state !== 'in_progress' ? (prev.endedAt ?? t) : t }),
+  }
+}
+
+// The account's five-hour usage now; null if the engine has no rate limit data (API key, older version, test).
+async function fiveHour($: EngineInterface, t: number): Promise<UsageSnapshot | null> {
+  try {
+    const limit = (await $.session.usage()).rateLimits?.find(l => l.kind === 'five_hour')
+    return limit === undefined || !Number.isFinite(limit.percentUsed) ? null : { at: t, percentUsed: limit.percentUsed }
+  } catch {
+    return null
+  }
+}
 
 async function tick($: EngineInterface): Promise<void> {
   if ((await read($, issue)) === null) return
@@ -260,6 +284,14 @@ export const register: Register = on => {
     const given = typeof e.started_at === 'string' ? Date.parse(e.started_at) : NaN
     const startOk = Number.isFinite(given) && given <= t
     const points: string[] | undefined = e.checks?.map((c: string) => c.replace(/\s+/g, ' ').trim()).filter((c: string) => c !== '')
+    // The five-hour usage at the start (step 0's first report) and at the end (step 12's first done): account-wide
+    // context. Step 12 is reported again with the metrics record's path; that keeps the first snapshot.
+    const snapStart = step === 0 && base.fiveHour?.start === undefined ? await fiveHour($, t) : null
+    const snapEnd = step === 12 && state === 'done' && base.fiveHour?.end === undefined ? await fiveHour($, t) : null
+    const usage =
+      snapStart === null && snapEnd === null
+        ? base.fiveHour
+        : { ...base.fiveHour, ...(snapStart === null ? {} : { start: snapStart }), ...(snapEnd === null ? {} : { end: snapEnd }) }
     const nextIssue: Issue = {
       ...base,
       ...(points === undefined
@@ -267,7 +299,8 @@ export const register: Register = on => {
         : { checks: points.slice(0, CHECKS_MAX).map(text => ({ text, done: base.checks?.some(c => c.text === text && c.done) ?? false })) }),
       startedAt: startOk ? given : base.startedAt,
       verb: typeof e.verb === 'string' && e.verb !== '' ? e.verb : base.verb,
-      steps: base.steps.map((l, i) => (i === step ? { state, evidence } : l)),
+      steps: base.steps.map((l, i) => (i === step ? stamp(l ?? null, state, evidence, t, step === 0 && startOk ? given : undefined) : l)),
+      ...(usage === undefined ? {} : { fiveHour: usage }),
       updatedAt: t,
     }
     await update($, issue, () => nextIssue)

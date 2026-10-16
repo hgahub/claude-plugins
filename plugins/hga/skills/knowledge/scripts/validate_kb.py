@@ -10,12 +10,16 @@ Checks every Markdown page (except under .git and .maintenance):
   - nothing looks like a secret (tokens, private keys, passwords, bearer headers), code blocks included.
 Pages past their `review_after_days` are reported as warnings.
 
+The issue metrics records (metrics/**/*.json) are data, not pages: each must be a JSON object with an
+integer `schema`, and must not look like a secret either.
+
 Exit code: 0 no errors (warnings allowed), 1 errors found, 2 wrong usage.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -25,7 +29,9 @@ from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from kb_common import default_root, MD_LINK_RE, REQUIRED, STATUSES, WIKILINK_RE, code_free_lines, pages, split_frontmatter  # noqa: E402
+from kb_common import (  # noqa: E402
+    default_root, MD_LINK_RE, REQUIRED, STATUSES, WIKILINK_RE, code_free_lines, metrics_records, pages, split_frontmatter,
+)
 
 SECRET_PATTERNS = (
     ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
@@ -94,11 +100,27 @@ def check(root: Path, today: date) -> tuple[list[str], list[str]]:
                 name = m.group(1).strip()
                 if name not in stems and not (root / name).exists() and not (root / f"{name}.md").exists():
                     errors.append(f"{rel}:{n}: broken wikilink: [[{name}]]")
-        for k, ln in enumerate(text.splitlines(), 1):
-            for label, rx in SECRET_PATTERNS:
-                if rx.search(ln):
-                    errors.append(f"{rel}:{k}: looks like a secret ({label}) — remove it, keep only the key's name")
+        secrets(rel, text, errors)
+    for p in metrics_records(root):
+        rel = p.relative_to(root).as_posix()
+        text = p.read_text(encoding="utf-8")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            errors.append(f"{rel}:{e.lineno}: invalid JSON in a metrics record: {e.msg}")
+            continue
+        schema = data.get("schema") if isinstance(data, dict) else None
+        if not isinstance(schema, int) or isinstance(schema, bool):
+            errors.append(f"{rel}:1: a metrics record needs an integer `schema` (see metrics/README.md)")
+        secrets(rel, text, errors)
     return errors, warnings
+
+
+def secrets(rel: str, text: str, errors: list[str]) -> None:
+    for k, ln in enumerate(text.splitlines(), 1):
+        for label, rx in SECRET_PATTERNS:
+            if rx.search(ln):
+                errors.append(f"{rel}:{k}: looks like a secret ({label}) — remove it, keep only the key's name")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -119,7 +141,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"warning: {w}")
     for e in errors:
         print(f"error: {e}")
-    print(f"{len(pages(root))} page(s) · {len(errors)} error(s) · {len(warnings)} warning(s)")
+    records = len(metrics_records(root))
+    counts = f"{len(pages(root))} page(s)" + (f" · {records} metrics record(s)" if records else "")
+    print(f"{counts} · {len(errors)} error(s) · {len(warnings)} warning(s)")
     return 1 if errors else 0
 
 

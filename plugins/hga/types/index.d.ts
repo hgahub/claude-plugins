@@ -1,10 +1,24 @@
 export type StepState = 'in_progress' | 'done' | 'skipped'
-export type Step = { state: StepState; evidence: string }
+// startedAt / endedAt (ms): when the step was reported in_progress, and done or skipped. Optional: older state
+// files have neither, and a step reported done without an in_progress has no start.
+export type Step = { state: StepState; evidence: string; startedAt?: number; endedAt?: number }
+// The account's five-hour usage at one moment (`$.session.usage()`, kind five_hour). It is account-wide: context
+// for the issue's numbers, never the issue's own cost.
+export type UsageSnapshot = { at: number; percentUsed: number }
 // The current issue: steps in the order of the issue skill's checklist (0–12), null = not started yet.
 // updatedAt: time of the last report; a finished issue's clock (step 12 done) stops here.
 // checks: the PR's manual review points (the model writes them, the reviewer ticks them); [] = no such point.
+// fiveHour: the five-hour usage at step 0's start and at step 12's done (for the metrics record).
 export type Check = { text: string; done: boolean }
-export type Issue = { issue: string; verb: string; startedAt: number; steps: (Step | null)[]; updatedAt?: number; checks?: Check[] }
+export type Issue = {
+  issue: string
+  verb: string
+  startedAt: number
+  steps: (Step | null)[]
+  updatedAt?: number
+  checks?: Check[]
+  fiveHour?: { start?: UsageSnapshot; end?: UsageSnapshot }
+}
 // The shared state file (~/.claude/hga/issue/<owner>-<repo>-<n>.json): the issue pane writes it, the triage panel reads it.
 // desktop: the desktop app's session id (CLAUDE_CODE_HOST_SESSION_ID, local_…); the triage panel jumps to this session.
 export type IssueFile = Issue & { updatedAt: number; session: string; desktop?: string }

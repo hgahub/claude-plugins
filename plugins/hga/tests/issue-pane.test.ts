@@ -313,3 +313,102 @@ test('manual review: an empty list = no highlighted point; without a list there 
   expect(await pane($)).toContain('no highlighted manual review point')
   await ui.unmount()
 })
+
+// The metrics record (hga_issue.py metrics-record) reads the step times and the five-hour snapshots from here.
+test('step times: in_progress stamps the start, done the end and keeps the start; a repeat keeps the first start', async ($, on) => {
+  const s = engine(on)
+  const writes: { path: string; text: string }[] = []
+  mock.env(on, { HOME: '/home/test' })
+  on('session.id', () => ({ value: 'sess-1' }) as never)
+  on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
+  await s.clock.set(Date.parse('2026-10-13T10:00:00Z'))
+  await start($)
+  await step($, { issue: ISSUE, step: 0, state: 'in_progress', started_at: '2026-10-13T09:58:00Z' })
+  await s.clock.advance(60_000)
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
+  await step($, { issue: ISSUE, step: 5, state: 'in_progress' })
+  await s.clock.advance(10 * 60_000)
+  await step($, { issue: ISSUE, step: 5, state: 'in_progress', evidence: '3 new cases' })
+  await s.clock.advance(5 * 60_000)
+  await step($, { issue: ISSUE, step: 5, state: 'done', evidence: '12 passed' })
+  await step($, { issue: ISSUE, step: 6, state: 'skipped', evidence: 'no browser' })
+  const file = JSON.parse(writes.at(-1)!.text)
+  // step 0 starts at the given started_at, not at the report
+  expect(file.steps[0]).toEqual({ state: 'done', evidence: 'ok', startedAt: Date.parse('2026-10-13T09:58:00Z'), endedAt: Date.parse('2026-10-13T10:01:00Z') })
+  expect(file.steps[5].startedAt).toBe(Date.parse('2026-10-13T10:01:00Z'))
+  expect(file.steps[5].endedAt).toBe(Date.parse('2026-10-13T10:16:00Z'))
+  // skipped without an in_progress: an end, no start
+  expect(file.steps[6].startedAt).toBeUndefined()
+  expect(file.steps[6].endedAt).toBe(Date.parse('2026-10-13T10:16:00Z'))
+
+  // opened again: the first start stays, the end is gone until it is done again
+  await s.clock.advance(60_000)
+  await step($, { issue: ISSUE, step: 5, state: 'in_progress', evidence: 'review fix' })
+  const again = JSON.parse(writes.at(-1)!.text).steps[5]
+  expect(again.startedAt).toBe(Date.parse('2026-10-13T10:01:00Z'))
+  expect(again.endedAt).toBeUndefined()
+  // a finished step reported again (amended evidence) keeps its end
+  await step($, { issue: ISSUE, step: 6, state: 'skipped', evidence: 'no browser; NOT VERIFIED' })
+  expect(JSON.parse(writes.at(-1)!.text).steps[6].endedAt).toBe(Date.parse('2026-10-13T10:16:00Z'))
+})
+
+test('an older state file without step times still restores and takes new reports', async ($, on) => {
+  engine(on)
+  const writes: { path: string; text: string }[] = []
+  const old = { issue: ISSUE, verb: 'fix', startedAt: 0, updatedAt: 500, session: 'sess-1', steps: [{ state: 'done', evidence: 'ok' }, ...Array(12).fill(null)] }
+  mock.env(on, { HOME: '/home/test' })
+  on('session.id', () => ({ value: 'sess-1' }) as never)
+  on('fs.exists', () => ({ value: true }) as never)
+  on('fs.list', () => ({ value: [{ name: 'acme-web-app-18.json', kind: 'file' }] }) as never)
+  on('fs.read', () => ({ value: JSON.stringify(old) }) as never)
+  on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
+  await start($)
+  expect(await pane($)).toContain('1/13')
+  expect((await step($, { issue: ISSUE, step: 1, state: 'in_progress' })).result).toBe(`${ISSUE}: 1/13 done.`)
+  const file = JSON.parse(writes.at(-1)!.text)
+  expect(file.steps[0]).toEqual({ state: 'done', evidence: 'ok' })
+  expect(typeof file.steps[1].startedAt).toBe('number')
+  expect(file.fiveHour).toBeUndefined()
+})
+
+test("five-hour usage: snapshot at step 0's start and at step 12 done, account-wide; none without rate limit data", async ($, on) => {
+  const s = engine(on)
+  const writes: { path: string; text: string }[] = []
+  let pct = 21.5
+  mock.env(on, { HOME: '/home/test' })
+  on('session.id', () => ({ value: 'sess-1' }) as never)
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: pct }] } }) as never)
+  on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
+  await start($)
+  await step($, { issue: ISSUE, step: 0, state: 'in_progress' })
+  pct = 30
+  await step($, { issue: ISSUE, step: 0, state: 'done' })
+  await step($, { issue: ISSUE, step: 12, state: 'in_progress' })
+  expect(JSON.parse(writes.at(-1)!.text).fiveHour).toEqual({ start: { at: 1_000_000, percentUsed: 21.5 } })
+  await s.clock.advance(60_000)
+  pct = 48.25
+  await step($, { issue: ISSUE, step: 12, state: 'done', evidence: 'https://x.test' })
+  expect(JSON.parse(writes.at(-1)!.text).fiveHour).toEqual({
+    start: { at: 1_000_000, percentUsed: 21.5 },
+    end: { at: 1_060_000, percentUsed: 48.25 },
+  })
+  // step 12 reported again with the metrics record's path: the first end snapshot and end time stay
+  await s.clock.advance(60_000)
+  pct = 50
+  await step($, { issue: ISSUE, step: 12, state: 'done', evidence: 'https://x.test · metrics/acme/web-app/18.json' })
+  const file = JSON.parse(writes.at(-1)!.text)
+  expect(file.fiveHour.end).toEqual({ at: 1_060_000, percentUsed: 48.25 })
+  expect(file.steps[12].endedAt).toBe(1_060_000)
+})
+
+test('five-hour usage: no rate limit (API key) records nothing and the report works', async ($, on) => {
+  engine(on)
+  const writes: { path: string; text: string }[] = []
+  mock.env(on, { HOME: '/home/test' })
+  on('session.id', () => ({ value: 'sess-1' }) as never)
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [] } }) as never)
+  on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
+  await start($)
+  expect((await step($, { issue: ISSUE, step: 0, state: 'in_progress' })).result).toBe(`${ISSUE}: 0/13 done.`)
+  expect(JSON.parse(writes.at(-1)!.text).fiveHour).toBeUndefined()
+})

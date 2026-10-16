@@ -146,3 +146,32 @@ def test_guide_template_fills_into_a_valid_page(tmp_path):
     (kb / "workflow" / "hga-guide.md").write_text(page_text, encoding="utf-8")
     errors, _w = validate.check(kb, validate.date(2026, 10, 16))
     assert errors == []
+
+
+def test_metrics_records_are_data_not_pages(tmp_path, capsys):
+    rec = tmp_path / "metrics" / "acme" / "web-app"
+    rec.mkdir(parents=True)
+    (rec / "18-20261013T080000Z.json").write_text('{"schema": 1, "tokens": {"output_tokens": 5}}\n', encoding="utf-8")
+    (tmp_path / "metrics" / "README.md").write_text("# metrics/\n", encoding="utf-8")
+    # a valid record: no frontmatter demanded, no error, no warning; counted apart from the pages
+    assert validate.check(tmp_path, validate.date(2026, 10, 15)) == ([], [])
+    assert validate.main([str(tmp_path)]) == 0
+    assert "1 page(s) · 1 metrics record(s) · 0 error(s) · 0 warning(s)" in capsys.readouterr().out
+    # the map reads only notes/: the records do not show up there
+    page(tmp_path / "notes" / "web-app-18-x.md", "web-app #18: x")
+    assert build_map.main([str(tmp_path)]) == 0
+    assert "metrics" not in (tmp_path / "map" / "web-app.md").read_text(encoding="utf-8")
+
+
+def test_broken_metrics_records_are_errors(tmp_path):
+    rec = tmp_path / "metrics" / "acme" / "web-app"
+    rec.mkdir(parents=True)
+    (rec / "1-a.json").write_text('{"schema": 1,\n', encoding="utf-8")
+    (rec / "2-a.json").write_text('{"issue": 2}\n', encoding="utf-8")
+    (rec / "3-a.json").write_text('{"schema": 1,\n "note": "ghp_' + "a" * 36 + '"}\n', encoding="utf-8")
+    errors, warnings = validate.check(tmp_path, validate.date(2026, 10, 15))
+    text = "\n".join(errors)
+    assert "metrics/acme/web-app/1-a.json:2: invalid JSON" in text
+    assert "metrics/acme/web-app/2-a.json:1: a metrics record needs an integer `schema`" in text
+    assert "metrics/acme/web-app/3-a.json:2: looks like a secret (GitHub token)" in text
+    assert len(errors) == 3 and warnings == []
