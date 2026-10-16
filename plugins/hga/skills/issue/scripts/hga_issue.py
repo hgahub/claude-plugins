@@ -1301,6 +1301,14 @@ def parse_claims(comments: list[dict]) -> list[dict]:
     return sorted(out, key=lambda c: (c["at"], c["id"] or 0))
 
 
+def status_key(status: str | None) -> str | None:
+    """The workflow key (todo / in_progress / done) of a board or label status, by the configured names."""
+    if not status:
+        return None
+    s = status.strip().lower()
+    return {v.lower(): k for k, v in cfg()["github"]["statuses"].items()}.get(s) or CANONICAL.get(s)
+
+
 def _claim_line(c: dict) -> str:
     who = c["author"] + (f", session {c['session']}" if c["session"] else "")
     return f"{_iso(c['at'])} by {who}: {c['url']}"
@@ -1326,13 +1334,25 @@ def claim_check(*, status: str | None, assignees: list[str], me: str | None, cla
             return EXIT_TAKEN, lines + [f"Earlier claim: {_claim_line(first)}",
                                         f"Verdict: later — withdraw your claim and stop ({first['author']} was first)"]
         return 0, lines + ["Verdict: first — the issue is yours"]
-    if claims and tag and claims[-1]["session"] == tag:
-        return 0, [f"Your claim: {claims[-1]['url']} (comment id {claims[-1]['id']})",
-                   "Verdict: yours — this session's claim is the latest; continue"]
+    own = [c for c in claims if tag and c["session"] == tag]
+    if own:
+        # A resumed run: its claim holds only if no other session's claim within a day before it stands — the
+        # run may have died between its claim and the read-back, while the other session won.
+        mine = own[0]
+        key = (mine["at"], mine["id"] or 0)
+        lines = [f"Your claim: {mine['url']} (comment id {mine['id']})"]
+        earlier = [c for c in claims if c["session"] != tag and (c["at"], c["id"] or 0) < key
+                   and mine["at"] - c["at"] <= timedelta(hours=CLAIM_RECENT_H)]
+        if earlier:
+            first = earlier[0]
+            return EXIT_TAKEN, lines + [f"Earlier claim: {_claim_line(first)}",
+                                        f"Verdict: later — withdraw your claim and stop ({first['author']} was first)"]
+        return 0, lines + ["Verdict: yours — this session claimed it first; continue"]
     reasons = []
-    if status and status.strip().lower() in ("in progress", "in_progress"):
+    state = status_key(status)
+    if state == "in_progress":
         reasons.append(f"Status {status}")
-    elif status and status.strip().lower() == "done" and (verb or "").lower() not in VERIFY_VERBS:
+    elif state == "done" and (verb or "").lower() not in VERIFY_VERBS:
         reasons.append(f"Status {status} (implemented, waiting for the merge; only verify / re-verify take it)")
     other_accounts = [x for x in assignees if not me or x.lower() != me.lower()]
     if other_accounts:

@@ -755,9 +755,34 @@ def test_claim_check_done_is_free_for_a_verification(hga):
     assert check(hga, status="Done", verb="re-verify")[0] == 0
 
 
+def test_claim_check_configured_status_names(hga, tmp_path):
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"statuses": {"in_progress": "Doing", "done": "Shipped"}}})
+    hga.CFG = {}
+    code, lines = check(hga, status="Doing")
+    assert code == 5 and "Status Doing" in lines[-1]
+    assert check(hga, status="Shipped")[0] == 5
+    assert check(hga, status="Shipped", verb="verify")[0] == 0
+    # the label path keeps its fixed names
+    assert check(hga, status="In Progress")[0] == 5
+
+
 def test_claim_check_own_latest_claim_continues(hga):
     code, lines = check(hga, status="In Progress", cl=claims(hga, comment(1, -5, "Claimed · fix · a · session aaaa1111")))
     assert code == 0 and lines[-1].startswith("Verdict: yours")
+
+
+def test_claim_check_resumed_run_that_lost_the_race_withdraws(hga):
+    other = comment(1, -6, "Claimed · fix · agent · session bbbb2222")
+    mine = comment(2, -5, "Claimed · fix · agent · session aaaa1111")
+    # this session's claim is the latest, but the other session posted first: it won
+    code, lines = check(hga, status="In Progress", cl=claims(hga, other, mine))
+    assert code == 5 and lines[-1].startswith("Verdict: later") and "session bbbb2222" in lines[1]
+    # a later claim of another session does not take it from the first one
+    later = comment(3, -4, "Claimed · fix · agent · session bbbb2222")
+    assert check(hga, status="In Progress", cl=claims(hga, mine, later))[0] == 0
+    # a claim more than a day before this session's is a dead run's: it does not count
+    stale = comment(0, -60 * 30, "Claimed · fix · agent · session cccc3333")
+    assert check(hga, status="In Progress", cl=claims(hga, stale, mine))[0] == 0
 
 
 def test_claim_read_back_first_and_later(hga):

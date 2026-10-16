@@ -177,7 +177,9 @@ which do not depend on any Slack window: the workflow status (board or label), t
 `Claimed · …` comments of the last 24 hours. Exit 5 (`Verdict: taken — …`): **do not start** — tell the user
 the reason, and stop (the user may tell you to take it over, e.g. a run of theirs that died). Exit 0: note the
 `Session:` tag and the `Read back from:` value (a Unix time) for the read-back. `Verdict: yours` means this
-session's claim is the latest (a resumed run): skip the post and the read-back.
+session already claimed it and no other session claimed it within a day before (a resumed run): skip the post
+and the read-back. `Verdict: later` (exit 5) on a resumed run: another session claimed it first — withdraw
+your claim as after a lost read-back, and stop.
 
 **With Slack** (`slack` set):
 
