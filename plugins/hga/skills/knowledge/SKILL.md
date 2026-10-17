@@ -122,9 +122,11 @@ python3 "$KB/kb_commit.py" -C "<knowledge_dir>" -m "<app>: <what changed> (#<iss
 ```
 
 Other sessions write the same checkout, so the helper holds a lock (in the knowledge base's `.git`) from the
-check to the push: it rebuilds the map (`build_map.py`), validates (`validate_kb.py`), commits only the pages
-you name plus the map page of each note's app — what other sessions staged or changed stays out — then pulls
-with rebase and pushes. Name every page you wrote (not `.`); paths are relative to the knowledge base.
+check to the push. It takes a snapshot of the last commit plus the pages you name, rebuilds the map
+(`build_map.py`) and validates (`validate_kb.py`) in that snapshot — what a clean checkout will see, without
+other sessions' unfinished notes — commits exactly the snapshot, then pulls with rebase and pushes. An edit made
+after the snapshot stays in the checkout, uncommitted. Name every page you wrote (not `.`); paths are relative
+to the knowledge base.
 
 The validator checks frontmatter, Markdown links and `[[wikilinks]]` (outside code) and credential-like content
 (code included); warnings (pages due for review) are allowed. The exit code says what happened:
@@ -132,9 +134,9 @@ The validator checks frontmatter, Markdown links and `[[wikilinks]]` (outside co
 | Exit | Meaning | What to do |
 |---|---|---|
 | 0 | committed and pushed; or no remote (a local-only knowledge base, a valid setup); or not a git repository (validated only); or nothing to commit | the last line has the commit SHA |
-| 1 | validation failed: nothing committed | fix the errors it lists (another session's page may be the one failing: then say so), run it again |
+| 1 | validation failed: nothing committed | fix the errors it lists (in your pages, or in a committed page your change breaks, e.g. a link), run it again |
 | 3 | the lock was not free in time | run it again; if it keeps failing, show the lock's owner line to the user |
-| 4 | the commit failed | show git's error |
+| 4 | the commit failed (also: someone committed by hand meanwhile — nothing is overwritten) | show git's error; for the latter, run it again |
 | 5 | committed, but the pull or push failed | say so: the change exists only on this machine. Running it again retries the push |
 
 A rebase conflict (rare: notes are new files) is aborted, so the commit stays local (exit 5): resolve it by

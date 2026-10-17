@@ -8,14 +8,17 @@ helper serializes their commits; in order, it:
 1. takes a lock in the checkout's git directory (`<git-dir>/hga-kb.lock`, an atomic mkdir), waiting up to
    --timeout seconds. A lock older than --stale-after seconds, or one whose process on this machine is gone,
    is stale and taken over;
-2. rebuilds the map (build_map.py) and validates the whole knowledge base (validate_kb.py);
-3. stages and commits only the given paths, plus the map page of each given note's app (`notes/<app>-….md` →
-   `map/<app>.md`). Whatever other sessions staged or changed stays out of the commit, and stays as it was;
-4. pulls with rebase, if the branch has an upstream (or the remote has the branch), and pushes;
-5. releases the lock.
+2. takes a snapshot in a temporary index: the last commit plus the given paths' current contents. Whatever
+   other sessions staged, changed or left uncommitted stays out of it, and stays as it was;
+3. checks the snapshot out to a temporary folder, rebuilds the map there (build_map.py) and validates it
+   (validate_kb.py): what a clean checkout of the commit will see, without other sessions' notes;
+4. commits exactly that snapshot (the given paths and the rebuilt map pages), so an edit made after the
+   snapshot cannot slip in; the shared index and the map pages in the checkout follow the commit;
+5. pulls with rebase, if the branch has an upstream (or the remote has the branch), and pushes;
+6. releases the lock.
 
 Paths are relative to the knowledge base (absolute ones must be inside it); `.` is only for a fresh one. A folder that is not a git
-repository is a valid, local-only knowledge base: then step 2 is all there is. No remote: the commit is the end.
+repository is a valid, local-only knowledge base: then the map is rebuilt and validated in place. No remote: the commit is the end.
 
 Exit code: 0 committed (and pushed, if there is a remote) or nothing to commit, 1 validation failed (nothing
 committed), 2 wrong usage, 3 the lock was not free within --timeout, 4 the commit failed, 5 committed, but the
@@ -33,6 +36,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -52,8 +56,10 @@ class LockTimeout(Exception):
     pass
 
 
-def git(root: Path, *args: str, timeout: float | None = 60) -> subprocess.CompletedProcess:
+def git(root: Path, *args: str, timeout: float | None = 60, index: Path | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_EDITOR="true")  # fail instead of waiting for input
+    if index is not None:
+        env["GIT_INDEX_FILE"] = str(index)
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8",
                           errors="replace", env=env, timeout=timeout)
 
@@ -159,20 +165,6 @@ def rel_paths(root: Path, paths: list[str]) -> list[str]:
     return out
 
 
-def map_pages(root: Path, paths: list[str]) -> list[str]:
-    """map/<app>.md for each note among the paths."""
-    apps_dir = root / "apps"
-    apps = [p.stem for p in apps_dir.glob("*.md") if p.name.lower() != "readme.md"] if apps_dir.is_dir() else []
-    out = []
-    for p in paths:
-        parts = p.split("/")
-        if len(parts) == 2 and parts[0] == "notes" and p.endswith(".md") and parts[1].lower() != "readme.md":
-            page = f"map/{build_map.app_of(parts[1][:-3], apps)[0]}.md"
-            if page not in out and page not in paths:
-                out.append(page)
-    return out
-
-
 def run_quiet(fn, argv: list[str]) -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -193,12 +185,14 @@ def sync(root: Path) -> tuple[bool, str]:
         remote, pull, push = upstream.stdout.strip().split("/", 1)[0], ["pull", "--rebase", "--autostash", "--quiet"], ["push", "--quiet"]
     else:
         remote = "origin" if "origin" in remotes else remotes[0]
-        listed = git(root, "ls-remote", "--heads", remote, branch, timeout=NETWORK_TIMEOUT)
-        if listed.returncode != 0:
-            return False, f"cannot reach {remote}: {listed.stderr.strip()}"
-        pull = ["pull", "--rebase", "--autostash", "--quiet", remote, branch] if listed.stdout.strip() else None
-        push = ["push", "--quiet", "-u", remote, branch]
+        pull, push = None, ["push", "--quiet", "-u", remote, branch]
     try:
+        if upstream.returncode != 0:  # the remote probe can stall like a pull or push
+            listed = git(root, "ls-remote", "--heads", remote, branch, timeout=NETWORK_TIMEOUT)
+            if listed.returncode != 0:
+                return False, f"cannot reach {remote}: {listed.stderr.strip()}"
+            if listed.stdout.strip():
+                pull = ["pull", "--rebase", "--autostash", "--quiet", remote, branch]
         if pull:
             r = git(root, *pull, timeout=NETWORK_TIMEOUT)
             if r.returncode != 0:
@@ -212,6 +206,69 @@ def sync(root: Path) -> tuple[bool, str]:
     except subprocess.TimeoutExpired as e:
         return False, f"`git {' '.join(e.cmd[3:])}` did not finish in {NETWORK_TIMEOUT} s"
     return True, f"pushed to {remote}/{branch}"
+
+
+ZERO = "0" * 40
+
+
+def commit_snapshot(root: Path, git_dir: Path, paths: list[str], message: str) -> int:
+    """Builds, validates and commits the snapshot (the last commit + the given paths now). 0 committed or nothing
+    to commit, 1 validation failed, 4 the commit failed. Runs under the lock."""
+    token = uuid.uuid4().hex
+    index = git_dir / f"hga-kb-index-{token}"
+    snap = Path(tempfile.mkdtemp(prefix="hga-kb-snap-"))
+    try:
+        head = git(root, "rev-parse", "--verify", "--quiet", "HEAD").stdout.strip()
+        r = git(root, "read-tree", *([head] if head else ["--empty"]), index=index)
+        if r.returncode == 0:  # --all: a deleted page is staged as a removal
+            r = git(root, "add", "--all", "--", *paths, index=index)
+        if r.returncode == 0:
+            r = git(root, "checkout-index", "--all", "--force", f"--prefix={snap.as_posix()}/", index=index)
+        if r.returncode != 0:
+            print(f"COMMIT FAILED: the snapshot: {(r.stderr or r.stdout).strip()}")
+            return 4
+        _, out = run_quiet(build_map.main, [str(snap)])
+        print(out, end="")
+        code, out = run_quiet(validate_kb.main, [str(snap)])
+        print(out, end="")
+        if code != 0:
+            print("VALIDATION FAILED: nothing committed; fix the errors above and run this again")
+            return 1
+        # The rebuilt map pages, from the snapshot's folder (a removed one is staged as a removal)
+        if (snap / "map").is_dir() or git(root, "ls-files", "--", "map", index=index).stdout.strip():
+            r = git(snap, f"--git-dir={git_dir}", f"--work-tree={snap}", "add", "--all", "--", "map", index=index)
+            if r.returncode != 0:
+                print(f"COMMIT FAILED: the map pages: {(r.stderr or r.stdout).strip()}")
+                return 4
+        tree = git(root, "write-tree", index=index).stdout.strip()
+        if head and tree == git(root, "rev-parse", f"{head}^{{tree}}").stdout.strip():
+            print("nothing to commit: the pages are as committed")
+            return 0
+        r = git(root, "commit-tree", tree, *(["-p", head] if head else []), "-m", message)
+        if r.returncode != 0:
+            print(f"COMMIT FAILED: {(r.stderr or r.stdout).strip()}")
+            return 4
+        commit = r.stdout.strip()
+        # Only if HEAD is still the snapshot's base: a commit made meanwhile by hand is not overwritten
+        r = git(root, "update-ref", "-m", f"commit: {message.splitlines()[0]}", "HEAD", commit, head or ZERO)
+        if r.returncode != 0:
+            print(f"COMMIT FAILED: HEAD moved during the commit, run this again: {r.stderr.strip()}")
+            return 4
+        changed = git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commit).stdout.split("\n")
+        changed = [c for c in changed if c]
+        # The shared index follows the commit for the committed paths; the checkout's map pages become the
+        # committed ones. Everything else in the checkout (other sessions' work, a newer edit) stays as it is.
+        git(root, "reset", "--quiet", "--", *changed)
+        for m in (c for c in changed if c.startswith("map/")):
+            if git(root, "cat-file", "-e", f"{commit}:{m}").returncode == 0:
+                git(root, "checkout", commit, "--", m)
+            else:
+                (root / m).unlink(missing_ok=True)
+        print(f"committed {commit[:7]}: {', '.join(changed)}")
+        return 0
+    finally:
+        index.unlink(missing_ok=True)
+        shutil.rmtree(snap, ignore_errors=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -251,30 +308,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         with kb_lock(git_dir, a.timeout, a.stale_after):
-            _, out = run_quiet(build_map.main, [str(root)])
-            print(out, end="")
-            code, out = run_quiet(validate_kb.main, [str(root)])
-            print(out, end="")
-            if code != 0:
-                print("VALIDATION FAILED: nothing committed; fix the errors above and run this again")
-                return 1
-            paths += [m for m in map_pages(root, paths)
-                      if (root / m).exists() or git(root, "ls-files", "--error-unmatch", "--", m).returncode == 0]
-            r = git(root, "add", "--all", "--", *paths)  # --all: a deleted page is staged as a removal
-            if r.returncode != 0:
-                print(f"COMMIT FAILED: git add: {r.stderr.strip()}")
-                return 4
-            has_head = git(root, "rev-parse", "--verify", "--quiet", "HEAD").returncode == 0
-            diff = git(root, "diff", "--cached", "--name-only", *(["HEAD"] if has_head else []), "--", *paths)
-            if not diff.stdout.strip():
-                print("nothing to commit: the pages are as committed")
-            else:
-                r = git(root, "commit", "--quiet", "-m", a.message, "--", *paths)  # only these paths
-                if r.returncode != 0:
-                    print(f"COMMIT FAILED: {(r.stderr or r.stdout).strip()}")
-                    return 4
-                print(f"committed {git(root, 'rev-parse', '--short', 'HEAD').stdout.strip()}: "
-                      f"{', '.join(diff.stdout.split())}")
+            code = commit_snapshot(root, git_dir, paths, a.message)
+            if code:
+                return code
             if a.no_push:
                 return 0
             ok, what = sync(root)

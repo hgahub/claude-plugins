@@ -102,6 +102,71 @@ def test_other_sessions_staged_and_modified_files_stay_out(kb):
     assert "half-written" not in git(kb, "show", "HEAD:workflow/web-app.md")
 
 
+def test_the_map_leaves_out_other_sessions_uncommitted_notes(kb, tmp_path):
+    staged = note(kb, "web-app-20-staged")
+    git(kb, "add", staged)
+    note(kb, "web-app-21-untracked")
+    mine = note(kb, "web-app-22-mine")
+    assert kbc.main(["-C", str(kb), "-m", "mine", mine]) == 0
+    committed_map = git(kb, "show", "HEAD:map/web-app.md")
+    assert "web-app-22-mine" in committed_map
+    assert "web-app-20-staged" not in committed_map and "web-app-21-untracked" not in committed_map
+    # the checkout's map page is the committed one; a clean checkout of the commit validates
+    assert git(kb, "status", "--porcelain", "--", "map") == ""
+    clean = tmp_path / "clean"
+    git(tmp_path, "clone", "-q", str(kb), str(clean))
+    assert kbc.validate_kb.main([str(clean)]) == 0
+
+
+def test_an_edit_after_the_snapshot_is_not_committed(kb, monkeypatch):
+    mine = note(kb, "web-app-23-mine", "Validated title")
+    real = kbc.validate_kb.main
+
+    def validate_while_another_session_edits(argv):
+        (kb / mine).write_text((kb / mine).read_text(encoding="utf-8") + "\nunvalidated line\n", encoding="utf-8")
+        return real(argv)
+
+    monkeypatch.setattr(kbc.validate_kb, "main", validate_while_another_session_edits)
+    assert kbc.main(["-C", str(kb), "-m", "mine", mine]) == 0
+    assert "unvalidated" not in git(kb, "show", f"HEAD:{mine}")
+    assert "unvalidated" in (kb / mine).read_text(encoding="utf-8")  # the newer edit stays in the checkout
+    assert mine in git(kb, "diff", "--name-only") and mine not in git(kb, "diff", "--cached", "--name-only")
+
+
+def test_a_commit_made_meanwhile_is_not_overwritten(kb, monkeypatch, capsys):
+    real = kbc.validate_kb.main
+
+    def validate_while_someone_commits(argv):
+        (kb / "apps" / "web-app.md").write_text("changed by hand\n", encoding="utf-8")
+        git(kb, "commit", "-q", "-am", "by hand")
+        return real(argv)
+
+    monkeypatch.setattr(kbc.validate_kb, "main", validate_while_someone_commits)
+    assert kbc.main(["-C", str(kb), "-m", "mine", note(kb, "web-app-24-mine")]) == 4
+    assert "HEAD moved" in capsys.readouterr().out
+    assert git(kb, "log", "-1", "--format=%s") == "by hand"
+
+
+def test_a_broken_uncommitted_page_of_another_session_does_not_block(kb):
+    broken = kb / "notes" / "web-app-25-half-written.md"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text("# no frontmatter yet\n", encoding="utf-8")
+    mine = note(kb, "web-app-26-mine")
+    assert kbc.main(["-C", str(kb), "-m", "mine", mine]) == 0
+    assert sorted(committed(kb)) == ["map/web-app.md", mine]
+
+
+def test_a_deleted_note_removes_its_map_page(kb):
+    n = note(kb, "web-app-27-gone")
+    assert kbc.main(["-C", str(kb), "-m", "add", n]) == 0
+    (kb / n).unlink()
+    assert kbc.main(["-C", str(kb), "-m", "remove", n]) == 0
+    assert sorted(committed(kb)) == ["map/web-app.md", n]
+    assert "map/web-app.md" not in git(kb, "ls-files")
+    assert not (kb / "map" / "web-app.md").exists()
+    assert git(kb, "status", "--porcelain") == ""
+
+
 def test_validation_failure_commits_nothing(kb, capsys):
     head = git(kb, "rev-parse", "HEAD")
     bad = note(kb, "web-app-9-bad")
@@ -230,6 +295,26 @@ def test_first_push_sets_the_upstream(kb, tmp_path, capsys):
     assert kbc.main(["-C", str(kb), "-m", "first", note(kb, "web-app-40-first")]) == 0
     assert git(bare, "log", "-1", "--format=%s", "main") == "first"
     assert git(kb, "rev-parse", "--abbrev-ref", "main@{u}") == "origin/main"
+
+
+def test_a_stalled_remote_probe_says_only_on_this_machine(kb, tmp_path, monkeypatch, capsys):
+    bare = tmp_path / "slow.git"
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    git(kb, "remote", "add", "origin", str(bare))  # a remote, but no upstream yet: the branch is probed
+    real = kbc.git
+
+    def stalling(root, *args, **kw):
+        if "ls-remote" in args:
+            raise subprocess.TimeoutExpired(["git", "-C", str(root), *args], kw.get("timeout"))
+        return real(root, *args, **kw)
+
+    monkeypatch.setattr(kbc, "git", stalling)
+    n = note(kb, "web-app-45-slow")
+    assert kbc.main(["-C", str(kb), "-m", "slow", n]) == 5
+    out = capsys.readouterr().out
+    assert "`git ls-remote --heads origin main` did not finish" in out and "exists only on this machine" in out
+    assert n in committed(kb)
+    assert not lock_dir(kb).exists()
 
 
 def test_push_failure_says_only_on_this_machine(kb, remote, capsys):
