@@ -126,14 +126,13 @@ Write the file with `Write`, then read it back through the plugin:
 Then commit it with the skeleton:
 
 ```bash
-git -C <dir> add -A        # a fresh knowledge base: only the skeleton and the configuration are in it
-git -C <dir> commit -m "Set up the knowledge base (hga)"
-git -C <dir> push -u origin main      # only if it has a remote
+python3 "$KB/kb_commit.py" -C <dir> -m "Set up the knowledge base (hga)" -- .   # a fresh one: only the skeleton and the configuration
 ```
 
-For an existing, shared knowledge base, stage only `hga.config.json` (not `-A`), and say before pushing that it
-changes the team's settings. If the push fails on another host, show git's error: it is usually the user's
-credentials, which they fix themselves.
+For an existing, shared knowledge base, commit only `hga.config.json` (`-- hga.config.json`, not `.`), and say
+before running it that it changes the team's settings. The helper validates, commits under the knowledge
+base's lock and pushes (setting the upstream on the first push). Exit `5` means the push failed: show git's
+error from its output — on another host it is usually the user's credentials, which they fix themselves.
 
 ## 5. Optional, one question each
 
@@ -166,13 +165,11 @@ yes — one question per item, the recommended fix first.
   `python3 "$INIT/scripts/scaffold_kb.py" <dir> --add-missing --dry-run` lists them without writing. Show the
   list and ask — the team may have deleted a page on purpose — then run it without `--dry-run`.
 
-A change to the shared knowledge base is committed with only the files it touched (never `-A`), and before
-pushing say that it changes the team's knowledge base or settings:
+A change to the shared knowledge base is committed with only the files it touched (never `.`), and before
+running it say that it changes the team's knowledge base or settings:
 
 ```bash
-git -C <dir> add <the changed files>
-git -C <dir> commit -m "Repair the hga setup: <what> (hga)" -- <the changed files>
-[ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
+python3 "$KB/kb_commit.py" -C <dir> -m "Repair the hga setup: <what> (hga)" -- <the changed files>
 ```
 
 ## 7. Guide
@@ -204,20 +201,17 @@ A short page on how the team uses hga, with its own settings filled in: `<dir>/w
 ## 8. Check
 
 ```bash
-python3 "$KB/build_map.py" "<dir>"
 python3 "$KB/validate_kb.py" "<dir>"
 HGA config
 HGA doctor
 ```
 
-All must succeed (warnings allowed). If step 5 or 7 wrote pages, commit them (only those files), and push if
-the knowledge base has a remote — for a shared knowledge base, say first that the team will see them:
+All must succeed (warnings allowed). If step 5 or 7 wrote pages, commit them (only those files; the helper
+rebuilds the map and validates first, and pushes if the knowledge base has a remote) — for a shared knowledge
+base, say first that the team will see them:
 
 ```bash
-P="workflow/hga-guide.md apps/<app>.md workflow/<app>.md map/<app>.md"   # whichever were written
-git -C <dir> add $P
-git -C <dir> commit -m "The hga guide and first app pages (hga)" -- $P
-[ -n "$(git -C <dir> remote)" ] && git -C <dir> push --quiet
+python3 "$KB/kb_commit.py" -C <dir> -m "The hga guide and first app pages (hga)" -- workflow/hga-guide.md apps/<app>.md workflow/<app>.md   # whichever were written
 ```
 
 Then summarize in a short table: knowledge base (folder, remote), team

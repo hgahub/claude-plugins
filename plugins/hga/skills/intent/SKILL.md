@@ -208,10 +208,11 @@ complete — that is, whether a triager could decide from the issue, without ask
 By the write rules of `hga:knowledge`:
 
 1. The file goes to `<knowledge_dir>/notes/<intent>.md` (the map takes the app from the `<app>-` prefix).
-2. `build_map.py`, then `validate_kb.py` — `0` is green.
-3. If the knowledge base is a git repository: commit and push your own pages (the note and the changed
-   `map/<app>.md`), not `-A`: `git -C "$K" add <paths>`, then `git -C "$K" commit -m "<app>: intent — <topic>"
-   -- <paths>` (with the paths, the commit leaves out what other sessions staged).
+2. Commit it with the knowledge skill's helper, which rebuilds the map, validates, commits only the note and
+   its `map/<app>.md`, and pushes, under the knowledge base's lock:
+   `python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/kb_commit.py" -C "<knowledge_dir>" -m "<app>: intent
+   — <topic>" -- notes/<intent>.md`. Exit `0` is green (also without a remote or git); `1` is a validation
+   error, nothing committed: fix it and run it again; `5` means it is committed only on this machine: say so.
 
 ### 7. Issue
 

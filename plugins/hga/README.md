@@ -116,9 +116,12 @@ to it afterwards.
 - **Writing:** a new finding goes to `notes/` with frontmatter (`title`, `verified_at`, `status`,
   `review_after_days`) and a `## Sources and verification` section. Canonical pages change only with evidence.
   No secrets, passwords, tokens or personal data.
-- **After writing:** `build_map.py` (the note map), `validate_kb.py` (frontmatter, links, credential-like
-  content), then commit and push the own pages (not `git add -A`). The skills do this themselves; both scripts
-  are in `skills/knowledge/scripts/`.
+- **After writing:** `kb_commit.py -m "<message>" -- <pages>` takes a lock in the knowledge base's `.git`
+  (parallel sessions write the same checkout), snapshots the last commit plus the given pages in a temporary
+  index, rebuilds the note map (`build_map.py`) and validates (`validate_kb.py`: frontmatter, links,
+  credential-like content) in that snapshot, commits exactly it, then pulls with rebase and pushes — so what is
+  validated is what is committed, without other sessions' unfinished pages. The skills do this
+  themselves; the scripts are in `skills/knowledge/scripts/`.
 
 ### The metrics record
 

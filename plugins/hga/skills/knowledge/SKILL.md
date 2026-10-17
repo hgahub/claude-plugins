@@ -115,31 +115,32 @@ A note's file name is `<app>-<issue>-<topic>.md` (e.g. `web-app-142-csv-export.m
 the prefix (matching `apps/<app>.md`) and the issue from the number (and from `#NNN` in the title). Link related
 notes with `[[file-name-without-extension]]`.
 
-After writing, **rebuild the map, then validate**:
+After writing, **commit through `kb_commit.py`** — never with `git add` / `git commit` by hand:
 
 ```bash
-python3 "$KB/build_map.py" "<knowledge_dir>"
-python3 "$KB/validate_kb.py" "<knowledge_dir>"
+python3 "$KB/kb_commit.py" -C "<knowledge_dir>" -m "<app>: <what changed> (#<issue>)" -- <your pages>
 ```
+
+Other sessions write the same checkout, so the helper holds a lock (in the knowledge base's `.git`) from the
+check to the push. It takes a snapshot of the last commit plus the pages you name, rebuilds the map
+(`build_map.py`) and validates (`validate_kb.py`) in that snapshot — what a clean checkout will see, without
+other sessions' unfinished notes — commits exactly the snapshot, then pulls with rebase and pushes. An edit made
+after the snapshot stays in the checkout, uncommitted. Name every page you wrote (not `.`); paths are relative
+to the knowledge base.
 
 The validator checks frontmatter, Markdown links and `[[wikilinks]]` (outside code) and credential-like content
-(code included); exit code `0` is green, warnings (pages due for review) are allowed. Commit the changed
-`map/<app>.md` too.
+(code included); warnings (pages due for review) are allowed. The exit code says what happened:
 
-**If the knowledge base is a git repository** (usually shared by the team), commit and push after a green
-validation — until it is on the remote, nobody else sees it:
+| Exit | Meaning | What to do |
+|---|---|---|
+| 0 | committed and pushed; or no remote (a local-only knowledge base, a valid setup); or not a git repository (validated only); or nothing to commit | the last line has the commit SHA |
+| 1 | validation failed: nothing committed | fix the errors it lists (in your pages, or in a committed page your change breaks, e.g. a link), run it again |
+| 3 | the lock was not free in time | run it again; if it keeps failing, show the lock's owner line to the user |
+| 4 | the commit failed (also: someone committed by hand meanwhile — nothing is overwritten) | show git's error; for the latter, run it again |
+| 5 | committed, but the pull or push failed | say so: the change exists only on this machine. Running it again retries the push |
 
-```bash
-K="<knowledge_dir>"
-P="<your pages and the changed map pages>"   # not -A: other sessions may be writing too
-git -C "$K" add $P
-git -C "$K" commit -m "<app>: <what changed> (#<issue>)" -- $P   # only these: not what others staged
-[ -n "$(git -C "$K" remote)" ] && git -C "$K" pull --rebase --autostash --quiet && git -C "$K" push --quiet
-```
-
-Without a remote, the commit is the end of it: a local-only knowledge base is a valid setup, not a failure.
-Conflicts are rare (notes are new files); if one happens, resolve the rebase and validate again. If the push to
-an existing remote fails (network, permission), say so: the change exists only on this machine.
+A rebase conflict (rare: notes are new files) is aborted, so the commit stays local (exit 5): resolve it by
+hand with the user, then run the helper again.
 
 ## Boundaries
 
