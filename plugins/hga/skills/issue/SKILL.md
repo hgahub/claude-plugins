@@ -17,12 +17,16 @@ The steps come from the typical request:
 > Report back (time, difficulty, token cost). Stop the application after the test, clean up the branch and the
 > worktree. Use and update the knowledge base.
 
-**Every step is mandatory, even when the request does not list them.** Invoking the skill — even with a bare
-issue URL, or with a note about a decision — means the whole workflow: claim, In Progress, worktree,
-development and automated tests, live user test, PR, review and fixing its findings, Done, cleanup, knowledge
-base, report. A step may be skipped only if the user **explicitly** excludes it ("no live test needed"), or it
-cannot be done technically (no VPN, no browser available). Then the report and the PR say what was skipped,
-and why. (Stopping after the PR "because the request did not ask for more" is the classic failure.)
+**Every step is mandatory, even when the request does not list them — as far as the change's risk class
+requires it.** Invoking the skill — even with a bare issue URL, or with a note about a decision — means the
+whole workflow: claim, In Progress, worktree, development and automated tests, live user test, PR, review and
+fixing its findings, Done, cleanup, knowledge base, report. Steps 0–3, 7, 9, 10 and 12 are always required.
+The others are proportionate to the risk: `HGA risk` reads the changed files and sets the class (low /
+standard / high), and the class says which gates do not apply (➖, e.g. the live test of a docs-only change)
+and which get stricter ("Risk class" below). The class is never your own judgment. Apart from that, a step
+may be skipped only if the user **explicitly** excludes it ("no live test needed"), or it cannot be done
+technically (no VPN, no browser available). Then the report and the PR say what was skipped, and why.
+(Stopping after the PR "because the request did not ask for more" is the classic failure.)
 
 ## Settings
 
@@ -38,6 +42,8 @@ Run `HGA config` once at the start and keep the values for the whole run:
 - `review.provider` — `local` (the `code-review` skill only), or `codex` / `copilot` / `greptile` (a review bot
   on GitHub, in addition to the local review); `review.ask_after_rounds` — the round limit (step 8).
 - `knowledge_dir` — the knowledge base.
+- `risk` — the risk classes' file patterns (`low_paths`, `high_paths`, per repository `repos.<owner/repo>`) and
+  `high_label`. `HGA risk` applies them; you only need `high_label` for step 0's provisional class.
 
 **App-specific part:** what is particular to one repository (gate, install, starting the live test, state
 objects, test data, UI pitfalls) is on the knowledge base's `workflow/<app>.md` page. Read it in step 0 if it
@@ -57,25 +63,25 @@ is. If the evidence is missing, the item is not done.
 
 | # | Step | | Evidence |
 |---|---|---|---|
-| 0 | Start: repo, issue, duplicates, knowledge base | ✅ | timestamp; `HGA repo-check` OK; issue OPEN + status; duplicate search result; knowledge pages read and their dates |
+| 0 | Start: repo, issue, duplicates, knowledge base | ✅ | timestamp; `HGA repo-check` OK; issue OPEN + status; duplicate search result; knowledge pages read and their dates; the provisional risk class (from the labels) |
 | 1 | Claim | ✅ | `claim-check`: free; the claim's message `ts` or comment URL; the read-back: first; the run marker's path @ commit SHA |
 | 2 | In Progress | ✅ | `HGA status-set` read-back: `Status: In Progress · issue: OPEN` |
 | 3 | Worktree | ✅ | branch name + base SHA; upstream unset |
-| 4 | Decisions | ✅ | who decided what (issue comment, user, decision tool) |
-| 5 | Build + automated tests | ✅ | number of new cases; how many fail on the base and why; the gate's numbers (passed, coverage) |
-| 6 | Live test | ✅ | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free |
-| 7 | PR | ✅ | PR URL, head SHA; `closingIssuesReferences` lists the issue; follow-up issue numbers (7a), if any |
-| 8 | Review | ✅ | local review result; bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI |
+| 4 | Decisions | ✅ ➖ | who decided what (issue comment, user, decision tool); high: the maintainer's decision; ➖ low, if nothing was decided |
+| 5 | Build + automated tests | ✅ | number of new cases (low: ➖); how many fail on the base and why (high: all of them); the gate's numbers (passed, coverage); `HGA risk --worktree`'s `Risk:` line |
+| 6 | Live test | ✅ ➖ | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free — ➖ low, with step 5's `Risk:` line |
+| 7 | PR | ✅ | PR URL, head SHA; `closingIssuesReferences` lists the issue; follow-up issue numbers (7a), if any; high: `checks` not empty, the rollback note in the PR's "Risk" section |
+| 8 | Review | ✅ | local review result and level (low: one round at `low`, no bot; high: `high` level); bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line, and the gates done if the class rose |
 | 9 | Done | ✅ | read-back: `Status: Done · issue: OPEN` |
 | 10 | Cleanup | ✅ | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
-| 11 | Knowledge | ✅ | the note's path; `validate_kb` 0 errors; commit SHA after push (or the commit SHA, if the knowledge base has no remote) |
+| 11 | Knowledge | ✅ ➖ | the note's path; `validate_kb` 0 errors; commit SHA after push (or the commit SHA, if the knowledge base has no remote) — ➖ low, if nothing new was learned |
 | 12 | Report | ✅ | link to the report message or comment; the metrics record's path and its commit SHA |
 
 Marks: ✅ done, with evidence · ⏳ in progress · ⬜ not started · ⚠️ skipped (only on explicit exclusion or a
 technical obstacle, with the reason; the live test only if both start paths of 6.1 failed) · ➖ not applicable
-(only where `HGA risk`'s class lists the step among its `not_applicable` gates; the evidence is its `Risk:`
-line). Not applicable is not a skip: the gate does not apply to this change. A class never comes from your own
-judgment — `HGA risk` reads the changed files and the team's patterns, and only a `risk:high` label raises it.
+(only where the class's column in "Risk class" below says ➖; the evidence is `HGA risk`'s `Risk:` line). Not
+applicable is not a skip: the gate does not apply to this change. A class never comes from your own judgment —
+`HGA risk` reads the changed files and the team's patterns, and only the `risk.high_label` label raises it.
 
 **Side pane (the hga plugin's issue pane) — mandatory, at every step.** If the session has the
 `mcp__hga__step` tool, **each** of steps 0–12 gets **two calls**, without exception:
@@ -96,7 +102,7 @@ step is completed later (e.g. the live test after merge), the `done` call is sti
 **Gate:** before every showing of the checklist table (below: after the PR, before the report, after the
 report), compare the pane's last answer (`N/13 done`) with the table. If the pane shows fewer, make the missing
 calls first, and only then show the table or post the report. **The report does not go out until the pane
-shows steps 0–11.**
+shows steps 0–11** (`not_applicable` counts as finished).
 
 Why this strict: the loose version of the rule ("call it at every state change") is regularly forgotten, and the
 pane then shows a third of the work while all of it is done. If the tool is not in the session, skip it — that
@@ -108,15 +114,15 @@ When to show it:
   is made from it;
 - **after the report**, with item 12 (the report's link) added, to close.
 
-The report gets one line from it: `Checklist: 0–11 ✅` (or which item was skipped, and why); item 12 is the
-report itself. That is why the cleanup and the knowledge base come before the report: otherwise the report says
+The report gets one line from it: `Checklist: 0–11 ✅` — with the class's ➖ items named, e.g.
+`Checklist: 0–11 ✅, 6 and 11 n/a (low)`, and which item was skipped, and why; item 12 is the report itself. That is why the cleanup and the knowledge base come before the report: otherwise the report says
 "12/12" while the worktree still exists. The checklist does not go into the PR description: it would be stale
 after the review and the merge.
 
 Helper script (standard library + `gh`):
 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (on Windows `python`) —
 `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`, `tokens --since <iso-start>`,
-`claim-check <owner/repo> <n>`, `risk <owner/repo> --worktree <dir> | --pr <n>`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n> [--risk <class>]`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
+`claim-check <owner/repo> <n>`, `risk <owner/repo> --worktree <dir> | --pr <n> [--issue <n>]`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n> [--risk <class>]`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
 `review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr>`, `deps <owner/repo> <n>`. In the examples
 below `HGA` means this command. Write it out in full in every Bash call, or define a shell function first —
 `hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
@@ -126,6 +132,61 @@ not work (zsh does not split it into words). `elapsed` and `tokens` measure from
 The `workflow/` pages use two placeholders, because nothing is substituted there: `<SCRIPTS>` =
 `${CLAUDE_SKILL_DIR}/scripts` (it has `run_worktree.py`), `<REPOS>` = the common parent folder of the
 repositories' main checkouts (the worktrees go next to them).
+
+## Risk class — which gates apply
+
+`HGA risk` sets the class from the changed files and the team's patterns (`risk` in `HGA config`):
+
+- **high** — a changed file matches `risk.high_paths` (migrations, auth, CI workflows, …), or the issue or the
+  PR has the `risk.high_label` label;
+- **low** — every changed file matches `risk.low_paths` (docs, tests, …);
+- **standard** — everything else.
+
+**Up only.** Only the `risk.high_label` label raises a class: the maintainer adds it, or tells you to
+(`gh issue edit <n> --repo <owner/repo> --add-label <label>`), and the next run sees it. Nothing lowers a class:
+the run's class is the highest one `HGA risk` printed since step 5, even if a later run prints a lower one
+(a file reverted). Neither you nor the issue's text changes it.
+
+**When it runs** — three times:
+
+1. **Step 0, provisional — from the issue's labels.** There is no worktree and no changed file yet, so the
+   command has nothing to read: compare the labels you read in 0.4 with `risk.high_label` (case does not
+   matter). It can tell `high` (the label is there); it cannot tell low or standard, nor a high path among the
+   files the change will touch. Step 0's evidence says which: `Risk (provisional): high · label risk:high`, or
+   `Risk (provisional): no high label — the class comes at the end of step 5`. A provisional `high` applies to
+   step 4 at once.
+2. **End of step 5 — this decides step 6.** After the gate, before the live test, on the worktree (it reads
+   committed, staged, unstaged and untracked changes):
+   ```bash
+   HGA risk <owner/repo> --worktree ../<repo>-<n> --issue <n>
+   ```
+   Its `Risk:` line goes into step 5's evidence and is the evidence of every ➖ step. Exit 4 (no changed file):
+   there is nothing to test or review — stop and look, do not go on to step 6.
+3. **Before step 9 — review fixes can grow the diff:**
+   ```bash
+   HGA risk <owner/repo> --pr <pr> --issue <n>
+   ```
+   Its `Risk:` line goes into step 8's evidence. **If the class rose** (low → standard, or anything → high), the
+   gates the higher class adds are missing: do them before step 9 — on the pane, the step goes back to
+   `in_progress`, then `done` with the new evidence. E.g. a review fix touched a migration: the maintainer's
+   decision (4), the base-failing tests (5), the live test (6), at least one `checks` point and the rollback
+   note (7), and a local review round at `high` level (8).
+
+**The gates per class** (the same as the script's `Gates:` line; "as described" = the step's own section):
+
+| Step | low | standard | high |
+|---|---|---|---|
+| 4 Decisions | ➖ if nothing was decided; a decision that was made is recorded as usual | as described | the **maintainer's** decision is required: the issue's dated "Decisions" from the triage, or their answer to `AskUserQuestion` — a decision tool or your own choice alone is not enough |
+| 5 Build + tests | the gate runs, its numbers are the evidence; new test cases ➖ | as described | every new test **must fail on the base**, for the right reason (the proof of step 5, each test listed) |
+| 6 Live test | ➖ | as described | required; **only the maintainer can waive it** — if it cannot be done, ask, and skip (⚠️) only on their word |
+| 7 PR | as described | as described | at least one manual review point (`checks`), and a **rollback** note in the PR's "Risk" section |
+| 8 Review | **one** local round at `low` level; fix its real findings, no further round; **no bot** — `review-request` is not sent | as described | local at `high` level (every round), plus the bot if `review.provider` is one |
+| 11 Knowledge | ➖ if nothing new was learned | as described | as described |
+
+Steps 0–3, 7, 9, 10 and 12 are always required. A ➖ step goes to the pane as `not_applicable` with the
+`Risk:` line that decided it, and the PR and the report say "not applicable (low)" where the step's section
+would be. Step 4 comes before the class is known: if nothing was decided, report it `done` ("nothing to
+decide: …"), and if step 5's class is low, report it again as `not_applicable`.
 
 ## What is allowed in advance, and what is not
 
@@ -139,6 +200,8 @@ repositories' main checkouts (the worktrees go next to them).
 | Creating a follow-up **GitHub issue** and tracking it (Todo) | part of the workflow — as in step 7a |
 | A follow-up as a **suggested task chip** (`spawn_task`) | **no** — the team starts work from issues only |
 | **Closing** the bot review without 👍 | **the maintainer's decision** — ask, as in step 8 |
+| Adding the `risk.high_label` label (raising the class) | on the maintainer's word; **lowering a class: never** |
+| **Waiving** the live test of a high-risk change | **the maintainer's decision** — ask, as in "Risk class" |
 | **Linking** the issue for closing (`Closes #n` in the PR description) | part of the workflow — as in step 7 |
 | **Closing** the issue by hand (`gh issue close`) | after the merge, if the merge did not close it (as in "After the merge"); before the merge, only if the user asks |
 | **Merging** the PR | **never** — the maintainer's |
@@ -163,6 +226,7 @@ repositories' main checkouts (the worktrees go next to them).
    **Prerequisites:** `HGA deps <owner/repo> <n>`. If an open prerequisite exists (exit 3), do not claim: tell
    the user, as with an issue someone else has claimed. In an issue finalized by `hga:triage`, the body's
    "Implementation" and "Acceptance criteria" are the contract.
+   **Provisional risk class:** from the labels, as in "Risk class" (point 1).
 5. **Knowledge base:** load the `hga:knowledge` skill, and read the app's page, its map (`map/<app>.md`) and the
    related notes. Take their dates seriously.
 6. **The repo's rules:** the repo's `CLAUDE.md` and its conventions document, the knowledge base's
@@ -282,6 +346,11 @@ not take the winner. Without such a skill, ask with `AskUserQuestion` (the recom
 For scope questions (what fits in this PR), start from the acceptance criteria. A bug in sibling code that is
 fixed by **the same mechanism** fits if it is tested; everything else is a follow-up.
 
+**Risk:** with a provisional `high` (step 0), the maintainer decides — a dated decision in the issue's
+"Decisions" section counts; otherwise ask with `AskUserQuestion`, even if a decision skill is installed. With no
+high label yet, decide as above; if step 5's class turns out `high`, take the decisions to the maintainer then,
+before step 6. If nothing was decided, see the end of "Risk class" for the pane.
+
 ## 5. Build and automated tests
 
 - Follow the surrounding code's language and style, and the repo's conventions.
@@ -298,8 +367,20 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
 - **During development, regularly** run the type check and the test file you are touching; the full gate once,
   at the end.
 - The repo's full gate before the PR (per the workflow page). Record the numbers (passed, coverage) for the PR.
+- **Risk class — the last action of step 5:** `HGA risk <owner/repo> --worktree ../<repo>-<n> --issue <n>`
+  ("Risk class", point 2), its `Risk:` line in step 5's evidence. It changes this step's gates:
+  - **low** — the gate still runs and its numbers are the evidence; new test cases are not required (➖ in the
+    evidence: `new cases: n/a (low)`), so no base proof either. Steps 4 (if nothing was decided) and 6 become ➖
+    now; step 11 at its turn, if nothing new was learned.
+  - **high** — the regression proof above is required for **every** new test, each with its failure on the base;
+    with no new test, the step is not done: write one.
 
 ## 6. Live user test
+
+**Low class:** step 6 is ➖ — `not_applicable` with step 5's `Risk:` line; nothing starts, `launch.json` is
+untouched, and the PR's "Live user test" section says "not applicable (low)". **High class:** only the
+maintainer can waive it — where this section allows a skip (a decline, both start paths failed), ask the
+maintainer instead of skipping, and skip only on their word.
 
 1. **Start** first with `preview_start`. Add a temporary configuration to the `.claude/launch.json` of the
    session's folder (`preview_start` reads it from there; for a session launched by the triage, that is its own
@@ -405,7 +486,10 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
   7. **Review** — filled in at the end of the review (step 8): the fixes as a table (round · commit · fix), and if
      the maintainer closed it, that fact with the follow-up issue's link
   8. **Not part of this PR (follow-up)** — with the follow-up issues' links (7a)
-  9. the harness's PR attribution line
+  9. **Risk** — the `Risk:` line of step 5; for a **high** class also **Rollback**: how to undo the change after
+     the merge (revert commit, migration down, feature flag, data restore), and what a revert alone does not
+     undo
+  10. the harness's PR attribution line
 - **Read the link back:** `gh pr view <pr> --json closingIssuesReferences` lists the issue (step 7's evidence).
   If it is missing, fix the description (`gh pr edit <pr> --body-file …`) and read it back again.
 - Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
@@ -415,6 +499,8 @@ fixed by **the same mechanism** fits if it is tested; everything else is a follo
   migration and backward compatibility, the points of a skipped live test, the risky choices of a decision
   round. One concrete, checkable sentence per point, with the place (`file:line` or the screen) — not general
   advice ("review the code"). If there is no such point, `checks: []` — do not fill the list for the sake of 13.
+  A **high** class needs at least one point (what makes it high: the migration, the permission rule, the
+  workflow), and the rollback note above.
   If the review rounds' fixes touch the list, send the whole list again in step 8's `done` call (a point with the
   same text keeps its tick).
 
@@ -444,13 +530,24 @@ the UI cannot be started as a task, so do not use one. If a chip was created in 
 
 ## 8. Review
 
+The class (step 5's `Risk:` line) sets the review:
+
+| Class | Local review | Bot (`review.provider` ≠ `local`) |
+|---|---|---|
+| low | **one** round at `low` level; fix its real findings, no further round | **none** — `review-request` is not sent; points 2–6 do not apply |
+| standard | `medium`, or `high` above 1000 changed lines; rounds as below | as below |
+| high | `high` level, every round | as below |
+
 1. **Local review first, on every PR.** Run the `code-review` skill on the PR, without `--comment` (no comments
-   on the PR): at `medium` level, or `high` if the PR changes more than 1000 lines
+   on the PR), at the class's level (the table): for standard `medium`, or `high` if the PR changes more than 1000 lines
    (`gh pr view <pr> --json additions,deletions`). Fix the real findings (test, gate, commit, push); justify the
    rest to yourself.
-   - With `review.provider` = `local` this **is** the review: repeat it after each round of fixes until it finds
-     nothing significant, with the same round limit as below (point 5, counting local rounds).
-2. **Request (bot providers):** `HGA review-request <owner/repo> <pr>` — Codex gets an `@codex review` comment,
+   - With `review.provider` = `local` (standard and high) this **is** the review: repeat it after each round of
+     fixes until it finds nothing significant, with the same round limit as below (point 5, counting local
+     rounds).
+   - With a **low** class the one round is the whole review, with a bot provider too: its fixes go in without a
+     new round, and the metrics record gets `--review-rounds 1`.
+2. **Request (bot providers, standard and high):** `HGA review-request <owner/repo> <pr>` — Codex gets an `@codex review` comment,
    Copilot is added as a reviewer, Greptile gets an `@greptileai` comment. After a push, wait ~20 seconds before
    requesting: a request that is too early can fail with "ref does not exist".
 3. **Waiting** in the background, with a single notification (Bash `run_in_background`):
@@ -497,8 +594,14 @@ the UI cannot be started as a task, so do not use one. If a chip was created in 
      counts every bot review as a round, the closing one too.
 7. CI is shown by `mcp__ccd_pr__get_status` where available, otherwise `gh pr checks <pr>`. Auto-fix monitoring
    only if the user asks.
+8. **The class again — the last action of step 8:** `HGA risk <owner/repo> --pr <pr> --issue <n>` ("Risk
+   class", point 3). Its `Risk:` line goes into step 8's evidence. If the class rose, do the missing gates now
+   (a low PR that became standard gets its live test and, with a bot provider, the bot review; anything that
+   became high gets the high column) — step 9 waits for them.
 
 ## 9. Done — the merge closes it
+
+Only after step 8's `HGA risk --pr` check, and the gates of a risen class.
 
 ```bash
 HGA status-set <owner/repo> <n> Done
@@ -530,6 +633,9 @@ There is no closing label. Do not wait for the merge either: the report goes out
 
 ## 11. Knowledge base and memory — before the report
 
+**Low class:** if the run taught nothing new (no lasting finding, no workflow trap), step 11 is ➖ —
+`not_applicable` with the `Risk:` line. If it did, write it down as below.
+
 - A new, lasting finding: a note in the knowledge base's `notes/` (frontmatter, `## Sources and verification`:
   commit SHAs, commands, issue/PR URL, the claim's link), as the `hga:knowledge` skill says. Without a merge, say
   that it is not evidence of deployment. For a large PR, record whether there was a local review and how many
@@ -549,7 +655,7 @@ There is no closing label. Do not wait for the merge either: the report goes out
 
 ## 12. Report — the last step
 
-**Precondition:** the pane shows steps 0–11 (`done` or `skipped`). If not, make up the missing calls first —
+**Precondition:** the pane shows steps 0–11 (`done`, `skipped` or `not_applicable`). If not, make up the missing calls first —
 the report does not go out until then. After sending: step 12 `done` with the message's link, then the metrics
 record (below), then step 12 `done` once more with the record's path added.
 
@@ -562,7 +668,10 @@ Write it in the configured language. The content:
   closing with the follow-up issue), the issue is Done (open; the merge closes it through `Closes #n`)
 - **Fix** in 1–2 lines; **Tests**: new cases, whether they fail on the base, the gate's numbers, live test (in
   which browser); **Live test verdict**: `PASSED` / `FAILED` / `NOT VERIFIED`, with the number of fix rounds
-- **Checklist:** `0–11 ✅` — or which item was skipped, and why
+- **Risk:** the class and its reason, from the last `Risk:` line (`low · every file matches a low pattern`); if
+  it rose during the run, from what to what and why
+- **Checklist:** `0–11 ✅`, the class's ➖ items named (`0–11 ✅, 6 and 11 n/a (low)`) — and which item was
+  skipped, and why
 - **Time:** the "Report line" of `HGA elapsed <start>`: wall clock, and within it active time, review wait and
   pauses. Name a pause if you know what it was ("waiting for an answer about closing", "interrupted run"): the
   transcript shows the time, not always the reason.
@@ -584,8 +693,9 @@ Write it in the configured language. The content:
 above, for the team's later aggregation (the knowledge base's `metrics/README.md` has the schema). It reads the
 pane's state file: the start, each step's start and end, and the account's five-hour usage at the start and at
 step 12's `done` — so that call must come first. Pass the difficulty you reported and the review's rounds (the
-bot rounds of step 8, or the local review's rounds without a bot), and the risk class of `HGA risk`'s last run
-(if it ran); with several sessions, each with `--session`:
+bot rounds of step 8, or the local review's rounds without a bot — 1 for a low class), and the run's risk
+class (the highest `HGA risk` printed since step 5; omit `--risk` if it never ran); with several sessions, each
+with `--session`:
 
 ```bash
 HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2 --risk standard

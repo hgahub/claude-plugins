@@ -5,6 +5,8 @@ How /hga:init fills this in (this comment does not go into the page):
 - {{…}} are values from `HGA config` and the knowledge base's git remote. A line marked [board] / [no board],
   [slack] / [no slack], [bot] / [local] or [remote] / [local only] stays only if it matches the configuration;
   drop the marker itself.
+- `{{RISK_…_PATHS}}` lists the patterns in backticks; `{{RISK_REPO_OVERRIDES}}` names the repositories with their
+  own `risk.repos` patterns ("own low paths: acme/prompts"), or says "no per-repository overrides".
 - Keep it short: what is here is the whole page. Do not add the plugin's internals; link to them instead.
 -->
 ---
@@ -51,6 +53,7 @@ idea → /hga:intent → /hga:new-issue → /hga:triage → /hga:issue → revie
 | [bot] Review | local `code-review` + {{REVIEW_PROVIDER}} | After the local review, {{REVIEW_PROVIDER}} reviews the PR on GitHub; Claude fixes and answers its findings. |
 | Review rounds | {{ASK_AFTER_ROUNDS}} | From this round on, you decide whether to close the review (with a follow-up issue if needed). |
 | Parallel work | {{MAX_PER_REPO}} per repository, up to {{USAGE_CEILING_PCT}}% of the 5-hour plan usage | `/hga:triage` starts no more implementations than this. |
+| Risk classes | high: {{RISK_HIGH_PATHS}} or the label `{{RISK_HIGH_LABEL}}`; low: {{RISK_LOW_PATHS}} ({{RISK_REPO_OVERRIDES}}) | `/hga:issue` sets the class from the changed files. A low change (docs, tests) skips the live test and the bot review; a high one needs your decision, a rollback note, and only you can waive its live test. Add the label to raise an issue to high; nothing lowers a class. |
 
 ## Where you decide
 

@@ -47,6 +47,20 @@ or when you stop it.
   (`gh issue comment <n> --repo <owner/repo> --body-file …`), then
   `gh issue close <n> --repo <owner/repo> --reason completed` (implemented), `--reason "not planned"`
   (unnecessary) or `--duplicate-of <m>`; read back `gh issue view <n> --json state,stateReason`.
+- **Expected risk class.** `/hga:issue` sets the class (low / standard / high) from the changed files with
+  `HGA risk`, and it decides which gates the run needs (its "Risk class" section). Before there is a diff, the
+  triage can only expect one, and says so in branch C's proposal and branch D's report:
+  - **high** — the issue has the `risk.high_label` label (`HGA config` → `risk`), or its "Implementation"
+    section names files or areas that match `risk.high_paths` (with the repository's own `risk.repos` entry):
+    a migration, auth or permission code, a CI workflow;
+  - **low** — the Implementation touches only files matching `risk.low_paths` (docs, tests; a repository's own
+    `low_paths` replaces the team's);
+  - **standard** — anything else, or when the Implementation does not say which files.
+
+  Name the reason in a few words (`expected risk: high — label risk:high`, `expected risk: high — a migration
+  under db/migrations/`). It is an expectation, not the class: it changes no gate and no label. **A high-risk
+  issue launches like any other** — no extra approval; the `hga:issue` run asks the maintainer where its high
+  gates need them.
 - **Outgoing calls with finished text, in a separate call.** Write the body with the `Write` tool to the
   scratchpad, and send it with `--body-file`.
 - **Helper script:** `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows
@@ -162,12 +176,14 @@ mode) the user answered the launch question.
    withdraws.
 4. **Proposal:** among the ready issues, the one that does not collide with running implementations and open PRs
    (same function, file, data format), with the reasoning. If none is ready, the untriaged one where branch A
-   brings the most (oldest, largest impact). In continuous mode the proposed issue goes on to branch D if it is
-   ready, or to branch A if it is untriaged, without asking.
+   brings the most (oldest, largest impact). Name its **expected risk class** with the reason (Common frame).
+   In continuous mode the proposed issue goes on to branch D if it is ready, or to branch A if it is untriaged,
+   without asking.
 5. **"When can #N start?":** `HGA deps <owner/repo> <n>` — the open prerequisites, each with its state (Todo /
    In Progress / open PR).
 
-**Done** when the proposal names the issue, its open prerequisites, and the result of the collision check.
+**Done** when the proposal names the issue, its expected risk class, its open prerequisites, and the result of
+the collision check.
 
 ## D. Launch — a parallel implementation session
 
@@ -222,7 +238,8 @@ session starts in its own worktree, with the triage session's permission mode �
      (`ready-for-agent`); the body's "Implementation" and "Acceptance criteria" sections are the contract. The
      merge is the maintainer's: stop after the report, and wait for their message."
    - `background` (at least 80 characters): the repository, that the triage launches it as a parallel
-     implementation, that at most `parallel.max_per_repo` run per repository, and the issue's `HGA meta` line.
+     implementation, that at most `parallel.max_per_repo` run per repository, the issue's `HGA meta` line, and
+     the expected risk class (an expectation: the run's `HGA risk` decides).
    - If the app refuses the start because the turn was started by an event (a subtask's notification, in
      continuous mode) rather than by the maintainer, send the same brief with `initiation`: `own_initiative` —
      it becomes a card the maintainer starts with one click. The report says that the issue waits on the card.
@@ -234,7 +251,8 @@ session starts in its own worktree, with the triage session's permission mode �
    it started in the triage session's folder, do not: `hga:issue`'s step 3 does not switch branches in a folder
    that is not the main checkout, and works in a worktree opened from it. The report says where it started.
 5. **Report:** the issue and the session's link (`[hga:issue <repo>#<n>](#<session_id>)`), the `HGA meta` line,
-   and if any, the label proposal and the differing field proposals. Then back to branch C.
+   the **expected risk class** with its reason (Common frame), and if any, the label proposal and the differing
+   field proposals. Then back to branch C.
 6. **Feedback:** when the subtask ends a turn, the triage gets a notification with the start of its report.
    After `hga:issue`'s report the slot is free, and the next ready issue can go; if it stopped with a question
    or an error, tell the maintainer. The maintainer writes about the merge directly to the implementation

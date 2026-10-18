@@ -1,6 +1,6 @@
 ---
 name: dashboard
-description: Use when someone wants to see how the hga issue runs went — lead times, elapsed time per section, tokens, an API-price cost estimate, review rounds, aborted runs, plan usage — across repositories and over a period. Aggregates the knowledge base's metrics records (written by /hga:issue step 12) with `hga_issue.py metrics`, then creates a claude.ai Dashboard artifact on first use or refreshes the existing one with the new rows. Triggers include "hga dashboard", "metrics dashboard", "how fast do we solve issues", "how many tokens did the issues take", "refresh the dashboard", "show the issue metrics".
+description: Use when someone wants to see how the hga issue runs went — lead times, elapsed time per section, tokens, an API-price cost estimate, review rounds, risk classes, aborted runs, plan usage — across repositories and over a period. Aggregates the knowledge base's metrics records (written by /hga:issue step 12) with `hga_issue.py metrics`, then creates a claude.ai Dashboard artifact on first use or refreshes the existing one with the new rows. Triggers include "hga dashboard", "metrics dashboard", "how fast do we solve issues", "how many tokens did the issues take", "refresh the dashboard", "show the issue metrics".
 user-invocable: true
 argument-hint: "[refresh]"
 ---
@@ -148,12 +148,20 @@ From top to bottom:
    estimate, USD".
 6. **Review rounds** — how many runs needed 0, 1, 2, … rounds (a histogram over `review_rounds`), and next to
    it rounds against lead time (one dot per run).
-7. **Five-hour plan usage (account)** — on a time axis, one segment per run from
+7. **By risk class** — the filtered `kind=run` rows with a record, grouped by `risk` (low → standard → high, then
+   "not classified" for an empty cell: older records, or a run where `HGA risk` never ran), one color per class,
+   the same wherever the class shows. Per class: the number of runs, the median lead time (`wall_s`) and active
+   time (`active_s`) as paired bars, the median and the spread of `review_rounds`, and the average `na_steps`
+   (the gates the class made not applicable). The subtitle says that the class comes from the changed files
+   (`HGA risk`), so it shows whether low-risk runs really are cheaper and high-risk ones get more review. A
+   class with fewer than 3 runs is shown, but its bars are marked "few runs".
+8. **Five-hour plan usage (account)** — on a time axis, one segment per run from
    `five_hour_start_at`/`_pct` to `five_hour_end_at`/`_pct`, colored by repository; the subtitle says it is the
    whole account's usage (all sessions, parallel ones included), context for the period, not the issue's cost.
    Runs without both snapshots are left out, and the chart says how many.
-8. **Runs** — a table of the filtered `kind=run` rows (run, repo, issue, start, outcome, lead time, active,
-   difficulty, rounds, tokens, cost estimate), newest first, keyed on `run`; aborted runs stand out.
+9. **Runs** — a table of the filtered `kind=run` rows (run, repo, issue, start, outcome, lead time, active,
+   difficulty, risk, n/a steps, rounds, tokens, cost estimate), newest first, keyed on `run`; aborted runs stand
+   out.
 
 A filter that leaves no rows shows "No runs in this period" in each chart, not an empty axis.
 

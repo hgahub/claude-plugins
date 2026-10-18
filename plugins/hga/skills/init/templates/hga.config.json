@@ -9,5 +9,11 @@
   "labels": { "in_progress": "in-progress", "in_review": "in-review" },
   "slack": null,
   "review": { "provider": "local", "ask_after_rounds": 5 },
-  "parallel": { "max_per_repo": 2, "usage_ceiling_pct": 80 }
+  "parallel": { "max_per_repo": 2, "usage_ceiling_pct": 80 },
+  "risk": {
+    "low_paths": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/**", "LICENSE", "LICENSE.*", "tests/**", "test/**"],
+    "high_paths": ["**/migrations/**", "*.sql", "**/auth/**", "**/permissions/**", ".github/workflows/**"],
+    "high_label": "risk:high",
+    "repos": {}
+  }
 }
