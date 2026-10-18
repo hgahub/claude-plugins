@@ -1019,6 +1019,29 @@ def test_risk_from_a_worktree(hga, tmp_path, monkeypatch, capsys):
     assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main"]) == 4
 
 
+def test_risk_from_a_worktree_reads_non_ascii_names_literally(hga, tmp_path, monkeypatch, capsys):
+    # git quotes a non-ASCII path by default (core.quotePath): "auth/entr\\303\\251e.py" would match no pattern
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "nogit"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for k in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{k}_NAME", "T")
+        monkeypatch.setenv(f"GIT_{k}_EMAIL", "t@example.test")
+    wt = tmp_path / "repo"
+    (wt / "src" / "auth").mkdir(parents=True)
+    gitrun(tmp_path, "init", "-q", "-b", "main", str(wt))
+    gitrun(wt, "commit", "-q", "--allow-empty", "-m", "base")
+    (wt / "src" / "auth" / "entrée.py").write_text("x = 1\n", encoding="utf-8")
+    gitrun(wt, "add", "src/auth/entrée.py")  # staged
+    (wt / "src" / "auth" / "újfájl.py").write_text("y = 2\n", encoding="utf-8")  # untracked
+    (wt / "jegyzet ő.md").write_text("z\n", encoding="utf-8")  # untracked, a space too
+    assert hga.worktree_files(str(wt), "main") == ["jegyzet ő.md", "src/auth/entrée.py", "src/auth/újfájl.py"]
+    assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Risk: high · 2 file(s) match a high pattern · 3 file(s)")
+    assert "high  src/auth/entrée.py  (**/auth/**)" in out and "high  src/auth/újfájl.py  (**/auth/**)" in out
+    assert "low   jegyzet ő.md  (*.md)" in out
+
+
 def test_risk_from_a_pr_with_its_labels(hga, monkeypatch, capsys):
     def gh(*args):
         if args[0] == "api":

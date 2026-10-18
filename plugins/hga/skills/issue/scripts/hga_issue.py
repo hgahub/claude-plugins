@@ -1532,9 +1532,10 @@ def worktree_files(wt: str, base: str | None) -> list[str]:
                               capture_output=True, text=True, encoding="utf-8")
         base = head.stdout.strip() or "origin/main"
     mb = run("merge-base", base, "HEAD").strip()
-    # The working tree against the merge base: committed, staged and unstaged changes; both names of a rename
-    changed = run("diff", "--name-only", "--no-renames", mb).splitlines()
-    untracked = run("ls-files", "--others", "--exclude-standard").splitlines()
+    # The working tree against the merge base: committed, staged and unstaged changes; both names of a rename.
+    # -z: the literal paths, NUL-separated; without it git quotes a non-ASCII name ("auth/entr\303\251e.py").
+    changed = run("diff", "--name-only", "--no-renames", "-z", mb).split("\0")
+    untracked = run("ls-files", "--others", "--exclude-standard", "-z").split("\0")
     return sorted({f for f in changed + untracked if f})
 
 
