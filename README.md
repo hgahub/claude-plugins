@@ -41,15 +41,17 @@ GitHub is required; Slack, a GitHub project board and a review bot are optional.
 
 ```
 npm install                                   # TypeScript, for the type check
-claude --plugin-dir ./plugins/hga             # load it; this also generates the types (.claude-plugin/types, tsconfig.json)
 claude plugin validate plugins/hga
 claude plugin test plugins/hga                # the panes' tests
 python3 -m pytest plugins/hga/tests/py        # the scripts' tests
+scripts/plugin-types.sh                       # the plugin's types (.claude-plugin/types, tsconfig.json)
 npm run typecheck
 ```
 
-Types are generated only by an actual load (`validate` and `test` do not), so load the plugin once with
-`--plugin-dir` before `npm run typecheck`.
+Types are generated only by an interactive load (`validate` and `test` do not). `scripts/plugin-types.sh` does
+that load in a pseudo-terminal, with its own empty configuration, a placeholder API key and an unreachable API
+endpoint: no key and no model call are needed, so CI runs it too. Loading the plugin yourself
+(`claude --plugin-dir ./plugins/hga`) generates them as well.
 
 ## License
 

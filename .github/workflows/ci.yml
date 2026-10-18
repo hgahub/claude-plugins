@@ -26,7 +26,7 @@ jobs:
       - run: python -m pytest plugins/hga/tests/py -q
 
   plugin:
-    name: Plugin validate and pane tests
+    name: Plugin validate, pane tests and type check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,3 +37,7 @@ jobs:
       - run: claude plugin validate .
       - run: claude plugin validate plugins/hga
       - run: claude plugin test plugins/hga
+      - run: npm ci
+      - name: Generate the plugin's types (no API key, no model call)
+        run: scripts/plugin-types.sh
+      - run: npm run typecheck
