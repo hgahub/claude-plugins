@@ -668,8 +668,10 @@ Write it in the configured language. The content:
   closing with the follow-up issue), the issue is Done (open; the merge closes it through `Closes #n`)
 - **Fix** in 1–2 lines; **Tests**: new cases, whether they fail on the base, the gate's numbers, live test (in
   which browser); **Live test verdict**: `PASSED` / `FAILED` / `NOT VERIFIED`, with the number of fix rounds
-- **Risk:** the class and its reason, from the last `Risk:` line (`low · every file matches a low pattern`); if
-  it rose during the run, from what to what and why
+- **Risk:** the run's class ("Up only": the highest one `HGA risk` printed since step 5, the same as
+  `metrics-record --risk`) and its reason from the `Risk:` line that set it (`low · every file matches a low
+  pattern`), not the last line; if it rose during the run, from what to what and why; if a later run printed a
+  lower class (a file reverted), say so, the class stays
 - **Checklist:** `0–11 ✅`, the class's ➖ items named (`0–11 ✅, 6 and 11 n/a (low)`) — and which item was
   skipped, and why
 - **Time:** the "Report line" of `HGA elapsed <start>`: wall clock, and within it active time, review wait and
