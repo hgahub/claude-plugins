@@ -1,4 +1,5 @@
 import json
+import subprocess
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -918,3 +919,146 @@ def test_cli_metrics_prints_the_abort_rate(hga, tmp_path, capsys):
     header, row = captured.out.splitlines()
     assert dict(zip(header.split(","), row.split(",")))["outcome"] == "aborted"
     assert "abort rate 100% of 1" in captured.err
+
+
+# --- risk class ----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("path, pattern, hit", [
+    ("README.md", "*.md", True),
+    ("docs/a/b.md", "*.md", True),  # without "/": the file name, anywhere
+    ("docs/a/b.py", "docs/**", True),
+    ("src/docs/a.py", "docs/**", False),  # with "/": from the repository root
+    ("db/migrations/0001.py", "**/migrations/**", True),
+    ("migrations/0001.py", "**/migrations/**", True),  # "**/" also matches no folder
+    ("src/migrations_old.py", "**/migrations/**", False),
+    ("LICENSE", "LICENSE", True),
+    ("LICENSE.txt", "LICENSE.*", True),
+    ("a/LICENSE.md", "/LICENSE.*", False),
+    ("src/auth.py", "**/auth/**", False),
+    ("src/auth/login.py", "**/auth/**", True),
+    ("a.mdx", "*.md", False),
+])
+def test_path_matches(hga, path, pattern, hit):
+    assert hga.path_matches(path, pattern) is hit
+
+
+def test_classify_risk(hga):
+    low, high = ["*.md", "docs/**"], ["**/auth/**"]
+    cls, rows, reasons = hga.classify_risk(["README.md", "docs/x.png"], low, high, set(), "risk:high")
+    assert cls == "low" and [r["kind"] for r in rows] == ["low", "low"]
+    cls, rows, reasons = hga.classify_risk(["README.md", "src/app.py"], low, high, set(), "risk:high")
+    assert cls == "standard" and reasons == ["1 file(s) match no low pattern"]
+    # a high file wins over low ones; a high pattern is checked before the low ones
+    cls, rows, _ = hga.classify_risk(["docs/a.md", "src/auth/x.md"], low, high, set(), "risk:high")
+    assert cls == "high" and rows[1] == {"file": "src/auth/x.md", "kind": "high", "pattern": "**/auth/**"}
+    # the label raises it, whatever the files; case does not matter
+    cls, _, reasons = hga.classify_risk(["README.md"], low, high, {"Risk:High"}, "risk:high")
+    assert cls == "high" and reasons == ["label risk:high"]
+    assert hga.classify_risk([], low, high, set(), "risk:high")[0] == "standard"
+
+
+def test_risk_patterns_per_repository(hga, tmp_path):
+    write(tmp_path / "kb" / "hga.config.json", {"risk": {
+        "high_paths": ["**/auth/**"],
+        "repos": {"Acme/Plugins": {"low_paths": ["docs/**"], "high_paths": ["**/SKILL.md", "**/auth/**"]}}}})
+    hga.CFG = {}
+    low, high, label = hga.risk_patterns("acme/plugins")
+    assert low == ["docs/**"]  # the repository's low list replaces the team's
+    assert high == ["**/auth/**", "**/SKILL.md"]  # its high list adds to the team's
+    assert label == "risk:high"
+    low, high, _ = hga.risk_patterns("acme/web-app")
+    assert "*.md" in low and high == ["**/auth/**"]  # the team's list replaced the default high ones
+
+
+def test_config_problems_catch_bad_risk(hga):
+    c = hga._merge(hga.DEFAULTS, {"risk": {"low_paths": "docs/**", "high_label": "",
+                                          "repos": {"a/b": {"high_paths": [1]}}}})
+    problems = "\n".join(hga.config_problems(c))
+    assert "risk.low_paths must be a list" in problems
+    assert "risk.high_label must be a label name" in problems
+    assert "risk.repos.a/b must be an object" in problems
+    assert hga.config_problems(hga.DEFAULTS) == []
+
+
+def gitrun(cwd, *args):
+    return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout
+
+
+def test_risk_from_a_worktree(hga, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "nogit"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for k in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{k}_NAME", "T")
+        monkeypatch.setenv(f"GIT_{k}_EMAIL", "t@example.test")
+    wt = tmp_path / "repo"
+    (wt / "docs").mkdir(parents=True)
+    (wt / "README.md").write_text("a\n", encoding="utf-8")
+    (wt / "old.md").write_text("b\n", encoding="utf-8")
+    gitrun(tmp_path, "init", "-q", "-b", "main", str(wt))
+    gitrun(wt, "add", "-A")
+    gitrun(wt, "commit", "-q", "-m", "base")
+    gitrun(wt, "switch", "-q", "-c", "fix")
+    (wt / "README.md").write_text("changed, committed\n", encoding="utf-8")
+    gitrun(wt, "mv", "old.md", "docs/new.md")
+    gitrun(wt, "commit", "-q", "-am", "work")
+    (wt / "docs" / "new.md").write_text("changed, not committed\n", encoding="utf-8")
+    (wt / "docs" / "untracked.md").write_text("new\n", encoding="utf-8")
+    assert hga.worktree_files(str(wt), "main") == ["README.md", "docs/new.md", "docs/untracked.md", "old.md"]
+    assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Risk: low · every file matches a low pattern · 4 file(s)")
+    assert "Gates: 4 Decisions: not_applicable" in out
+    (wt / "app.py").write_text("x = 1\n", encoding="utf-8")
+    assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["risk"] == "standard"
+    # nothing changed: exit 4
+    gitrun(wt, "switch", "-q", "--discard-changes", "main")
+    (wt / "app.py").unlink()
+    (wt / "docs" / "untracked.md").unlink()
+    assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main"]) == 4
+
+
+def test_risk_from_a_pr_with_its_labels(hga, monkeypatch, capsys):
+    def gh(*args):
+        if args[0] == "api":
+            return "src/auth/login.py\nREADME.md\nsrc/old_name.py\n"
+        if args[:2] == ("pr", "view"):
+            return json.dumps(["bug"])
+        return json.dumps(["risk:high"])  # the issue's labels
+    monkeypatch.setattr(hga, "gh", gh)
+    assert hga.main(["risk", "acme/web-app", "--pr", "7"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Risk: high · 1 file(s) match a high pattern · 3 file(s), PR #7")
+    assert "high  src/auth/login.py  (**/auth/**)" in out
+    assert hga.main(["risk", "acme/web-app", "--pr", "7", "--issue", "6", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["reasons"] == ["label risk:high", "1 file(s) match a high pattern"]
+    with pytest.raises(SystemExit):
+        hga.main(["risk", "acme/web-app"])
+
+
+def test_metrics_record_keeps_the_risk_and_counts_not_applicable_steps(hga, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"timezone": "UTC"})
+    transcripts(tmp_path, hga, monkeypatch)
+    data = state_file(tmp_path, hga, monkeypatch)
+    data["steps"][6] = step("not_applicable", None, 40, "Risk: low · every file matches a low pattern")
+    data["steps"][11] = step("not_applicable", 90, 91, "Risk: low")
+    write(tmp_path / "issue" / "acme-web-app-18.json", data)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    _, rec = record(hga, capsys, "--risk", "low")
+    assert rec["risk"] == "low"
+    assert [s["state"] for s in rec["steps"]].count("not_applicable") == 2
+    rows, _ = metrics_out(hga, capsys, "--repo", "acme/web-app")
+    run = next(r for r in rows if r["kind"] == "run")
+    assert (run["risk"], run["na_steps"]) == ("low", 2)
+    with pytest.raises(SystemExit):
+        hga.main(["metrics-record", "acme/web-app", "18", "--risk", "medium"])
+
+
+def test_metrics_rows_of_older_records_and_markers_have_no_risk(hga):
+    old = {"schema": 1, "repo": "a/b", "issue": 1, "steps": [{"step": 0, "state": "done"}]}
+    row = hga.metrics_rows(old, "a/b/1-x", False, set())[0]
+    assert (row["risk"], row["na_steps"]) == (None, 0)
+    marker = {"schema": 1, "stage": "started", "repo": "a/b", "issue": 1}
+    row = hga.metrics_rows(marker, "a/b/1-y", False, set())[0]
+    assert (row["risk"], row["na_steps"]) == (None, None)

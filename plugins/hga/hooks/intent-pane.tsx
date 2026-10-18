@@ -39,6 +39,7 @@ const MARK: Record<StepState | 'none', { mark: string; color?: string }> = {
   done: { mark: '✓', color: 'success' },
   in_progress: { mark: '◐', color: ACCENT },
   skipped: { mark: '!', color: 'warning' },
+  not_applicable: { mark: '–' }, // an issue step state only; the intent's steps do not take it
   none: { mark: '○' },
 }
 const COVERAGE_MARK: Record<Coverage, { mark: string; color?: string }> = {

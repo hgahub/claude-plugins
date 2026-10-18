@@ -30,8 +30,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       Writes the run's start marker (`"stage": "started"`, schema 1) once the claim holds, at the path the
       run's record will have (below), and prints it. The record replaces it at step 12; a marker never
       replaced is an aborted run. An existing record of the run is left alone.
-  metrics-record <owner/repo> <n> [--difficulty easy|medium|hard] [--review-rounds N] [--until <iso>]
-                 [--session <id>]... [--pause-min 15]
+  metrics-record <owner/repo> <n> [--difficulty easy|medium|hard] [--review-rounds N] [--risk low|standard|high]
+                 [--until <iso>] [--session <id>]... [--pause-min 15]
       Writes the issue's durable metrics record into the knowledge base and prints its path:
       `<knowledge_dir>/metrics/<owner>/<repo>/<n>-<start, UTC>.json`, one file per run of the issue (a later
       run starts later), so parallel sessions never touch the same file. It reads the issue pane's state
@@ -48,7 +48,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       Finish) and `model` (one per run, section and model: tokens). --since/--until filter on the run's
       start date (both inclusive). `outcome` on every row: `finished` / `unfinished` (a record), `aborted`
       (only the start marker, older than --stale-hours), `open` (a younger marker), empty for records from
-      before the markers; stderr gets the counts and the abort rate. --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
+      before the markers; `risk` and `na_steps` (steps reported not_applicable) on every row of a record.
+      stderr gets the counts and the abort rate. --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
       list prices (a table in this script), an estimate, not what a Claude subscription costs.
   status <owner/repo> <n>
       The issue's workflow status: on the project board if one is configured, otherwise from labels.
@@ -82,6 +83,14 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       from`: the start of the read-back window. After the claim, with --since = that value: the read-back
       — it waits a few seconds, then the earliest `Claimed · …` comment since then wins (exit 0); if
       another session's came first, this one withdraws (exit 5). Exit 4 if this session's claim is missing.
+  risk <owner/repo> (--worktree <dir> [--base <ref>] | --pr <n>) [--issue <n>] [--json]
+      The change's risk class, from its changed files and the team's patterns (`risk.*`): `high` if any
+      file matches a high pattern or the issue / PR has the `risk.high_label` label; `low` if every file
+      matches a low pattern; `standard` otherwise. A repository's `risk.repos.<owner/repo>` replaces the
+      low patterns and adds high ones. --worktree: the worktree's changes since its merge base with --base
+      (default: origin's default branch), committed or not, untracked files included; --pr: the PR's
+      files. Prints the class, each file's match and the gates the class changes: the evidence of a
+      not_applicable step. Exit 4 if there is no changed file.
   deps <owner/repo> <n>
       The issue's native dependencies: what blocks it (prerequisites) and what it blocks. Read-only.
       Exit code 3 if a prerequisite is still open.
@@ -137,6 +146,15 @@ DEFAULTS: dict = {
     "slack": None,
     "review": {"provider": "local", "ask_after_rounds": 5},
     "parallel": {"max_per_repo": 2, "usage_ceiling_pct": 80},
+    # The risk classes' file patterns (HGA risk). A pattern without "/" matches the file name anywhere; with "/",
+    # the path from the repository root ("**" spans folders). A team's list replaces the default one; per
+    # repository, `repos.<owner/repo>.low_paths` replaces the team's list, `high_paths` adds to it.
+    "risk": {
+        "low_paths": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/**", "LICENSE", "LICENSE.*", "tests/**", "test/**"],
+        "high_paths": ["**/migrations/**", "*.sql", "**/auth/**", "**/permissions/**", ".github/workflows/**"],
+        "high_label": "risk:high",
+        "repos": {},
+    },
 }
 
 REVIEW_PROVIDERS = ("local", "codex", "copilot", "greptile")
@@ -231,7 +249,24 @@ def config_problems(c: dict) -> list[str]:
     for key in ("max_per_repo", "usage_ceiling_pct"):
         if not _positive_int(par.get(key)):
             out.append(f"parallel.{key} must be a positive whole number")
+    risk = c.get("risk") or {}
+    for key in ("low_paths", "high_paths"):
+        if not _patterns(risk.get(key)):
+            out.append(f"risk.{key} must be a list of file patterns, e.g. [\"docs/**\"]")
+    if not _text(risk.get("high_label")):
+        out.append("risk.high_label must be a label name, e.g. \"risk:high\"")
+    repos = risk.get("repos")
+    if not isinstance(repos, dict):
+        out.append("risk.repos must be an object: {\"owner/repo\": {\"low_paths\": […], \"high_paths\": […]}}")
+    else:
+        for repo, over in repos.items():
+            if not isinstance(over, dict) or not all(_patterns(over[k]) for k in ("low_paths", "high_paths") if k in over):
+                out.append(f"risk.repos.{repo} must be an object with low_paths / high_paths lists of file patterns")
     return out
+
+
+def _patterns(v: object) -> bool:
+    return isinstance(v, list) and all(_text(x) for x in v)
 
 
 def cfg() -> dict:
@@ -720,7 +755,8 @@ def _elapsed_fields(b: dict) -> dict:
 
 
 def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: datetime,
-                   difficulty: str | None, review_rounds: int | None, pause_min: float) -> dict:
+                   difficulty: str | None, review_rounds: int | None, pause_min: float,
+                   risk: str | None = None) -> dict:
     """The record of one run of the issue (schema 1; see the knowledge base's metrics/README.md)."""
     start = _ms(state.get("startedAt"))
     if start is None:
@@ -767,6 +803,7 @@ def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: d
         "transcripts": {"main": len(main), "subagents": len(subs)},
         "difficulty": difficulty,
         "review_rounds": review_rounds,
+        "risk": risk,
         "elapsed": elapsed(start, end),
         "tokens": total,
         "models": models,
@@ -858,7 +895,7 @@ def cmd_metrics_record(a) -> int:
     steps = state.get("steps") or []
     report = steps[12] if len(steps) > 12 and isinstance(steps[12], dict) else {}
     end = parse_ts(a.until) if a.until else _ms(report.get("endedAt")) or datetime.now(local_tz())
-    rec = metrics_record(state, a.repo, a.num, sessions, end, a.difficulty, a.review_rounds, a.pause_min)
+    rec = metrics_record(state, a.repo, a.num, sessions, end, a.difficulty, a.review_rounds, a.pause_min, a.risk)
     if not rec["transcripts"]["main"]:
         print(f"warning: no transcript for {', '.join(sessions) or 'this session'}: only wall-clock times",
               file=sys.stderr)
@@ -897,7 +934,7 @@ COST_NOTE = (f"{COST_COLUMN}: an estimate at Anthropic API list prices ({API_PRI
              "not what a Claude subscription costs")
 METRICS_COLUMNS = (
     "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "outcome", "difficulty",
-    "review_rounds", "section", "section_index", "model",
+    "review_rounds", "risk", "na_steps", "section", "section_index", "model",
     "wall_s", "active_s", "review_wait_s", "pause_s",
     "calls", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
     "total_tokens",
@@ -956,6 +993,10 @@ def metrics_rows(rec: dict, run: str, cost: bool, unpriced: set[str], outcome: s
         "ended_at": rec.get("ended_at"), "finished": rec.get("finished"), "outcome": outcome,
         "difficulty": rec.get("difficulty"),
         "review_rounds": rec.get("review_rounds"),
+        "risk": rec.get("risk"),
+        # None for a marker (no steps); a count for a record, 0 before the state existed
+        "na_steps": None if not isinstance(rec.get("steps"), list) else
+        sum(1 for st in rec["steps"] if isinstance(st, dict) and st.get("state") == "not_applicable"),
     }
     empty = {k: None for k in METRICS_COLUMNS}
     rows = [{**empty, **base, "kind": "run", **_elapsed_cols(rec.get("elapsed")), **_token_cols(rec.get("tokens")),
@@ -1401,6 +1442,134 @@ def cmd_claim_check(a) -> int:
     print(f"{a.repo}#{a.num}: {issue['title']} · issue: {issue['state']}")
     print("\n".join(lines))
     return code
+
+
+# --- risk class: which gates a change needs ----------------------------------------------------
+
+RISK_CLASSES = ("low", "standard", "high")
+# The gates each class changes (the issue skill's gate matrix), printed with the class as its evidence.
+RISK_GATES = {
+    "low": [
+        "4 Decisions: not_applicable if nothing was decided",
+        "5 Build + tests: the gate runs; new test cases not_applicable",
+        "6 Live test: not_applicable (no runtime change)",
+        "8 Review: one local round at low level, no bot",
+        "11 Knowledge: not_applicable if nothing new was learned",
+    ],
+    "standard": ["every step as the skill describes it"],
+    "high": [
+        "4 Decisions: the maintainer's decision is required",
+        "5 Build + tests: the new tests must fail on the base",
+        "6 Live test: required; only the maintainer can waive it",
+        "7 PR: at least one manual review point, and a rollback note",
+        "8 Review: local at high level, and the bot if one is configured",
+    ],
+}
+
+
+def glob_re(pattern: str) -> re.Pattern:
+    """A file pattern as a regex: `**/` any folders (or none), `**` anything, `*` and `?` within one name."""
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pattern[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+
+
+def path_matches(path: str, pattern: str) -> bool:
+    """Without "/" the pattern matches the file name anywhere; with "/", the path from the repository root."""
+    target = path if "/" in pattern else path.rsplit("/", 1)[-1]
+    return bool(glob_re(pattern.lstrip("/")).match(target))
+
+
+def risk_patterns(repo: str) -> tuple[list[str], list[str], str]:
+    """(low, high, high label) for the repository: its own low patterns replace the team's, its high ones add."""
+    risk = cfg()["risk"]
+    over = next((v for k, v in (risk.get("repos") or {}).items() if k.lower() == repo.lower()), None) or {}
+    low = list(over["low_paths"]) if "low_paths" in over else list(risk["low_paths"])
+    high = list(risk["high_paths"]) + [p for p in over.get("high_paths") or [] if p not in risk["high_paths"]]
+    return low, high, risk["high_label"]
+
+
+def classify_risk(files: list[str], low: list[str], high: list[str], labels: set[str],
+                  high_label: str) -> tuple[str, list[dict], list[str]]:
+    """The class, each file's match ({file, kind: high | low | other, pattern}) and the reasons."""
+    rows, reasons = [], []
+    for f in files:
+        h = next((p for p in high if path_matches(f, p)), None)
+        lo = None if h else next((p for p in low if path_matches(f, p)), None)
+        rows.append({"file": f, "kind": "high" if h else "low" if lo else "other", "pattern": h or lo})
+    if any(lab.lower() == high_label.lower() for lab in labels):
+        reasons.append(f"label {high_label}")
+    hits = [r for r in rows if r["kind"] == "high"]
+    if hits:
+        reasons.append(f"{len(hits)} file(s) match a high pattern")
+    if reasons:
+        return "high", rows, reasons
+    if rows and all(r["kind"] == "low" for r in rows):
+        return "low", rows, ["every file matches a low pattern"]
+    other = [r["file"] for r in rows if r["kind"] == "other"]
+    return "standard", rows, [f"{len(other)} file(s) match no low pattern"]
+
+
+def worktree_files(wt: str, base: str | None) -> list[str]:
+    def run(*args: str) -> str:
+        res = subprocess.run(["git", "-C", wt, *args], capture_output=True, text=True, encoding="utf-8")
+        if res.returncode != 0:
+            raise RuntimeError(f"git {' '.join(args[:2])}…: {res.stderr.strip()[:300]}")
+        return res.stdout
+
+    if not base:
+        head = subprocess.run(["git", "-C", wt, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+                              capture_output=True, text=True, encoding="utf-8")
+        base = head.stdout.strip() or "origin/main"
+    mb = run("merge-base", base, "HEAD").strip()
+    # The working tree against the merge base: committed, staged and unstaged changes; both names of a rename
+    changed = run("diff", "--name-only", "--no-renames", mb).splitlines()
+    untracked = run("ls-files", "--others", "--exclude-standard").splitlines()
+    return sorted({f for f in changed + untracked if f})
+
+
+def cmd_risk(a) -> int:
+    if bool(a.worktree) == bool(a.pr):
+        raise SystemExit("risk: give either --worktree <dir> or --pr <n>")
+    owner, name = split_repo(a.repo)
+    labels: set[str] = set()
+    if a.pr:
+        raw = gh("api", "--paginate", f"repos/{owner}/{name}/pulls/{a.pr}/files", "--jq",
+                 ".[] | .filename, (.previous_filename // empty)")
+        files = sorted({f for f in raw.splitlines() if f})
+        labels |= set(json.loads(gh("pr", "view", str(a.pr), "--repo", a.repo, "--json", "labels",
+                                    "--jq", "[.labels[].name]")))
+        source = f"PR #{a.pr}"
+    else:
+        files = worktree_files(a.worktree, a.base)
+        source = f"worktree {a.worktree} since its merge base with {a.base or 'the default branch'}"
+    if a.issue:
+        labels |= set(json.loads(gh("issue", "view", str(a.issue), "--repo", a.repo, "--json", "labels",
+                                    "--jq", "[.labels[].name]")))
+    low, high, high_label = risk_patterns(a.repo)
+    cls, rows, reasons = classify_risk(files, low, high, labels, high_label)
+    if a.json:
+        print(json.dumps({"repo": a.repo, "risk": cls, "reasons": reasons, "source": source, "files": rows,
+                          "gates": RISK_GATES[cls]}, ensure_ascii=False))
+    else:
+        print(f"Risk: {cls} · {'; '.join(reasons)} · {len(files)} file(s), {source}")
+        for r in rows:
+            print(f"  {r['kind']:<5} {r['file']}" + (f"  ({r['pattern']})" if r["pattern"] else ""))
+        print("Gates: " + " · ".join(RISK_GATES[cls]))
+    if not files:
+        print("no changed file: nothing to classify", file=sys.stderr)
+        return 4
+    return 0
 
 
 # --- issue metadata: type, Priority / Effort, iteration ------------------------------------------
@@ -1956,6 +2125,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("num", type=int)
     p.add_argument("--difficulty", choices=DIFFICULTIES)
     p.add_argument("--review-rounds", type=int)
+    p.add_argument("--risk", choices=RISK_CLASSES, help="the class `HGA risk` gave (its last run)")
     p.add_argument("--until")
     p.add_argument("--session", action="append")
     p.add_argument("--pause-min", type=float, default=15)
@@ -2002,6 +2172,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--verb", help="the claim verb: verify / re-verify may take an issue that is Done")
     p.add_argument("--since", help="the read-back after the claim: the check's `Read back from` value")
     p.add_argument("--project")
+    p = sub.add_parser("risk")
+    p.add_argument("repo")
+    p.add_argument("--worktree", help="the worktree whose changes are classified")
+    p.add_argument("--base", help="the base ref of --worktree (default: origin's default branch)")
+    p.add_argument("--pr", type=int, help="the PR whose files are classified")
+    p.add_argument("--issue", type=int, help="the issue, for its labels (risk.high_label)")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("deps")
     p.add_argument("repo")
     p.add_argument("num", type=int)
@@ -2054,6 +2231,7 @@ def main(argv: list[str] | None = None) -> int:
             "review-request": cmd_review_request,
             "review-wait": cmd_review_wait,
             "claim-check": cmd_claim_check,
+            "risk": cmd_risk,
             "deps": cmd_deps,
             "block": cmd_block,
             "triage-state": cmd_triage_state,

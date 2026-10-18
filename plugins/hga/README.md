@@ -67,7 +67,13 @@ Two layers, merged (`hga_issue.py config` prints the result):
     "labels": { "in_progress": "in-progress", "in_review": "in-review" },
     "slack": null,
     "review": { "provider": "local", "ask_after_rounds": 5 },
-    "parallel": { "max_per_repo": 2, "usage_ceiling_pct": 80 }
+    "parallel": { "max_per_repo": 2, "usage_ceiling_pct": 80 },
+    "risk": {
+      "low_paths": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/**", "LICENSE", "LICENSE.*", "tests/**", "test/**"],
+      "high_paths": ["**/migrations/**", "*.sql", "**/auth/**", "**/permissions/**", ".github/workflows/**"],
+      "high_label": "risk:high",
+      "repos": {}
+    }
   }
   ```
 
@@ -84,6 +90,7 @@ Two layers, merged (`hga_issue.py config` prints the result):
 | `slack` | `null` = claims and reports are GitHub comments on the issue. Otherwise `{"channel": "#dev", "channel_id": "C…"}`. |
 | `review.provider` | `local` (the `code-review` skill), `codex`, `copilot` or `greptile` (a bot on GitHub, in addition to the local review). `ask_after_rounds`: from this round on, the maintainer decides whether to close the review. |
 | `parallel` | `/hga:triage` launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |
+| `risk` | The risk classes of `hga_issue.py risk`: `high` if a changed file matches `high_paths` or the issue / PR has `high_label`; `low` if every file matches `low_paths`; `standard` otherwise. A pattern without `/` matches the file name anywhere; with `/`, the path from the repository root (`**` spans folders). A team's list replaces the default one. Per repository, `repos.<owner/repo>.low_paths` replaces the team's list and `high_paths` adds to it — e.g. a repository whose `*.md` files are runtime prompts sets its own `low_paths`. The class decides which steps of `/hga:issue` may be `not_applicable`. |
 
 `hga_issue.py config` prints a malformed field as a warning on stderr (the JSON still comes out); `doctor` counts
 it as a missing item.

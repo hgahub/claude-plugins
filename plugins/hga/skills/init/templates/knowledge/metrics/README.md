@@ -29,11 +29,12 @@ own `usage` field names.
 | `sessions`, `transcripts` | The Claude Code session ids measured; how many main and subagent transcripts were found. |
 | `difficulty` | `easy` / `medium` / `hard` as reported in step 12, or `null`. |
 | `review_rounds` | The review's rounds (bot rounds, or local review rounds), or `null`. |
+| `risk` | The change's risk class from `hga_issue.py risk` (`low`, `standard`, `high`), or `null`. Absent in older records. |
 | `elapsed` | `wall_s`, `active_s`, `review_wait_s` (idle while `review-wait` ran), `review_wait_runs`, `pause_s`, `pauses` (`from`, `to`, `seconds`, `reason`). Without a transcript only `wall_s` is set, the rest is `null`. |
 | `tokens` | The run's total: `calls`, `output_tokens`, `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`; subagents included, each API response once. `null` without a transcript. |
 | `models` | The same token fields per model id (`claude-opus-5-5`, …): the basis for a cost estimate. |
 | `sections` | The checklist's four sections: `title` (Prepare, Build, Review, Finish), `steps` (`[from, to]`), `from`, `to`, and `elapsed`, `tokens`, `models` within that window. |
-| `steps` | All 13 steps: `step`, `name`, `state` (`done`, `skipped`, `in_progress` or `null`), `started_at`, `ended_at` (`null` if unknown). |
+| `steps` | All 13 steps: `step`, `name`, `state` (`done`, `skipped`, `not_applicable` — the gate does not apply to the risk class —, `in_progress` or `null`), `started_at`, `ended_at` (`null` if unknown). |
 | `five_hour` | `scope: "account"`, `start` and `end`: `{at, percent_used}` of the plan's five-hour limit at step 0's start and at step 12's `done`, or `null`. |
 
 **Sections** split the run into contiguous windows: a section starts at the earliest start (or end) of its

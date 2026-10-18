@@ -1,5 +1,6 @@
-export type StepState = 'in_progress' | 'done' | 'skipped'
-// startedAt / endedAt (ms): when the step was reported in_progress, and done or skipped. Optional: older state
+// not_applicable: the step's gate does not apply to this change (the issue pane only; `HGA risk` is its evidence).
+export type StepState = 'in_progress' | 'done' | 'skipped' | 'not_applicable'
+// startedAt / endedAt (ms): when the step was reported in_progress, and done, skipped or not_applicable. Optional: older state
 // files have neither, and a step reported done without an in_progress has no start.
 export type Step = { state: StepState; evidence: string; startedAt?: number; endedAt?: number }
 // The account's five-hour usage at one moment (`$.session.usage()`, kind five_hour). It is account-wide: context

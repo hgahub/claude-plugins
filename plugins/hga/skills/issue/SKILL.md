@@ -72,14 +72,17 @@ is. If the evidence is missing, the item is not done.
 | 12 | Report | ✅ | link to the report message or comment; the metrics record's path and its commit SHA |
 
 Marks: ✅ done, with evidence · ⏳ in progress · ⬜ not started · ⚠️ skipped (only on explicit exclusion or a
-technical obstacle, with the reason; the live test only if both start paths of 6.1 failed).
+technical obstacle, with the reason; the live test only if both start paths of 6.1 failed) · ➖ not applicable
+(only where `HGA risk`'s class lists the step among its `not_applicable` gates; the evidence is its `Risk:`
+line). Not applicable is not a skip: the gate does not apply to this change. A class never comes from your own
+judgment — `HGA risk` reads the changed files and the team's patterns, and only a `risk:high` label raises it.
 
 **Side pane (the hga plugin's issue pane) — mandatory, at every step.** If the session has the
 `mcp__hga__step` tool, **each** of steps 0–12 gets **two calls**, without exception:
 
 1. **`in_progress`**, in the same message as the step's **first** action (as a parallel call), not after it;
-2. **`done`** with one short line of evidence (SHA, test count, status, URL), or **`skipped`** with the reason —
-   with the step's **last** action, or at the latest in the same message as the next step's `in_progress`.
+2. **`done`** with one short line of evidence (SHA, test count, status, URL), **`skipped`** with the reason, or
+   **`not_applicable`** with `HGA risk`'s `Risk:` line — with the step's **last** action, or at the latest in the same message as the next step's `in_progress`.
 
 Parameters: `issue` = `owner/repo#n` (the main issue, also when a PR covers several), `step` = the number,
 `verb` = the claim verb, `checks` = the manual review list (step 7, see there). The **first call is step 0's `in_progress`**, with `started_at` = the `HGA now`
@@ -113,7 +116,7 @@ after the review and the merge.
 Helper script (standard library + `gh`):
 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (on Windows `python`) —
 `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`, `tokens --since <iso-start>`,
-`claim-check <owner/repo> <n>`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n>`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
+`claim-check <owner/repo> <n>`, `risk <owner/repo> --worktree <dir> | --pr <n>`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n> [--risk <class>]`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
 `review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr>`, `deps <owner/repo> <n>`. In the examples
 below `HGA` means this command. Write it out in full in every Bash call, or define a shell function first —
 `hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
@@ -581,10 +584,11 @@ Write it in the configured language. The content:
 above, for the team's later aggregation (the knowledge base's `metrics/README.md` has the schema). It reads the
 pane's state file: the start, each step's start and end, and the account's five-hour usage at the start and at
 step 12's `done` — so that call must come first. Pass the difficulty you reported and the review's rounds (the
-bot rounds of step 8, or the local review's rounds without a bot); with several sessions, each with `--session`:
+bot rounds of step 8, or the local review's rounds without a bot), and the risk class of `HGA risk`'s last run
+(if it ran); with several sessions, each with `--session`:
 
 ```bash
-HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2
+HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2 --risk standard
 ```
 
 It prints the record's path (`<knowledge_dir>/metrics/<owner>/<repo>/<n>-<start>.json`, one file per run of
