@@ -39,10 +39,11 @@ const MARK: Record<StepState | 'none', { mark: string; color?: string }> = {
   done: { mark: '✓', color: 'success' },
   in_progress: { mark: '◐', color: ACCENT },
   skipped: { mark: '!', color: 'warning' },
+  not_applicable: { mark: '–' },
   none: { mark: '○' },
 }
 const BAR = 7
-const STATES: readonly string[] = ['in_progress', 'done', 'skipped']
+const STATES: readonly string[] = ['in_progress', 'done', 'skipped', 'not_applicable']
 // Fixed-width columns: with the desktop app's proportional font, padding with spaces does not align.
 const NAME = 18
 const TITLE = 14
@@ -54,7 +55,8 @@ const STEP_SPEC = {
   name: 'step',
   description:
     "The state of one step of the hga:issue workflow, for the user's side pane. Call it on every state change: " +
-    'when a step starts (in_progress), finishes (done, with the read-back evidence) or is skipped (skipped, with the reason). ' +
+    'when a step starts (in_progress), finishes (done, with the read-back evidence), is skipped (skipped, with the reason) ' +
+    "or does not apply to this change's risk class (not_applicable, with the `HGA risk` line as evidence). " +
     'A different issue id starts a new pane.',
   isDeferred: false,
   inputSchema: {
@@ -64,7 +66,7 @@ const STEP_SPEC = {
       verb: { type: 'string', description: 'The claim verb: implement, fix, verify, re-verify.' },
       step: { type: 'integer', minimum: 0, maximum: 12, description: 'The checklist number: 0 Start … 12 Report.' },
       state: { type: 'string', enum: STATES },
-      evidence: { type: 'string', description: 'Short evidence or the reason for skipping, in one line (SHA, test count, status, URL). Required for done and skipped; a step reported again in the same state keeps its evidence.' },
+      evidence: { type: 'string', description: 'Short evidence or the reason for skipping, in one line (SHA, test count, status, URL). Required for done, skipped and not_applicable; a step reported again in the same state keeps its evidence.' },
       started_at: {
         type: 'string',
         description: 'When the work really started, ISO 8601 (the `HGA now` value of step 0, e.g. 2026-10-13T08:53:05+02:00); the clock counts from here.',
@@ -93,7 +95,7 @@ const short = (id: string) => id.replace(/^[^/#\s]+\//, '')
 const finished = (j: Issue) => j.steps.filter(l => l !== null && l.state !== 'in_progress').length
 
 // The step's times for the metrics record: in_progress keeps an earlier start (a repeated report, or a step
-// opened again) and drops the end; done / skipped stamps the end and keeps the start. A finished step reported
+// opened again) and drops the end; done / skipped / not_applicable stamps the end and keeps the start. A finished step reported
 // again (its evidence amended) keeps its end. A step reported done without an in_progress gets no start (step 0
 // takes the given started_at): the record falls back on the step before it.
 export function stamp(prev: Step | null, state: StepState, evidence: string, t: number, start?: number): Step {
@@ -271,7 +273,7 @@ export const register: Register = on => {
     const step = Number(e.step)
     const state = String(e.state) as StepState
     if (id === '' || !Number.isInteger(step) || step < 0 || step >= STEPS.length || !STATES.includes(state)) {
-      return { result: 'Invalid input: issue (owner/repo#number), step 0–12 and state (in_progress | done | skipped) are required.' }
+      return { result: 'Invalid input: issue (owner/repo#number), step 0–12 and state (in_progress | done | skipped | not_applicable) are required.' }
     }
     if (e.checks !== undefined && !(Array.isArray(e.checks) && e.checks.every((c: unknown) => typeof c === 'string'))) {
       return { result: 'Invalid input: checks is a list of strings (at most 13).' }
@@ -285,7 +287,8 @@ export const register: Register = on => {
     const was = base.steps[step]
     const evidence = reported === '' && state !== 'in_progress' && was?.state === state ? was.evidence : reported
     if (state !== 'in_progress' && evidence === '') {
-      return { result: `Invalid input: a ${state} step needs its evidence (${state === 'done' ? 'the read-back result' : 'the reason'}).` }
+      const what = state === 'done' ? 'the read-back result' : state === 'skipped' ? 'the reason' : 'the `HGA risk` line'
+      return { result: `Invalid input: a ${state} step needs its evidence (${what}).` }
     }
     // The model may report steps late: the real start is step 0's timestamp. A future or invalid value does not count.
     const given = typeof e.started_at === 'string' ? Date.parse(e.started_at) : NaN
@@ -416,6 +419,7 @@ export const register: Register = on => {
           const ls = stepsOf(sz)
           const done = ls.filter(l => l !== null && l.state !== 'in_progress').length
           const skipped = ls.filter(l => l?.state === 'skipped').length
+          const na = ls.filter(l => l?.state === 'not_applicable').length
           // Icon color: accent for the running section, warning if a step was skipped, otherwise neutral.
           const iconColor = ls.some(l => l?.state === 'in_progress') ? ACCENT : skipped > 0 ? 'warning' : undefined
           const isOpen = opened.includes(sz.title)
@@ -436,7 +440,7 @@ export const register: Register = on => {
                     {sz.title}
                   </Button>
                 </Box>
-                <Text dimColor>{`${done}/${ls.length}${skipped > 0 ? ` · ${skipped} skipped` : ''} ${isOpen ? '⌄' : '›'}`}</Text>
+                <Text dimColor>{`${done}/${ls.length}${skipped > 0 ? ` · ${skipped} skipped` : ''}${na > 0 ? ` · ${na} n/a` : ''} ${isOpen ? '⌄' : '›'}`}</Text>
               </Box>
               {isOpen
                 ? STEPS.slice(sz.from, sz.to + 1).map((name, k) => {

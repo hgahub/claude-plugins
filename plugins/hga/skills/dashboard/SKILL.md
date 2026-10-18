@@ -50,7 +50,7 @@ The rows (one table, the `kind` column tells them apart; the schema of the recor
 
 | `kind` | One row per | Filled columns |
 |---|---|---|
-| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `outcome`, `difficulty`, `review_rounds`; `wall_s`, `active_s`, `review_wait_s`, `pause_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
+| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `outcome`, `difficulty`, `review_rounds`, `risk` (low / standard / high, empty in older records), `na_steps` (steps reported not_applicable); `wall_s`, `active_s`, `review_wait_s`, `pause_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
 | `section` | run and section (`section`: Prepare, Build, Review, Finish; `section_index` 0–3) | the run's identity columns, elapsed, tokens, `api_cost_usd_est` |
 | `model` | run, section and model (`model`: the model id) | the run's identity columns, `section`, tokens, `api_cost_usd_est` |
 

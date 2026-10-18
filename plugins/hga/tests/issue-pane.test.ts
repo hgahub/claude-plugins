@@ -61,6 +61,22 @@ test('a step report is drawn: mark, color, evidence, counter; the first report o
   expect(drawn).toContain('{"color":"suggestion"},"children":["█"]')
 })
 
+test('not_applicable: needs the risk line as evidence, counts as finished, shown as n/a with its own mark', async ($, on) => {
+  engine(on)
+  await start($)
+  expect((await step($, { issue: ISSUE, step: 6, state: 'not_applicable' })).result).toContain('the `HGA risk` line')
+  await step($, { issue: ISSUE, verb: 'fix', step: 0, state: 'done', evidence: 'repo-check OK' })
+  expect((await step($, { issue: ISSUE, step: 6, state: 'not_applicable', evidence: 'Risk: low · every file matches a low pattern' })).result)
+    .toBe(`${ISSUE}: 2/13 done.`)
+  await step($, { issue: ISSUE, step: 5, state: 'in_progress', evidence: 'gate running' })
+  const drawn = await pane($)
+  expect(drawn).toContain('1/2 · 1 n/a ⌄')
+  expect(drawn).toContain('" –"')
+  expect(drawn).toContain('Risk: low')
+  // not a warning: the Build section's icon is the accent (running), not the warning color
+  expect(drawn).not.toContain('"color":"warning"')
+})
+
 test('clicking a section name opens and closes it', async ($, on) => {
   engine(on)
   await start($)
