@@ -1,6 +1,6 @@
 ---
 name: init
-description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, Slack channel, review provider, parallel limits), and write a short usage guide in the team's language (a knowledge base page, optionally a Docs copy). Also re-run it to check or repair a setup. Triggers include "set up hga", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
+description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, Slack channel, review provider, parallel limits, risk-class patterns), and write a short usage guide in the team's language (a knowledge base page, optionally a Docs copy). Also re-run it to check or repair a setup. Triggers include "set up hga", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
 user-invocable: true
 argument-hint: "[new | join <git URL> | check]"
 ---
@@ -21,7 +21,7 @@ Configuration has two layers (`HGA config` prints the merged result, with the fi
 
 | Layer | File | Holds |
 |---|---|---|
-| Team | `<knowledge_dir>/hga.config.json` — versioned with the knowledge base, shared | language, time zone, project board, labels, Slack, review provider, parallel limits |
+| Team | `<knowledge_dir>/hga.config.json` — versioned with the knowledge base, shared | language, time zone, project board, labels, Slack, review provider, parallel limits, risk patterns |
 | Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (this user's Docs copy of the guide, step 7), `dashboard_url` (this user's metrics dashboard, written by `/hga:dashboard`), and any team field to override for this machine |
 
 Ask every choice with `AskUserQuestion` (the recommended option first, "(Recommended)"); detect what you can
@@ -116,6 +116,22 @@ values and ask only about the changes). Otherwise start from `$INIT/templates/hg
    `/hga:issue` asks the maintainer whether to close the review — the local review's rounds count too.
 7. **Parallel limits** (for `/hga:triage`'s launches): at most 2 running implementations per repository and an
    80% ceiling on the 5-hour plan usage (Recommended), or the user's numbers.
+8. **Risk classes** (`risk`): `/hga:issue` classifies each change from its files — `high` if a file matches
+   `high_paths` (or the issue has `high_label`), `low` if every file matches `low_paths`, `standard` otherwise —
+   and the class decides which gates the run needs (a docs-only change gets no live test and no bot review; a
+   migration needs the maintainer's decision and a rollback note). Show the defaults from the template first.
+   A pattern without `/` matches the file name anywhere; with `/`, the path from the repository root (`**` spans
+   folders).
+   - **High-risk paths:** "The defaults (Recommended)" — migrations, `*.sql`, auth, permissions, CI workflows —
+     or the defaults plus the team's own (payments, infrastructure, secrets handling…). A team list replaces the
+     default one, so keep the defaults in it unless the user drops one on purpose.
+   - **Per-repository low paths:** ask whether a repository's files that look like docs are in fact runtime —
+     e.g. one whose `*.md` files are prompts or skills, or whose `*.txt` files are data the app loads. For each
+     one the user names, store `repos.<owner/repo>.low_paths` with only what really is safe there (e.g.
+     `["docs/**", "tests/**"]`): it **replaces** the team's low list for that repository. A repository may also
+     add `high_paths` (it adds to the team's, never removes one). "None for now (Recommended)" leaves
+     `repos` empty.
+   - `high_label`: `risk:high` (Recommended) — the label that raises any issue to high.
 
 Write the file with `Write`, then read it back through the plugin:
 
@@ -159,6 +175,8 @@ yes — one question per item, the recommended fix first.
 - **`MISSING] configuration`** → show the field, the file it comes from (`HGA config` → `sources`; a machine
   override wins over the team file) and the problem; ask step 4's question for that field, write only that
   field, and check again.
+- **No `risk` in the team file** (written by an older plugin version) → the defaults apply, which is not an
+  error. Offer step 4's question 8 once; on a yes, write only the `risk` key.
 - **`labels.closed`** → no longer used. Remove the key from the file that has it (read both layers), nothing
   else.
 - **Template files the knowledge base lacks** (newer plugin versions add some):
@@ -215,7 +233,8 @@ python3 "$KB/kb_commit.py" -C <dir> -m "The hga guide and first app pages (hga)"
 ```
 
 Then summarize in a short table: knowledge base (folder, remote), team
-configuration (language, board or labels, Slack or GitHub comments, review provider and round limit, limits),
+configuration (language, board or labels, Slack or GitHub comments, review provider and round limit, limits,
+risk patterns and per-repository overrides),
 machine configuration, the guide (page, Docs link), what was repaired, what was skipped and why. End with the next step: "Try
 `/hga:triage <owner/repo>` or `/hga:issue <issue URL>`." Mention that `/hga:init` can be re-run to change any of
 this.
