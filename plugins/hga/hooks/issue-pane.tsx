@@ -76,8 +76,8 @@ const STEP_SPEC = {
         items: { type: 'string' },
         maxItems: CHECKS_MAX,
         description:
-          "The PR's manual review points for the reviewer, at most 13, one short line each: only what really needs a human check " +
-          '(not covered by the tests or the review bot). [] = no such point. Replaces the whole list; a point with the same text keeps its tick.',
+          "The PR's manual review points for the reviewer, at most 13, one short line each: check tasks on the finished change " +
+          '(place + situation + what must hold), not decisions to make; only what the tests and the review bot do not prove. [] = no such point. Replaces the whole list; a point with the same text keeps its tick.',
       },
     },
     required: ['issue', 'step', 'state'],

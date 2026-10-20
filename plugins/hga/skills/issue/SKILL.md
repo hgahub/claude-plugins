@@ -502,11 +502,27 @@ maintainer instead of skipping, and skip only on their word.
   with `labels.closing` it must list **nothing**. If it is wrong, fix the description (`gh pr edit <pr> --body-file …`) and read it back again.
 - Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
 - **Manual review list for the pane:** in step 7's `done` call, give the `checks` list — at most 13 short lines
-  for the PR's human reviewer. Only what a person can judge and neither the automated tests nor the review bot
-  cover: a business rule's or a text's correctness, UI appearance and usability, permissions and privacy,
-  migration and backward compatibility, the points of a skipped live test, the risky choices of a decision
-  round. One concrete, checkable sentence per point, with the place (`file:line` or the screen) — not general
-  advice ("review the code"). If there is no such point, `checks: []` — do not fill the list for the sake of 13.
+  for the PR's human reviewer. The code is written, the tests and the review bot have run; the list says where a
+  person's look is worth most on **this diff** — what the tests and the bot do not prove. Each point is a
+  **check task on the finished change, not a decision to make**: the place (`file:line`, the screen, the doc
+  section) + the situation + what must hold there, e.g. "`graph.py:212`: without a key, 'Budapest - Csepel' and
+  'Budapest Csepel' no longer match — check that no caller relies on the old merge". A decision already taken
+  (step 4, the issue's "Decisions") is not reopened here; at most, check that the code and the docs do what it
+  says. An "is it acceptable that …" point is a step 4 question asked too late: ask the user now
+  (`AskUserQuestion`), before the PR, and record the answer under "Decisions" — do not put it in the list.
+  Pick the points by risk, biggest first, along the review criteria, only where the diff touches them:
+  1. **goal and scope** — does it meet the acceptance criteria, is there anything in the diff the issue did not ask for;
+  2. **correctness** — edge values, invalid input, state and ordering the tests do not reach;
+  3. **security and privacy** — permission checks, input handling, secrets, sensitive data in responses or logs;
+  4. **compatibility and data integrity** — existing behaviour, API or stored data that changes; migration, old and new version side by side;
+  5. **simplicity and fit** — a new dependency or abstraction, a simpler way the existing code already offers;
+  6. **readability** — a control path or a name that is hard to follow, a comment that does not say why;
+  7. **tests** — would they fail if the fix were wrong; an untested error path or regression;
+  8. **performance** — unbounded processing, extra queries, leaked resources under the expected load;
+  9. **operability** — can a failure be recognised and diagnosed; timeouts, retries, logging;
+  10. **rollout and docs** — configuration, migration, documentation to update; what happens if the rollout fails.
+  Not naming, formatting or taste, nor general advice ("review the code"); the points of a skipped live test do
+  belong here. If there is no such point, `checks: []` — do not fill the list for the sake of 13.
   A **high** class needs at least one point (what makes it high: the migration, the permission rule, the
   workflow), and the rollback note above.
   If the review rounds' fixes touch the list, send the whole list again in step 8's `done` call (a point with the
