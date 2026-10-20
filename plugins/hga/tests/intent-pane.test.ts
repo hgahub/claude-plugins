@@ -8,18 +8,12 @@ const ISSUE = 'acme/web-app#351'
 const T0 = Date.parse('2026-10-16T10:00:00+02:00')
 const MIN = 60_000
 
-// The issue pane's state file for the issue: 8 steps done, step 8 in progress, started 80 minutes ago.
-const ISSUE_FILE = {
-  issue: ISSUE, verb: 'implement', startedAt: T0 - 80 * MIN, updatedAt: T0 - 2 * MIN, session: 's9',
-  steps: Array.from({ length: 13 }, (_, i) => (i < 8 ? { state: 'done', evidence: '' } : i === 8 ? { state: 'in_progress', evidence: '' } : null)),
-}
-
 // On Windows the engine gives back-slashed paths.
 const slashed = (path: string) => path.replaceAll('\\', '/')
 const baseName = (path: string) => slashed(path).split('/').pop() ?? ''
 
 // Stands in for the engine. files: the intent's state files (~/.claude/hga/intent/); writes: what the mod writes.
-function engine(on: On, opts: { issue?: boolean; files?: Record<string, object> } = {}) {
+function engine(on: On, opts: { files?: Record<string, object> } = {}) {
   const opened: string[] = []
   const registered: string[] = []
   const writes: { path: string; text: string }[] = []
@@ -35,10 +29,10 @@ function engine(on: On, opts: { issue?: boolean; files?: Record<string, object> 
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => h($.ui.resolve(e).Box, { key: 'engine-band' }) as never)
   on('session.id', () => ({ value: 'sess-1' }) as never)
   on('fs.exists', ($, e) => ({
-    value: (opts.issue === true && e.path.endsWith('acme-web-app-351.json')) || (opts.files !== undefined && slashed(e.path).endsWith('/hga/intent')),
+    value: opts.files !== undefined && slashed(e.path).endsWith('/hga/intent'),
   }) as never)
   on('fs.list', () => ({ value: Object.keys(files).map(name => ({ name, kind: 'file' })) }) as never)
-  on('fs.read', ($, e) => ({ value: JSON.stringify(files[baseName(e.path)] ?? ISSUE_FILE) }) as never)
+  on('fs.read', ($, e) => ({ value: JSON.stringify(files[baseName(e.path)] ?? {}) }) as never)
   on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
   return { opened, registered, writes }
 }
@@ -75,20 +69,27 @@ test('a report fills the pane: stations, coverage, verdict; the first one opens 
   expect(p).toContain('Acceptance criteria')
 })
 
-test('the band shows the four stages, after the issue from the issue state file', async ($, on) => {
-  engine(on, { issue: true })
+test('the band: the current station, then the issue as a link; gone after the handoff', async ($, on) => {
+  engine(on)
   await start($)
   await report($, { step: 4, state: 'in_progress', sections: { problem: 'done' }, questions: 1, verdict: 'WARN' })
   let b = await band($)
   expect(b).toContain(`◎ ${NAME}`)
-  expect(b).toContain('1/8 · 1 question · WARN')
-  for (const name of ['Intent', 'Issue', 'Triage', 'Build']) expect(b).toContain(`"children":["${name}"]`)
+  expect(b).toContain('Draft · 1 question · WARN')
+  for (const name of ['Triage', 'Build']) expect(b).not.toContain(`"children":["${name}"]`)
+  await report($, { step: 4, state: 'done' })
+  expect(await band($)).toContain('"children":["Approval · 1 question · WARN"]')
   await report($, { step: 6, state: 'done' })
   await report($, { step: 7, state: 'done', issue: ISSUE })
   b = await band($)
+  expect(b).toContain('"href":"https://github.com/acme/web-app/issues/351"')
   expect(b).toContain('#351')
-  expect(b).toContain('8/13 · ◷ 1:20')
   expect(b).not.toContain('WARN')
+  expect(await pane($)).toContain('"href":"https://github.com/acme/web-app/issues/351"')
+  await report($, { step: 8, state: 'done' })
+  b = await band($)
+  expect(b).toContain('engine-band')
+  expect(b).not.toContain(NAME)
 })
 
 test('during a survey and after ✕ the band is quiet; a new intent shows it again', async ($, on) => {
@@ -156,7 +157,7 @@ test("the intent comes back from the session's own most recent state file; not f
   await start($)
   const b = await band($)
   expect(b).toContain(`◎ ${NAME}`)
-  expect(b).toContain('1/8 · 1 question · WARN')
+  expect(b).toContain('Context · 1 question · WARN')
   expect(await pane($)).toContain('came back')
 })
 
