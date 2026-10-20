@@ -1951,7 +1951,7 @@ def is_done(issue: dict) -> bool:
 
 
 def state_text(issue: dict) -> str:
-    """`closed · NOT_PLANNED`: the reason matters to a dependent, which may need vetting again."""
+    """`closed · NOT_PLANNED`: the reason matters to a dependent, which may need assessing again."""
     if not is_done(issue):
         return "open"
     if issue.get("state") != "CLOSED":

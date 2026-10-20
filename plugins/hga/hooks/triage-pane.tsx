@@ -46,7 +46,7 @@ const GROUPS: { key: Bucket; title: string; mark: string; color?: string }[] = [
   { key: 'in_review', title: 'In review', mark: '⌕' },
   { key: 'untriaged', title: 'Untriaged', mark: '○' },
 ]
-// The branch icon: vet, finalize (edit), next issue (list), launch.
+// The branch icon: assess, finalize (edit), next issue (list), launch.
 const BRANCH_ICON: Record<Branch, string> = { A: '⌕', B: '✎', C: '☰', D: '▶' }
 const MINI = 6
 // A block character is about two columns wide in the desktop app's font: the bar's box must leave room for it,
@@ -55,7 +55,7 @@ const MINI_COLUMNS = MINI * 2 + 2
 // Room for repo#number; longer names are cut with an ellipsis.
 const NAME_COLUMNS = 14
 const PHASE_TOOL = 'mcp__hga__phase'
-const BRANCHES: Record<Branch, string> = { A: 'Vet', B: 'Finalize', C: 'Next issue', D: 'Launch' }
+const BRANCHES: Record<Branch, string> = { A: 'Assess', B: 'Finalize', C: 'Next issue', D: 'Launch' }
 // Branch A's five questions (skills/triage/SKILL.md, A.2–A.6). "preceded" is inverted: there "yes" is unfavorable.
 const QUESTIONS: { key: Question; title: string; inverted?: true }[] = [
   { key: 'current', title: 'Still current?' },
@@ -70,7 +70,7 @@ const STATE_COLOR: Record<string, string> = { 'ready-for-agent': 'success', 'rea
 const PHASE_SPEC = {
   name: 'phase',
   description:
-    "The hga:triage run's current branch and verdicts, for the user's dashboard. Call it on every branch change (A vet, B finalize, " +
+    "The hga:triage run's current branch and verdicts, for the user's dashboard. Call it on every branch change (A assess, B finalize, " +
     'C next issue, D launch), at each verdict of branch A, at the proposed state, and when the number of open decisions changes. ' +
     'Give only the changed fields; a different issue id resets the verdicts.',
   isDeferred: false,
