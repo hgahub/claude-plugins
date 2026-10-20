@@ -3,7 +3,18 @@ name: CI
 on:
   push:
     branches: [main]
+    # Skill instructions and generated knowledge-base templates are runtime inputs.
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'plugins/*/README.md'
+      - 'plugins/*/docs/**'
   pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'plugins/*/README.md'
+      - 'plugins/*/docs/**'
 
 permissions:
   contents: read
