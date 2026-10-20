@@ -55,7 +55,8 @@ const SPEC = {
   description:
     "The hga:intent's position, for the user's pane and the progress band above the prompt. Call it at every station " +
     'change (step + state), and when an intent.md section\'s coverage, the number of open questions, the file or the issue changes. ' +
-    'Give only the changed fields; a different intent starts a new pane.',
+    'Give only the changed fields; a different intent starts a new pane. A station change closes the station left ' +
+    '(done | skipped) and starts the next; the answer names any earlier station not yet closed.',
   isDeferred: false,
   inputSchema: {
     type: 'object',
@@ -87,6 +88,13 @@ const fileName = (id: string) => `${id.replace(/[^A-Za-z0-9_-]+/g, '-')}.json`
 // The full picture: a done section counts one, a partial one half.
 export function coverage(i: Intent): number {
   return SECTIONS.reduce((n, s) => n + (i.sections[s.key] === 'done' ? 1 : i.sections[s.key] === 'partial' ? 0.5 : 0), 0)
+}
+
+// The stations behind the furthest one reported that were never closed (not reported, or left in progress): the
+// tool's answer names them, so a station skipped on the pane shows up at the next report, not at the end.
+export function unclosed(i: Intent): number[] {
+  const last = i.steps.reduce((m, l, k) => (l === null ? m : k), -1)
+  return i.steps.flatMap((l, k) => (k < last && (l === null || l.state === 'in_progress') ? [k] : []))
 }
 
 export function duration(ms: number): string {
@@ -263,7 +271,13 @@ export const register: Register = on => {
     }
     if (nextIntent.issue !== base.issue) await readRunning($)
     const q = nextIntent.questions ? `, ${nextIntent.questions} open question${nextIntent.questions === 1 ? '' : 's'}` : ''
-    return { result: `${name}: full picture ${coverage(nextIntent)}/${SECTIONS.length}${q}.` }
+    const gaps = unclosed(nextIntent)
+    const closed = nextIntent.steps.filter(l => l !== null && l.state !== 'in_progress').length
+    const stations =
+      gaps.length > 0
+        ? ` Not closed on the pane: ${gaps.map(k => `${k} ${STEPS[k]}`).join(', ')} — report each as done or skipped, with its evidence.`
+        : closed === STEPS.length ? ` All ${STEPS.length} stations closed.` : ''
+    return { result: `${name}: full picture ${coverage(nextIntent)}/${SECTIONS.length}${q}.${stations}` }
   })
 
   // The band above the prompt: the whole flow in one row, Intent → Issue → Triage → Build.
