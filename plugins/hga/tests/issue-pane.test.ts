@@ -223,7 +223,8 @@ test('every report writes the shared state file for the triage panel; a write er
   await step($, { issue: ISSUE, verb: 'fix', step: 0, state: 'done', evidence: 'ok' })
   await step($, { issue: ISSUE, step: 1, state: 'in_progress' })
   expect(writes.length).toBe(2)
-  expect(writes[1]!.path.replaceAll('\\', '/')).toBe('/home/test/.claude/hga/issue/acme-web-app-18.json')
+  // On Windows the engine resolves the faked POSIX home to an absolute path: C:\home\test\...
+  expect(writes[1]!.path.replaceAll('\\', '/').endsWith('/home/test/.claude/hga/issue/acme-web-app-18.json')).toBe(true)
   const file = JSON.parse(writes[1]!.text)
   expect(file.issue).toBe(ISSUE)
   expect(file.session).toBe('sess-1')
