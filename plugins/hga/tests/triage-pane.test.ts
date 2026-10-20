@@ -38,7 +38,7 @@ const fileName = (path: string) => path.replaceAll('\\', '/').split('/').pop() ?
 type Run = { exitCode: number; stdout: string; stderr: string }
 
 // Stands in for the engine: repository, home folder, state files, `HGA config`, `HGA next` and usage from memory.
-function engine(on: On, opts: { next?: Run; config?: object; registerFails?: boolean; files?: Record<string, object>; store?: Record<string, unknown> } = {}) {
+function engine(on: On, opts: { next?: Run; config?: object; registerFails?: boolean; storeStub?: boolean; files?: Record<string, object>; store?: Record<string, unknown> } = {}) {
   const files = { ...FILES, ...opts.files }
   const runs: (readonly string[])[] = []
   const opened: string[] = []
@@ -63,6 +63,9 @@ function engine(on: On, opts: { next?: Run; config?: object; registerFails?: boo
   on('process.run', ($, e) => {
     runs.push(e.argv)
     const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false })
+    if (opts.storeStub && e.argv[0] === 'python3') {
+      return { value: { exitCode: 49, stdout: '', stderr: 'Python was not found; run without arguments to install from the Microsoft Store', isStdoutTruncated: false } } as never
+    }
     if (e.argv.includes('config')) return { value: ok(JSON.stringify(opts.config ?? CONFIG)) } as never
     if (e.argv.includes('next')) return { value: opts.next ?? ok(JSON.stringify(NEXT)) } as never
     return { value: ok('') } as never
@@ -205,6 +208,16 @@ test('if HGA next fails, the error shows, running issues still do', async ($, on
   expect(drawn).toContain('HGA next: gh: authentication required')
   expect(drawn).toContain('web-app#31')
   expect(drawn).toContain('loading…')
+})
+
+test('Windows: the Microsoft Store python3 alias is skipped, python runs the helper', async ($, on) => {
+  const s = engine(on, { storeStub: true })
+  await start($)
+  await triage($)
+  const drawn = await pane($)
+  expect(drawn).not.toContain('Python was not found')
+  expect(drawn).toContain('CSV export ignores the date filter')
+  expect(s.nexts().map(r => r[0])).toEqual(['python3', 'python'])
 })
 
 test('loading the triage skill activates and opens; another skill does not', async ($, on) => {

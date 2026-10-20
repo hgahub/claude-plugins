@@ -146,13 +146,21 @@ async function home($: EngineInterface): Promise<string | null> {
   return (await $.env.get('USERPROFILE')) || (await $.env.get('HOME')) || null
 }
 
+// Windows' App Execution Alias for a Python that is not installed: it runs, exits non-zero and prints this.
+const STORE_STUB = 'Python was not found'
+
 // Runs the helper script with the first Python that works (python3 on macOS/Linux, python on Windows).
 async function helper($: EngineInterface, args: string[], timeoutMs: number) {
   const script = `${$.plugin.root}/skills/issue/scripts/hga_issue.py`
   let last: unknown = null
   for (const py of ['python3', 'python']) {
     try {
-      return await $.process.run([py, script, ...args], { timeoutMs })
+      const res = await $.process.run([py, script, ...args], { timeoutMs })
+      if (res.exitCode !== 0 && `${res.stderr}${res.stdout}`.includes(STORE_STUB)) {
+        last = new Error(`${py}: ${res.stderr.trim() || res.stdout.trim()}`)
+        continue
+      }
+      return res
     } catch (err) {
       last = err
     }
