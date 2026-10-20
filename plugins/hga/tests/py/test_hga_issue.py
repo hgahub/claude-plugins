@@ -16,7 +16,8 @@ def test_defaults_without_any_configuration(hga, tmp_path):
     assert c["review"]["provider"] == "local"
     assert c["github"]["project"] is None
     assert c["slack"] is None
-    assert c["labels"] == {"in_progress": "in-progress", "in_review": "in-review"}
+    assert c["labels"] == {"in_progress": "in-progress", "in_review": "in-review", "closing": None}
+    assert c["live_test"] == {"browser": "builtin"}
     assert c["sources"] == {"team": None, "user": None}
     assert c["knowledge_dir"] == str(tmp_path / "kb")
 
@@ -67,8 +68,27 @@ def test_label_status(hga):
 def test_is_done_is_the_closed_state(hga):
     assert hga.is_done({"state": "CLOSED", "stateReason": "COMPLETED"})
     assert hga.is_done({"state": "CLOSED", "stateReason": "NOT_PLANNED"})
-    # a label does not close an issue
+    # without labels.closing, a label does not close an issue
     assert not hga.is_done({"state": "OPEN", "labels": {"nodes": [{"name": "done"}]}})
+
+
+def test_closing_label_closes_an_open_issue(hga, tmp_path, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"labels": {"closing": "done"}})
+    assert hga.is_done({"state": "OPEN", "labels": {"nodes": [{"name": "done"}]}})
+    assert not hga.is_done({"state": "OPEN", "labels": {"nodes": [{"name": "in-review"}]}})
+    deps = {"blockedBy": {"nodes": [
+        {"number": 1, "title": "a", "state": "OPEN", "labels": {"nodes": [{"name": "done"}]}},
+        {"number": 2, "title": "b", "state": "OPEN", "labels": {"nodes": []}},
+    ]}, "blocking": {"nodes": []}}
+    assert hga.print_deps("acme/web-app", 9, deps) == [2]
+    assert "#1 [closed · label done] a" in capsys.readouterr().out
+    # a closed prerequisite does not block, and a closed issue is not in any group
+    buckets, _ = hga.bucket_issues([
+        issue(3, ["ready-for-agent"], blockers=[1], board="Todo") | {"blockedBy": {"nodes": deps["blockedBy"]["nodes"][:1]}},
+        issue(4, ["done"], board="Done"),
+    ], "Eng")
+    assert [r["number"] for r in buckets["ready"]] == [3]
+    assert all(r["number"] != 4 for rows in buckets.values() for r in rows)
 
 
 def test_print_deps_flags_prerequisites_closed_without_completion(hga, capsys):
@@ -322,6 +342,7 @@ def test_config_problems_catch_bad_fields(hga, tmp_path):
         "labels": {"in_review": " "},
         "review": {"provider": "codex", "ask_after_rounds": 0},
         "parallel": {"max_per_repo": True},
+        "live_test": {"browser": "firefox"},
     })
     text = "\n".join(hga.config_problems(hga.load_config()))
     assert "timezone must be" in text
@@ -331,6 +352,7 @@ def test_config_problems_catch_bad_fields(hga, tmp_path):
     assert "review.ask_after_rounds" in text
     assert "parallel.max_per_repo" in text  # a boolean is not a number
     assert "review.provider" not in text
+    assert "live_test.browser" in text and "labels.closing" not in text
 
 
 def test_cli_config_warns_on_problems_but_prints(hga, tmp_path, capsys):

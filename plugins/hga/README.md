@@ -47,7 +47,7 @@ Then run `/hga:init` once per machine. Update with `claude plugin update hga@hga
 
 `/hga:init check` (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor`) shows what is missing; the
 check also offers to repair it — a moved knowledge base, an invalid configuration field, a leftover
-`labels.closed`, template files a newer plugin version added.
+`labels.closed` (moved to `labels.closing` or removed), template files a newer plugin version added.
 
 ## Configuration
 
@@ -64,10 +64,11 @@ Two layers, merged (`hga_issue.py config` prints the result):
       "fields": { "status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort" },
       "statuses": { "todo": "Todo", "in_progress": "In Progress", "done": "Done" }
     },
-    "labels": { "in_progress": "in-progress", "in_review": "in-review" },
+    "labels": { "in_progress": "in-progress", "in_review": "in-review", "closing": null },
     "slack": null,
     "review": { "provider": "local", "ask_after_rounds": 5 },
     "parallel": { "max_per_repo": 2, "usage_ceiling_pct": 80 },
+    "live_test": { "browser": "builtin" },
     "risk": {
       "low_paths": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/**", "LICENSE", "LICENSE.*", "tests/**", "test/**"],
       "high_paths": ["**/migrations/**", "*.sql", "**/auth/**", "**/permissions/**", ".github/workflows/**"],
@@ -86,9 +87,10 @@ Two layers, merged (`hga_issue.py config` prints the result):
 | `language` | Language of everything written outward: commits, PRs, issues, comments, Slack, notes. Code follows the repository's own conventions. |
 | `timezone` | `null` = the machine's; an IANA name makes "today" (Slack claims, iterations) the same for the whole team. |
 | `github.project` | `null` = no board: the status is kept with labels. Otherwise the project's title; its status field and option names map through `fields.status` and `statuses`. Iteration, Priority and Effort are used only if they exist. |
-| `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer). There is no closing label: issues close with GitHub's own closing — the PR's `Closes #n` at merge, or `gh issue close`. |
+| `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer). `closing`: `null` (default) = issues close with GitHub's own closing — the PR's `Closes #n` at merge, or `gh issue close`; a label name (e.g. `done`) = the maintainer closes an issue with that label after the merge: the PR says only `Ref #n`, the issue may stay open, the label counts as closed for prerequisites and in triage, and the agent never adds it. |
 | `slack` | `null` = claims and reports are GitHub comments on the issue. Otherwise `{"channel": "#dev", "channel_id": "C…"}`. |
 | `review.provider` | `local` (the `code-review` skill), `codex`, `copilot` or `greptile` (a bot on GitHub, in addition to the local review). `ask_after_rounds`: from this round on, the maintainer decides whether to close the review. |
+| `live_test.browser` | `builtin` (the desktop app's browser) or `chrome` (Claude in Chrome): which one `/hga:issue`'s live test tries first; the other one is the fallback. |
 | `parallel` | `/hga:triage` launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |
 | `risk` | The risk classes of `hga_issue.py risk`: `high` if a changed file matches `high_paths` or the issue / PR has `high_label`; `low` if every file matches `low_paths`; `standard` otherwise. A pattern without `/` matches the file name anywhere; with `/`, the path from the repository root (`**` spans folders). A team's list replaces the default one. Per repository, `repos.<owner/repo>.low_paths` replaces the team's list and `high_paths` adds to it — e.g. a repository whose `*.md` files are runtime prompts sets its own `low_paths`. The class decides which steps of `/hga:issue` may be `not_applicable`. |
 

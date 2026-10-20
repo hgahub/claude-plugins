@@ -41,6 +41,10 @@ Run `HGA config` once at the start and keep the values for the whole run:
   otherwise the project board's title, and the status is its Status field.
 - `review.provider` — `local` (the `code-review` skill only), or `codex` / `copilot` / `greptile` (a review bot
   on GitHub, in addition to the local review); `review.ask_after_rounds` — the round limit (step 8).
+- `labels.closing` — `null`: the issue closes with GitHub's own closing (`Closes #n`, step 7); a label name
+  (e.g. `done`): **closing is the maintainer's label** — the PR only says `Ref #n`, and you never close the issue
+  or add that label (steps 7, 9, "After the merge").
+- `live_test.browser` — which browser the live test tries first: `builtin` or `chrome` (step 6.2).
 - `knowledge_dir` — the knowledge base.
 - `risk` — the risk classes' file patterns (`low_paths`, `high_paths`, per repository `repos.<owner/repo>`) and
   `high_label`. `HGA risk` applies them; you only need `high_label` for step 0's provisional class.
@@ -70,7 +74,7 @@ is. If the evidence is missing, the item is not done.
 | 4 | Decisions | ✅ ➖ | who decided what (issue comment, user, decision tool); high: the maintainer's decision; ➖ low, if nothing was decided |
 | 5 | Build + automated tests | ✅ | number of new cases (low: ➖); how many fail on the base and why (high: all of them); the gate's numbers (passed, coverage); `HGA risk --worktree`'s `Risk:` line |
 | 6 | Live test | ✅ ➖ | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free — ➖ low, with step 5's `Risk:` line |
-| 7 | PR | ✅ | PR URL, head SHA; `closingIssuesReferences` lists the issue; follow-up issue numbers (7a), if any; high: `checks` not empty, the rollback note in the PR's "Risk" section |
+| 7 | PR | ✅ | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: lists nothing); follow-up issue numbers (7a), if any; high: `checks` not empty, the rollback note in the PR's "Risk" section |
 | 8 | Review | ✅ | local review result and level (low: one round at `low`, no bot; high: `high` level); bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line, and the gates done if the class rose |
 | 9 | Done | ✅ | read-back: `Status: Done · issue: OPEN` |
 | 10 | Cleanup | ✅ | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
@@ -202,8 +206,9 @@ decide: …"), and if step 5's class is low, report it again as `not_applicable`
 | **Closing** the bot review without 👍 | **the maintainer's decision** — ask, as in step 8 |
 | Adding the `risk.high_label` label (raising the class) | on the maintainer's word; **lowering a class: never** |
 | **Waiving** the live test of a high-risk change | **the maintainer's decision** — ask, as in "Risk class" |
-| **Linking** the issue for closing (`Closes #n` in the PR description) | part of the workflow — as in step 7 |
-| **Closing** the issue by hand (`gh issue close`) | after the merge, if the merge did not close it (as in "After the merge"); before the merge, only if the user asks |
+| **Linking** the issue for closing (`Closes #n` in the PR description) | part of the workflow — as in step 7; with `labels.closing`: **never** |
+| **Closing** the issue by hand (`gh issue close`) | after the merge, if the merge did not close it (as in "After the merge"); before the merge, only if the user asks. With `labels.closing`: **never** — the maintainer's |
+| Adding the `labels.closing` label | **never** — the maintainer's |
 | **Merging** the PR | **never** — the maintainer's |
 | Deleting the remote branch **before** the merge | **never** — it closes the PR |
 
@@ -424,13 +429,14 @@ maintainer instead of skipping, and skip only on their word.
    a timeout). In the browser, navigate to `http://localhost:<port>/` directly; the server log is the background
    process's output (instead of `preview_logs`). The step may be **skipped** only if this fails too: the evidence
    is both paths' error messages.
-2. **Browser — the built-in browser if the session has it, otherwise Chrome; both are equal.**
-   - First the **built-in browser** (`mcp__Claude_Browser__*`, in the Claude desktop app): `preview_start`
-     already opened a tab on the port there — use that tab (on the Bash path: `navigate` to
-     `http://localhost:<port>/`).
+2. **Browser — `live_test.browser` first, the other one if it is not in the session; both are equal.**
+   - The **built-in browser** (`mcp__Claude_Browser__*`, in the Claude desktop app): `preview_start` already
+     opened a tab on the port there — use that tab (on the Bash path: `navigate` to `http://localhost:<port>/`).
    - **Chrome** (`mcp__claude-in-chrome__*`, loaded with a single ToolSearch, `tabs_context_mcp` with
-     `createIfEmpty`) when the user asks for it, or when the built-in browser is not in the session (e.g. the
-     CLI) — no question, no ⚠️.
+     `createIfEmpty`, then `navigate` to `http://localhost:<port>/`).
+   - `builtin` (the default): the built-in browser; Chrome when the user asks for it, or when the built-in one is
+     not in the session (e.g. the CLI). `chrome`: Chrome; the built-in browser when Chrome is not connected.
+     Falling back is no question and no ⚠️.
    - Both need the same steps and the same evidence. The PR and the report name the browser used.
 
    Then follow the issue's **"What we measured"** steps exactly, clicking through the UI.
@@ -465,8 +471,8 @@ maintainer instead of skipping, and skip only on their word.
 ## 7. Commit and PR
 
 - Commit: `fix(#<n>): <summary in the configured language>`. In the body, the mechanism and the changes as
-  bullets, at the end `Ref #<n>` and the harness's attribution line. The closing keyword goes into the PR
-  description, not the commits: one place, and a commit's keyword cannot be withdrawn after the push. The
+  bullets, at the end `Ref #<n>` and the harness's attribution line. The closing keyword (if any, see 1. below)
+  goes into the PR description, not the commits: one place, and a commit's keyword cannot be withdrawn after the push. The
   `fix(#n):` prefix is not a trigger.
 - Push: `git push -u origin <branch>` (the upstream was unset, so name the branch explicitly).
 - PR: write the body with the `Write` tool to the scratchpad (`pr<n>.md`), then
@@ -477,6 +483,8 @@ maintainer instead of skipping, and skip only on their word.
      for another base, write `Ref #<n>` and close the issue after the merge ("After the merge"). If the PR
      deliberately does only part of the issue (the user or a decision said so), `Ref #<n>` instead, and the
      description says what is left.
+     **With `labels.closing`:** always `Ref #<n>`, never a closing keyword (`Closes/Fixes/Resolves #n`) — the
+     merge must not close the issue; the maintainer closes it with the label.
   2. **The bug** (or **The need**) — the mechanism, at file:line level
   3. **The fix** — as bullets
   4. **Decisions** — a table (question · decision · who / confidence), if there was a decision round
@@ -490,8 +498,8 @@ maintainer instead of skipping, and skip only on their word.
      the merge (revert commit, migration down, feature flag, data restore), and what a revert alone does not
      undo
   10. the harness's PR attribution line
-- **Read the link back:** `gh pr view <pr> --json closingIssuesReferences` lists the issue (step 7's evidence).
-  If it is missing, fix the description (`gh pr edit <pr> --body-file …`) and read it back again.
+- **Read the link back:** `gh pr view <pr> --json closingIssuesReferences` lists the issue (step 7's evidence);
+  with `labels.closing` it must list **nothing**. If it is wrong, fix the description (`gh pr edit <pr> --body-file …`) and read it back again.
 - Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
 - **Manual review list for the pane:** in step 7's `done` call, give the `checks` list — at most 13 short lines
   for the PR's human reviewer. Only what a person can judge and neither the automated tests nor the review bot
@@ -599,7 +607,7 @@ The class (step 5's `Risk:` line) sets the review:
    (a low PR that became standard gets its live test and, with a bot provider, the bot review; anything that
    became high gets the high column) — step 9 waits for them.
 
-## 9. Done — the merge closes it
+## 9. Done — the merge (or the maintainer's label) closes it
 
 Only after step 8's `HGA risk --pr` check, and the gates of a risen class.
 
@@ -614,7 +622,12 @@ yourself. If the PR covers several claimed issues, set each one Done.
 **Closing is GitHub's own:** the issue is closed when its `CLOSED` state says so — normally because the merge of
 the PR closed it through `Closes #n` (step 7). Do not close it by hand before the merge: the change is not on the
 default branch yet, and dependents would start on a closed prerequisite (`HGA deps` counts `CLOSED` as complete).
-There is no closing label. Do not wait for the merge either: the report goes out with the issue open and Done.
+Do not wait for the merge either: the report goes out with the issue open and Done.
+
+**With `labels.closing`, closing is the maintainer's:** the issue is closed when its PR is merged, its status is
+Done, and the maintainer has added the closing label. You add neither the label nor `gh issue close`; the issue's
+`CLOSED` state is a later, independent event — do not wait for it. `HGA deps` counts a prerequisite with the label
+as complete.
 
 ## 10. Cleanup — before the report
 
@@ -665,7 +678,8 @@ main issue's thread (or issue), and each other one gets a short line ("together 
 Write it in the configured language. The content:
 
 - ✅ Done: #n — PR link (head SHA), CI, the review's result (local review; bot rounds; 👍, or the maintainer's
-  closing with the follow-up issue), the issue is Done (open; the merge closes it through `Closes #n`)
+  closing with the follow-up issue), the issue is Done (open; the merge closes it through `Closes #n` — with
+  `labels.closing`: closing is the maintainer's label)
 - **Fix** in 1–2 lines; **Tests**: new cases, whether they fail on the base, the gate's numbers, live test (in
   which browser); **Live test verdict**: `PASSED` / `FAILED` / `NOT VERIFIED`, with the number of fix rounds
 - **Risk:** the run's class ("Up only": the highest one `HGA risk` printed since step 5, the same as
@@ -726,7 +740,8 @@ Then show the user the whole checklist with item 12 (the report's link and the r
    `CLOSED (COMPLETED)` + Done. If the issue is still open (the PR went to another base, or the keyword was
    missing) and the PR covered it whole, close it: `gh issue close <n> --repo <owner/repo> --reason completed
    --comment "Done in #<pr> (<merge-sha>)"`, then read back `gh issue view <n> --json state,stateReason`. A
-   PR with `Ref #<n>` (part of the issue) leaves it open.
+   PR with `Ref #<n>` (part of the issue) leaves it open. **With `labels.closing`:** expected `MERGED`, the issue
+   `OPEN` + Done; do not close it — the maintainer adds the label.
 2. Remote branch: `git ls-remote --heads origin <branch>`; if it exists, delete it (10.4).
 3. A dated line in the knowledge base note with the merge commit's SHA, the follow-up issues' numbers and the
    report's link. This does not prove deployment either.
