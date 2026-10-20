@@ -201,7 +201,8 @@ section's name opens or closes it.
 - A long evidence ends in `…` on a narrow pane: **double-click** the step's name to wrap the row onto several
   lines, double-click again to bring it back to one.
 - **Manual review** (☑, under the Review section): with the PR, the model lists at most 13 points (`checks`) that
-  only a person can check; the reviewer ticks them by clicking ☐. The tick goes into the state file, and a point
+  only a person can check — check tasks on the finished change along the review criteria (scope, correctness,
+  security, compatibility, …), not decisions that belonged before the build; the reviewer ticks them by clicking ☐. The tick goes into the state file, and a point
   with the same text keeps its tick when a new list arrives; an empty list reads "no highlighted manual review
   point". The section stays open while a point is unticked, and the step tool's answer gives the standing too
   (`Manual review: 2/5 ticked.`).
