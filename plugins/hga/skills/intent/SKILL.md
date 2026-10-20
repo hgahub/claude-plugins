@@ -43,6 +43,11 @@ changes the outcome**, and a non-blocking uncertainty goes under "Open questions
   `verdict` fields; `file` at station 4, `issue` at station 7. The `intent` is the file name stem
   (`<app>-intent-<topic>`), the same throughout. Give only the changed fields. If the tool is missing, skip it —
   not an error.
+  - **A station change is two reports:** the station left gets `done` (or `skipped`, with the reason), the next
+    one `in_progress`. Every station gets both, even one done in passing — research folded into an interview
+    round is still station 3, and the knowledge base commit is still station 6.
+  - **The tool's answer is the check:** if it says "Not closed on the pane: …", close those stations right
+    away, each with its own evidence, before going on.
 
 ## Stations
 
@@ -174,6 +179,7 @@ issue: ""                       # station 7 fills it: owner/repo#n
 ## Open questions
 - <question> — from: <name/role>          (not blocking)
 - [blocking] <question> — from: <…>
+- none                                    (when there is no open question: this exact line, in English — `ICHK` counts any other line as a question)
 
 ## Clarification log
 - <date> Q: <question> — A: <answer>
@@ -230,6 +236,9 @@ issue, it runs in comment mode. With the "Knowledge base only" answer this stati
 
 ## Report
 
+**Pane check first** (if the session has the tool): station 8's `done` report must answer "All 9 stations
+closed." If it names stations not closed, close them with their evidence, and the report comes only after that.
+
 - the intent in one sentence, and the issue's link (or why there is none);
 - the knowledge base note's path and the commit's short SHA;
 - the `ICHK` verdict, with the warnings and their reasons for a WARN;
@@ -237,7 +246,8 @@ issue, it runs in comment mode. With the "Knowledge base only" answer this stati
 - the next step (the triage started here / the command for the triage session).
 
 **Done** when the note is validated and pushed (or committed, for a local-only knowledge base), the issue exists
-read back (or the author asked for no issue), and the report named the next step.
+read back (or the author asked for no issue), the pane shows every station closed, and the report named the next
+step.
 
 ## Boundaries
 

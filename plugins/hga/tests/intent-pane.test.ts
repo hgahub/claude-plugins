@@ -65,7 +65,7 @@ test('a report fills the pane: stations, coverage, verdict; the first one opens 
   await start($)
   await report($, { step: 0, state: 'done', evidence: 'web-app, export' })
   const r = await report($, { step: 2, state: 'in_progress', evidence: 'round 2', sections: { problem: 'done', outcome: 'done', criteria: 'partial' }, questions: 2, verdict: 'BLOCK' })
-  expect(r.result).toBe(`${NAME}: full picture 2.5/8, 2 open questions.`)
+  expect(r.result).toBe(`${NAME}: full picture 2.5/8, 2 open questions. Not closed on the pane: 1 Context — report each as done or skipped, with its evidence.`)
   expect(s.opened).toEqual([`◎ ${NAME}`])
   const p = await pane($)
   expect(p).toContain('web-app, export')
@@ -102,6 +102,19 @@ test('during a survey and after ✕ the band is quiet; a new intent shows it aga
   expect(await band($)).not.toContain(NAME)
   await $.tool.call({ tool: TOOL, intent: 'api-intent-other' } as never)
   expect(await band($)).toContain('api-intent-other')
+})
+
+test('the answer names the stations left open behind the furthest one, until every station is closed', async ($, on) => {
+  engine(on)
+  await start($)
+  await report($, { step: 0, state: 'done', evidence: 'web-app' })
+  await report($, { step: 1, state: 'in_progress' })
+  expect((await report($, { step: 2, state: 'in_progress' })).result).toContain('Not closed on the pane: 1 Context')
+  const r = await report($, { step: 7, state: 'in_progress' })
+  expect(r.result).toContain('1 Context, 2 Interview, 3 Research, 4 Draft, 5 Approval, 6 Knowledge base')
+  for (let k = 1; k <= 7; k++) await report($, { step: k, state: k === 5 ? 'skipped' : 'done', evidence: 'x' })
+  expect((await report($, { step: 8, state: 'in_progress' })).result).not.toContain('Not closed')
+  expect((await report($, { step: 8, state: 'done', evidence: 'triage' })).result).toContain('All 9 stations closed.')
 })
 
 test('invalid input', async ($, on) => {

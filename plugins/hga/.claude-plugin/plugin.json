@@ -1,6 +1,6 @@
 {
   "name": "hga",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Issue workflow: /hga:init (setup and knowledge base), /hga:intent (an intent.md from a few sentences), /hga:new-issue (an issue from the intent), /hga:triage (issue preparation), /hga:issue (issue to reviewed PR), /hga:knowledge (knowledge base), /hga:dashboard (metrics dashboard), with live panes (/intent-pane, /issue-pane, /triage-pane) and a progress band above the prompt.",
   "types": "./types/index.d.ts",
   "author": {
