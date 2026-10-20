@@ -56,8 +56,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
   status-set <owner/repo> <n> {Todo,"In Progress",Done}
       Sets the workflow status and reads it back. With a board: the Status field (option IDs are read from
       the project). Without a board: Todo = no status label, In Progress = the in-progress label,
-      Done = the in-review label. Closing is GitHub's own: the PR's closing keyword at merge, or
-      `gh issue close`.
+      Done = the in-review label. Closing is GitHub's own (the PR's closing keyword at merge, or
+      `gh issue close`), or the maintainer's `labels.closing` label if one is configured.
   track <owner/repo> <n> [--status Todo]
       Adds the issue to the configured board if it is not on it yet, then sets the status. Without a board
       it only sets the status labels.
@@ -142,10 +142,13 @@ DEFAULTS: dict = {
         "fields": {"status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort"},
         "statuses": {"todo": "Todo", "in_progress": "In Progress", "done": "Done"},
     },
-    "labels": {"in_progress": "in-progress", "in_review": "in-review"},
+    # `closing`: null = an issue is closed by GitHub's own closing (the PR's `Closes #n`); a label name = the
+    # maintainer closes it with that label after the merge (the issue may stay OPEN), and the PR only says `Ref #n`.
+    "labels": {"in_progress": "in-progress", "in_review": "in-review", "closing": None},
     "slack": None,
     "review": {"provider": "local", "ask_after_rounds": 5},
     "parallel": {"max_per_repo": 2, "usage_ceiling_pct": 80},
+    "live_test": {"browser": "builtin"},
     # The risk classes' file patterns (HGA risk). A pattern without "/" matches the file name anywhere; with "/",
     # the path from the repository root ("**" spans folders). A team's list replaces the default one; per
     # repository, `repos.<owner/repo>.low_paths` replaces the team's list, `high_paths` adds to it.
@@ -158,6 +161,7 @@ DEFAULTS: dict = {
 }
 
 REVIEW_PROVIDERS = ("local", "codex", "copilot", "greptile")
+BROWSERS = ("builtin", "chrome")
 
 
 def user_config_path() -> Path:
@@ -237,6 +241,8 @@ def config_problems(c: dict) -> list[str]:
     for key in ("in_progress", "in_review"):
         if not _text(labels.get(key)):
             out.append(f"labels.{key} must be a label name, e.g. \"{DEFAULTS['labels'][key]}\"")
+    if labels.get("closing") is not None and not _text(labels.get("closing")):
+        out.append("labels.closing must be a label name, e.g. \"done\", or null (GitHub's own closing)")
     slack = c.get("slack")
     if slack is not None and not (isinstance(slack, dict) and slack.get("channel_id")):
         out.append("slack must be null or {\"channel\": \"#name\", \"channel_id\": \"C…\"}")
@@ -245,6 +251,8 @@ def config_problems(c: dict) -> list[str]:
         out.append(f"review.provider must be one of {', '.join(REVIEW_PROVIDERS)}")
     if not _positive_int(review.get("ask_after_rounds")):
         out.append("review.ask_after_rounds must be a positive whole number")
+    if (c.get("live_test") or {}).get("browser") not in BROWSERS:
+        out.append(f"live_test.browser must be one of {', '.join(BROWSERS)}")
     par = c.get("parallel") or {}
     for key in ("max_per_repo", "usage_ceiling_pct"):
         if not _positive_int(par.get(key)):
@@ -375,7 +383,9 @@ def cmd_doctor(_a) -> int:
     for problem in config_problems(c):
         line(False, "configuration", problem)
     if "closed" in (c.get("labels") or {}):
-        line(None, "labels.closed", "no longer used (issues close with GitHub's own closing) — remove it from the config")
+        line(None, "labels.closed", "no longer used — remove it; a closing label is labels.closing")
+    closing = (c.get("labels") or {}).get("closing")
+    line(None, "closing", f"the maintainer's label {closing}" if closing else "GitHub's own (Closes #n at merge)")
     line(None, "Slack", f"channel {c['slack'].get('channel')}" if c.get("slack") else "not configured (GitHub comments)")
     line(None, "project board", c["github"].get("project") or "not configured (status labels)")
     return 1 if problems else 0
@@ -1208,6 +1218,9 @@ def cmd_status(a) -> int:
     print(f"{a.repo}#{a.num}: {issue['title']}")
     print(f"  issue state: {issue['state']}" + (f" ({issue['stateReason']})" if issue.get("stateReason") else ""))
     labels = label_names(issue)
+    closing = closing_label()
+    if closing and closing in labels:
+        print(f"  closing label: {closing} (closed by the maintainer)")
     if not project:
         print(f"  Status: {label_status(labels)} (labels; no project board configured)")
         return 0
@@ -1921,20 +1934,28 @@ TRIAGE_LABELS = {
 
 DEPS_Q = """
 query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){issue(number:$num){
-  blockedBy(first:50){nodes{number title state stateReason}}
-  blocking(first:50){nodes{number title state stateReason}}}}}
+  blockedBy(first:50){nodes{number title state stateReason labels(first:20){nodes{name}}}}
+  blocking(first:50){nodes{number title state stateReason labels(first:20){nodes{name}}}}}}}
 """
 
 
+def closing_label() -> str | None:
+    return cfg()["labels"].get("closing")
+
+
 def is_done(issue: dict) -> bool:
-    """Closed = GitHub's CLOSED state, whatever the reason (completed, not planned, duplicate)."""
-    return issue.get("state") == "CLOSED"
+    """Closed = GitHub's CLOSED state, whatever the reason (completed, not planned, duplicate), or the
+    maintainer's closing label (`labels.closing`) on an issue that is still open."""
+    closing = closing_label()
+    return issue.get("state") == "CLOSED" or bool(closing and closing in label_names(issue))
 
 
 def state_text(issue: dict) -> str:
     """`closed · NOT_PLANNED`: the reason matters to a dependent, which may need vetting again."""
     if not is_done(issue):
         return "open"
+    if issue.get("state") != "CLOSED":
+        return f"closed · label {closing_label()}"
     return f"closed · {issue['stateReason']}" if issue.get("stateReason") else "closed"
 
 
@@ -1942,7 +1963,7 @@ NEXT_Q = """
 query($o:String!,$n:String!,$after:String,$field:String!){repository(owner:$o,name:$n){
   issues(states:OPEN,first:100,after:$after,orderBy:{field:CREATED_AT,direction:ASC}){
     pageInfo{hasNextPage endCursor}
-    nodes{number title labels(first:20){nodes{name}} blockedBy(first:20){nodes{number state}}
+    nodes{number title labels(first:20){nodes{name}} blockedBy(first:20){nodes{number state labels(first:20){nodes{name}}}}
       assignees(first:10){nodes{login}}
       projectItems(first:5){nodes{project{title}
         fieldValueByName(name:$field){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}}
@@ -2028,6 +2049,8 @@ def bucket_issues(issues: list[dict], project: str | None) -> tuple[dict[str, li
     off_board = 0
     for i in issues:
         labels = label_names(i)
+        if is_done(i):  # the closing label: finished, though still open
+            continue
         if project:
             status = None
             for item in i["projectItems"]["nodes"]:

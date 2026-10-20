@@ -1,6 +1,6 @@
 ---
 name: init
-description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, Slack channel, review provider, parallel limits, risk-class patterns), and write a short usage guide in the team's language (a knowledge base page, optionally a Docs copy). Also re-run it to check or repair a setup. Triggers include "set up hga", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
+description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, closing, Slack channel, review provider, parallel limits, live-test browser, risk-class patterns), and write a short usage guide in the team's language (a knowledge base page, optionally a Docs copy). Also re-run it to check or repair a setup. Triggers include "set up hga", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
 user-invocable: true
 argument-hint: "[new | join <git URL> | check]"
 ---
@@ -21,7 +21,7 @@ Configuration has two layers (`HGA config` prints the merged result, with the fi
 
 | Layer | File | Holds |
 |---|---|---|
-| Team | `<knowledge_dir>/hga.config.json` — versioned with the knowledge base, shared | language, time zone, project board, labels, Slack, review provider, parallel limits, risk patterns |
+| Team | `<knowledge_dir>/hga.config.json` — versioned with the knowledge base, shared | language, time zone, project board, labels and closing, Slack, review provider, parallel limits, live-test browser, risk patterns |
 | Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (this user's Docs copy of the guide, step 7), `dashboard_url` (this user's metrics dashboard, written by `/hga:dashboard`), and any team field to override for this machine |
 
 Ask every choice with `AskUserQuestion` (the recommended option first, "(Recommended)"); detect what you can
@@ -102,21 +102,30 @@ values and ask only about the changes). Otherwise start from `$INIT/templates/hg
    (`gh project field-list <number> --owner <owner> --format json`): it needs a single-select status field with
    options for to-do, in progress and done; map their names into `github.fields.status` and `github.statuses`.
    Iteration, Priority and Effort are used only if they exist.
-4. **Slack:** "No Slack — claims and reports as GitHub comments (Recommended without a Slack connector)", or a
+4. **Closing** (`labels.closing`): "GitHub's own — the PR's `Closes #n` closes the issue at merge
+   (Recommended)" (`null`), or "The maintainer's label": the PR only says `Ref #n`, the merge leaves the issue
+   open, and the maintainer closes it with a label after the merge (ask for its name, e.g. `done`). The label
+   counts as closed for prerequisites and hides the issue from `/hga:triage`'s groups; the agent never adds it
+   and never closes the issue. Check that the label exists in the repositories the user names
+   (`gh label list --repo <owner/repo>`); offer to create it in step 5.
+5. **Slack:** "No Slack — claims and reports as GitHub comments (Recommended without a Slack connector)", or a
    channel. For a channel, find it with the Slack tools (`slack_search_channels`), confirm the name, and store
    `{"channel": "#name", "channel_id": "C…"}`. Read one message from it (`slack_read_channel`, limit 1) to prove
    access; if that fails, say so and store nothing.
-5. **Review provider:** "Local code-review only (Recommended)", "Codex", "Copilot", "Greptile". A bot reviews in
+6. **Review provider:** "Local code-review only (Recommended)", "Codex", "Copilot", "Greptile". A bot reviews in
    addition to the local review, not instead of it. The bot must be installed on the repositories (Codex and
    Greptile as GitHub apps; Copilot code review enabled for the account or organization): say so, and if the
    user names a repository, check whether the bot ever reviewed a PR there
    (`gh api repos/<o>/<r>/pulls?state=all&per_page=20` + their reviews' authors) — report what you found, do
    not block on it. Copilot and Greptile support is newer: mention it.
-6. **Review round limit** (`review.ask_after_rounds`): 5 (Recommended), or the user's number. From this round on,
+7. **Review round limit** (`review.ask_after_rounds`): 5 (Recommended), or the user's number. From this round on,
    `/hga:issue` asks the maintainer whether to close the review — the local review's rounds count too.
-7. **Parallel limits** (for `/hga:triage`'s launches): at most 2 running implementations per repository and an
+8. **Parallel limits** (for `/hga:triage`'s launches): at most 2 running implementations per repository and an
    80% ceiling on the 5-hour plan usage (Recommended), or the user's numbers.
-8. **Risk classes** (`risk`): `/hga:issue` classifies each change from its files — `high` if a file matches
+9. **Live-test browser** (`live_test.browser`): "The built-in browser of the desktop app (Recommended)"
+   (`builtin`) or "Claude in Chrome" (`chrome`) — which one `/hga:issue`'s live test tries first; it falls back to
+   the other one when the first is not in the session.
+10. **Risk classes** (`risk`): `/hga:issue` classifies each change from its files — `high` if a file matches
    `high_paths` (or the issue has `high_label`), `low` if every file matches `low_paths`, `standard` otherwise —
    and the class decides which gates the run needs (a docs-only change gets no live test and no bot review; a
    migration needs the maintainer's decision and a rollback note). Show the defaults from the template first.
@@ -156,8 +165,8 @@ error from its output — on another host it is usually the user's credentials, 
   filled in with the channel, and ask whether to append it to `~/.claude/CLAUDE.md`. It lets `/hga:issue` post
   the claim and the final report in that channel without asking each time; everything else still needs approval.
   Append it only on an explicit yes, and never edit other parts of the file.
-- **Triage labels** in repositories the user names: `ready-for-agent`, `ready-for-human`, `needs-info`, and the
-  status labels (`in-progress`, `in-review`, without a board). `HGA triage-state` and `HGA status-set` also create
+- **Triage labels** in repositories the user names: `ready-for-agent`, `ready-for-human`, `needs-info`, the
+  status labels (`in-progress`, `in-review`, without a board), and the closing label (with `labels.closing`). `HGA triage-state` and `HGA status-set` also create
   them on first use, so this is only for seeing them up front: `gh label create <name> --repo <owner/repo>
   --color <hex> --description "<…>"`, skipping existing ones.
 - **A first app page:** if the user names an application, create `apps/<app>.md` from the template in
@@ -176,9 +185,12 @@ yes — one question per item, the recommended fix first.
   override wins over the team file) and the problem; ask step 4's question for that field, write only that
   field, and check again.
 - **No `risk` in the team file** (written by an older plugin version) → the defaults apply, which is not an
-  error. Offer step 4's question 8 once; on a yes, write only the `risk` key.
-- **`labels.closed`** → no longer used. Remove the key from the file that has it (read both layers), nothing
-  else.
+  error. Offer step 4's question 10 once; on a yes, write only the `risk` key.
+- **No `labels.closing` or `live_test` in the team file** (older plugin version) → the defaults apply (GitHub's
+  own closing, the built-in browser). Offer step 4's questions 4 and 9 once; on a yes, write only those keys.
+- **`labels.closed`** → no longer used (versions before 0.4 wrote it). Ask whether the team closes issues with
+  that label: on a yes, move its value to `labels.closing`; otherwise remove the key. Only that key, in the file
+  that has it (read both layers).
 - **Template files the knowledge base lacks** (newer plugin versions add some):
   `python3 "$INIT/scripts/scaffold_kb.py" <dir> --add-missing --dry-run` lists them without writing. Show the
   list and ask — the team may have deleted a page on purpose — then run it without `--dry-run`.
@@ -233,8 +245,8 @@ python3 "$KB/kb_commit.py" -C <dir> -m "The hga guide and first app pages (hga)"
 ```
 
 Then summarize in a short table: knowledge base (folder, remote), team
-configuration (language, board or labels, Slack or GitHub comments, review provider and round limit, limits,
-risk patterns and per-repository overrides),
+configuration (language, board or labels, closing, Slack or GitHub comments, review provider and round limit,
+limits, live-test browser, risk patterns and per-repository overrides),
 machine configuration, the guide (page, Docs link), what was repaired, what was skipped and why. End with the next step: "Try
 `/hga:triage <owner/repo>` or `/hga:issue <issue URL>`." Mention that `/hga:init` can be re-run to change any of
 this.

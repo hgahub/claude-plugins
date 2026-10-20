@@ -6,10 +6,11 @@
     "fields": { "status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort" },
     "statuses": { "todo": "Todo", "in_progress": "In Progress", "done": "Done" }
   },
-  "labels": { "in_progress": "in-progress", "in_review": "in-review" },
+  "labels": { "in_progress": "in-progress", "in_review": "in-review", "closing": null },
   "slack": null,
   "review": { "provider": "local", "ask_after_rounds": 5 },
   "parallel": { "max_per_repo": 2, "usage_ceiling_pct": 80 },
+  "live_test": { "browser": "builtin" },
   "risk": {
     "low_paths": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/**", "LICENSE", "LICENSE.*", "tests/**", "test/**"],
     "high_paths": ["**/migrations/**", "*.sql", "**/auth/**", "**/permissions/**", ".github/workflows/**"],

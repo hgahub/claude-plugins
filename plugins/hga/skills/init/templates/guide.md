@@ -3,7 +3,7 @@ How /hga:init fills this in (this comment does not go into the page):
 - Write the page in the team's `language` (hga.config.json): translate every sentence, keep the commands, file
   names and config keys as they are.
 - {{…}} are values from `HGA config` and the knowledge base's git remote. A line marked [board] / [no board],
-  [slack] / [no slack], [bot] / [local] or [remote] / [local only] stays only if it matches the configuration;
+  [closing label] / [github closing], [slack] / [no slack], [bot] / [local] or [remote] / [local only] stays only if it matches the configuration;
   drop the marker itself.
 - `{{RISK_…_PATHS}}` lists the patterns in backticks; `{{RISK_REPO_OVERRIDES}}` names the repositories with their
   own `risk.repos` patterns ("own low paths: acme/prompts"), or says "no per-repository overrides".
@@ -47,6 +47,9 @@ idea → /hga:intent → /hga:new-issue → /hga:triage → /hga:issue → revie
 | Language | `{{LANGUAGE}}` | Commits, PRs, issues, comments and notes are written in this language. |
 | [board] Status | project board "{{PROJECT}}" | Issues move Todo → In Progress → Done on the board. |
 | [no board] Status | labels `{{LABEL_IN_PROGRESS}}`, `{{LABEL_IN_REVIEW}}` | No board: the status is a label on the issue. |
+| [github closing] Closing | GitHub's own | The PR says `Closes #n`: merging it closes the issue. |
+| [closing label] Closing | label `{{CLOSING_LABEL}}` | The PR only says `Ref #n`. After the merge, you add `{{CLOSING_LABEL}}` — that closes the issue for us (prerequisites, triage); Claude never adds it. |
+| Live test | {{BROWSER}} first | `/hga:issue` tests the change in this browser, or in the other one if this one is not in the session. |
 | [slack] Claims and reports | Slack {{SLACK_CHANNEL}} | Taking an issue is announced there, and the final report goes into that thread. |
 | [no slack] Claims and reports | GitHub comments | Taking an issue and the final report are comments on the issue. |
 | [local] Review | local `code-review` | Claude reviews its own PR and fixes the findings, round after round. |
@@ -63,6 +66,7 @@ Claude stops and asks before anything that leaves your machine or cannot be undo
   permission in `~/.claude/CLAUDE.md`);
 - closing the review when the rounds stop paying off;
 - closing an issue as not needed or duplicate;
+- [closing label] closing an issue after the merge, with the label `{{CLOSING_LABEL}}`;
 - merging — always yours.
 
 ## Where things are in the knowledge base
