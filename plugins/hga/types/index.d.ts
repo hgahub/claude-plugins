@@ -97,8 +97,6 @@ declare module 'claude-code' {
       intent: Intent | null
       intentOpen: boolean
       intentHidden: boolean
-      // the issue's state file (~/.claude/hga/issue/), once the implementation runs
-      intentRunning: IssueFile | null
     }
   }
 }

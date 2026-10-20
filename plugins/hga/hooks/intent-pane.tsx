@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Coverage, Intent, IntentFile, IssueFile, Phase, StepState } from '../types'
+import type { Coverage, Intent, IntentFile, StepState } from '../types'
 
 const PANE = 'hga-intent'
 const TOOL = 'mcp__hga__intent'
@@ -10,14 +10,12 @@ const intent = atom({ plugin: 'hga', key: 'intent' } as const, null)
 const open = atom({ plugin: 'hga', key: 'intentOpen' } as const, false)
 // The band's ✕ button; a new intent shows it again.
 const hidden = atom({ plugin: 'hga', key: 'intentHidden' } as const, false)
-const running = atom({ plugin: 'hga', key: 'intentRunning' } as const, null)
-// The triage panel's atom: if the triage runs in this same session, the band shows its branch.
-const phase = atom({ plugin: 'hga', key: 'phase' } as const, null)
 
 // The intent skill's stations, in order (skills/intent/SKILL.md, "Stations").
 export const STEPS = ['Intent', 'Context', 'Interview', 'Research', 'Draft', 'Approval', 'Knowledge base', 'Issue', 'Handoff']
 const KNOWLEDGE = 6
 const ISSUE = 7
+const HANDOFF = 8
 // The intent.md sections that make up the "full picture"; the keys are those of intent_check.py --json.
 export const SECTIONS: { key: string; title: string }[] = [
   { key: 'problem', title: 'Problem' },
@@ -83,34 +81,19 @@ const cut = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, Math.ma
 const short = (id: string) => id.replace(/^[^/#\s]+\//, '')
 const oneLine = (s: unknown) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '')
 const fileName = (id: string) => `${id.replace(/[^A-Za-z0-9_-]+/g, '-')}.json`
+// owner/repo#n → its GitHub URL; anything else has none and is drawn as plain text.
+export function issueUrl(id: string | null): string | null {
+  const m = id === null ? null : /^([\w.-]+)\/([\w.-]+)#(\d+)$/.exec(id)
+  return m === null ? null : `https://github.com/${m[1]}/${m[2]}/issues/${m[3]}`
+}
 
 // The full picture: a done section counts one, a partial one half.
 export function coverage(i: Intent): number {
   return SECTIONS.reduce((n, s) => n + (i.sections[s.key] === 'done' ? 1 : i.sections[s.key] === 'partial' ? 0.5 : 0), 0)
 }
 
-export function duration(ms: number): string {
-  const min = Math.max(0, Math.floor(ms / 60_000))
-  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`
-}
-
 async function home($: EngineInterface): Promise<string | null> {
   return (await $.env.get('USERPROFILE')) || (await $.env.get('HOME')) || null
-}
-
-// The issue's implementation shows from the issue pane's state file, whichever session it runs in.
-async function readRunning($: EngineInterface): Promise<void> {
-  const i = await read($, intent)
-  if (i?.issue == null) return
-  try {
-    const h = await home($)
-    const file = `${h}/.claude/hga/issue/${fileName(i.issue)}`
-    if (!h || !(await $.fs.exists(file))) return
-    const data = JSON.parse(await $.fs.read(file)) as IssueFile
-    if (Array.isArray(data.steps)) await update($, running, () => data)
-  } catch {
-    // no file or half-written: again in a minute
-  }
 }
 
 async function stateDir($: EngineInterface): Promise<string | null> {
@@ -153,7 +136,6 @@ async function restore($: EngineInterface): Promise<void> {
     if (found === null) return
     const { session: _s, updatedAt: _u, ...i } = found
     await update($, intent, () => i)
-    await readRunning($)
   } catch {
     // no file system: the next report fills it
   }
@@ -178,34 +160,31 @@ async function toggle($: EngineInterface): Promise<boolean> {
 
 type Stage = { name: string; text: string; state: StepState | 'none' }
 
-// The four stages of the flow, for the band: Intent → Issue → Triage → Build.
-export function stages(i: Intent, p: Pick<Phase, 'branch' | 'proposed' | 'issue'> | null, run: IssueFile | null, now: number): Stage[] {
+// The current station: the one in progress, else the one after the last reported.
+export function station(i: Intent): string {
+  const k = i.steps.findIndex(l => l?.state === 'in_progress')
+  if (k >= 0) return STEPS[k]!
+  const last = i.steps.reduce((acc, l, n) => (l === null ? acc : n), -1)
+  return STEPS[Math.min(last + 1, STEPS.length - 1)]!
+}
+
+// The intent's own stages, for the band: Intent → Issue. Triage and build have panes of their own.
+export function stages(i: Intent): Stage[] {
   const intentDone = i.steps[KNOWLEDGE]?.state === 'done'
-  const n = coverage(i)
   const extra = (i.questions === null || i.questions === 0 ? '' : ` · ${i.questions} question${i.questions === 1 ? '' : 's'}`) +
-    (i.verdict === null || intentDone ? '' : ` · ${i.verdict}`)
-  const triage = p !== null && i.issue !== null && p.issue === i.issue ? p : null
-  const buildDone = run?.steps[12]?.state === 'done'
-  const buildCount = run === null ? 0 : run.steps.filter(l => l !== null && l.state !== 'in_progress').length
+    (i.verdict === null ? '' : ` · ${i.verdict}`)
   return [
-    { name: 'Intent', text: `${Number.isInteger(n) ? n : n.toFixed(1)}/${SECTIONS.length}${extra}`, state: intentDone ? 'done' : 'in_progress' },
+    { name: 'Intent', text: intentDone ? '' : `${station(i)}${extra}`, state: intentDone ? 'done' : 'in_progress' },
     {
       name: 'Issue',
       text: i.issue === null ? '' : `#${i.issue.split('#').pop()}`,
       state: i.issue !== null ? 'done' : i.steps[ISSUE]?.state === 'in_progress' ? 'in_progress' : 'none',
     },
-    {
-      name: 'Triage',
-      text: run !== null || triage === null ? '' : `${triage.branch}${triage.proposed === null ? '' : ` · ${triage.proposed}`}`,
-      state: run !== null || triage?.branch === 'D' ? 'done' : triage !== null ? 'in_progress' : 'none',
-    },
-    {
-      name: 'Build',
-      text: run === null ? '' : `${buildCount}/13 · ◷ ${duration((buildDone ? run.updatedAt : Math.max(now, run.updatedAt)) - run.startedAt)}`,
-      state: buildDone ? 'done' : run !== null ? 'in_progress' : 'none',
-    },
   ]
 }
+
+// The band has done its job once the intent is handed off.
+const finished = (i: Intent) => i.steps[HANDOFF]?.state === 'done' || i.steps[HANDOFF]?.state === 'skipped'
 
 export const register: Register = on => {
   // A matcher is needed: the issue pane binds session.start without one, the triage panel with /(?:)/.
@@ -215,7 +194,6 @@ export const register: Register = on => {
     await $.command
       .register({ name: 'intent-pane', description: 'Toggle the hga:intent pane', immediate: true })
       .catch((err: unknown) => $.ui.toast(`hga: /intent-pane could not be registered (${err instanceof Error ? err.message : String(err)})`))
-    $.clock.every(60_000, () => void readRunning($))
     await restore($)
     return result
   })
@@ -258,20 +236,19 @@ export const register: Register = on => {
     await save($, nextIntent)
     if (isNew) {
       await update($, hidden, () => false)
-      await update($, running, () => null)
       await openPane($)
     }
-    if (nextIntent.issue !== base.issue) await readRunning($)
     const q = nextIntent.questions ? `, ${nextIntent.questions} open question${nextIntent.questions === 1 ? '' : 's'}` : ''
     return { result: `${name}: full picture ${coverage(nextIntent)}/${SECTIONS.length}${q}.` }
   })
 
-  // The band above the prompt: the whole flow in one row, Intent → Issue → Triage → Build.
+  // The band above the prompt: the intent's flow in one row, Intent → Issue; gone once handed off.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const i = await read($, intent)
-    if (e.props.hasSurvey || i === null || (await read($, hidden))) return next(e)
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const st = stages(i, await read($, phase), await read($, running), await $.clock.now())
+    if (e.props.hasSurvey || i === null || finished(i) || (await read($, hidden))) return next(e)
+    const { Box, Button, Link, Text } = $.ui.resolve(e)
+    const st = stages(i)
+    const url = issueUrl(i.issue)
     return (
       <Box flexDirection="row" columnGap={1} flexWrap="wrap">
         <Button key="intent-open" plain onPress={async () => { await toggle($) }}>
@@ -284,7 +261,7 @@ export const register: Register = on => {
               {k > 0 ? <Text dimColor>›</Text> : null}
               <Text color={m.color} dimColor={m.color === undefined}>{m.mark}</Text>
               <Text bold={s.state === 'in_progress'} dimColor={s.state === 'none'}>{s.name}</Text>
-              {s.text === '' ? null : <Text dimColor>{s.text}</Text>}
+              {s.text === '' ? null : s.name === 'Issue' && url !== null ? <Link href={url}>{s.text}</Link> : <Text dimColor>{s.text}</Text>}
             </Box>
           )
         })}
@@ -296,17 +273,18 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Link, Text } = $.ui.resolve(e)
     const i = await read($, intent)
     if (i === null) return <Text dimColor>No intent is running in this session: /hga:intent fills the pane with the intent tool.</Text>
     const width = Math.max(30, e.props.bodyColumns || 40)
     const n = coverage(i)
+    const url = issueUrl(i.issue)
     const full = Math.round((n / SECTIONS.length) * BAR)
     return (
       <Box flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold>{cut(i.intent, width - 12)}</Text>
-          <Text dimColor>{i.issue === null ? '' : short(i.issue)}</Text>
+          {url === null ? <Text dimColor>{i.issue === null ? '' : short(i.issue)}</Text> : <Link href={url}>{short(i.issue!)}</Link>}
         </Box>
         <Box flexDirection="row" columnGap={1} marginBottom={1}>
           <Text dimColor>Full picture</Text>

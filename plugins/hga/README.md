@@ -246,17 +246,18 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
 
 Shows `/hga:intent`'s run, in the same color scheme as the other two panes.
 
-- **Pane** (`/intent-pane`): at the top the intent's name and the issue, below it the **full picture** bar — the
+- **Pane** (`/intent-pane`): at the top the intent's name and the issue (a link to GitHub), below it the **full picture** bar — the
   coverage of the intent.md's eight sections (✓ done = 1, ◐ partial = ½, ○ empty), the number of open questions
   and the readiness gate's verdict (PASS green, WARN yellow, BLOCK red). Then the nine stations (Intent, Context,
   Interview, Research, Draft, Approval, Knowledge base, Issue, Handoff) with their evidence, and the sections one
   by one.
-- **Progress band above the prompt:** the whole path in one row —
-  `◎ web-app-intent-xlsx-source  ◐ Intent 6/8 · 1 question · WARN › ○ Issue › ○ Triage › ○ Build  ✕`.
-  Issue turns green with the issue number, Triage shows its branch if it runs in the same session
-  (`mcp__hga__phase`), and Build shows the counter and the clock from the issue's state file
-  (`~/.claude/hga/issue/`), whichever session it runs in. Clicking the intent's name opens the pane, `✕` hides
-  the band (a new intent shows it again); during a survey the band gives way.
+- **Progress band above the prompt:** the intent's path in one row —
+  `◎ web-app-intent-xlsx-source  ◐ Intent Interview · 1 question · WARN › ○ Issue  ✕`.
+  While the intent runs, Intent shows the current station; once the issue exists it turns green with the issue
+  number, a link to GitHub. Triage and the build are not on the band: they run in parallel, often several at
+  once, and their own panes show them. After the handoff (station 8 done or skipped) the band goes by itself.
+  Clicking the intent's name opens the pane, `✕` hides the band (a new intent shows it again); during a survey
+  the band gives way.
 - The model reports with the `mcp__hga__intent` tool (`intent`, `step` 0–8 + `state`, `evidence`, `sections`,
   `questions`, `verdict`, `file`, `issue`); only the changed fields are needed.
 - Every report writes the state to `~/.claude/hga/intent/<intent>.json`. After a plugin update or restart, at
