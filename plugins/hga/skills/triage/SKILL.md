@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Use when a GitHub issue is to be vetted, prepared for implementation, picked next, or handed to a parallel /hga:issue session — the step before /hga:issue. Branches — the five questions ("vet issue #N", "run the five questions"), finalizing the issue into an implementable brief ("finalize #N", "make it ready for implementation"), choosing the next issue ("which issue next?", "when can #N start?", or no issue given), and launching the implementation session. Works for any GitHub repository.
+description: Use when a GitHub issue is to be assessed, prepared for implementation, picked next, or handed to a parallel /hga:issue session — the step before /hga:issue. Branches — the five questions ("assess issue #N", "vet issue #N", "run the five questions"), finalizing the issue into an implementable brief ("finalize #N", "make it ready for implementation"), choosing the next issue ("which issue next?", "when can #N start?", or no issue given), and launching the implementation session. Works for any GitHub repository.
 user-invocable: true
 argument-hint: "[issue URL | owner/repo#number] — empty: the next issue, in continuous mode"
 ---
@@ -12,14 +12,14 @@ implementation session. The request decides which branch runs:
 
 | Branch | Request | Writes to GitHub? |
 |---|---|---|
-| A. Vet — the five questions | "vet issue #N", "run the five questions" | no; writes to the knowledge base |
+| A. Assess — the five questions | "assess issue #N", "vet issue #N", "run the five questions" | no; writes to the knowledge base |
 | B. Finalize | "finalize #N", "make it ready for implementation" | yes: body, prerequisite edges, state label |
 | C. Next issue | "which issue next?", "when can #N start?", **a call without an issue** | no |
 | D. Launch | "launch #N", or automatically after B in continuous mode | no; starts a new session |
 
 **Continuous mode** (a call without an issue, or "bring the next one"): C → A → B → D → C … Your decision
 points are branch B's questions; the launch is automatic. Outside continuous mode, B ends with a question
-instead (B.9). It stops when there is no issue to vet, when the
+instead (B.9). It stops when there is no issue to assess, when the
 5-hour plan usage is above `parallel.usage_ceiling_pct` (`mcp__ccd_session_mgmt__get_usage`, where available),
 or when you stop it.
 
@@ -91,7 +91,7 @@ Done):
 
 A prerequisite is a native "blocked by" edge (`HGA block`), not text: branch C and `hga:issue` work from it.
 
-## A. Vet — the five questions
+## A. Assess — the five questions
 
 1. **Preparation.**
    - `HGA repo-check <owner/repo>`,

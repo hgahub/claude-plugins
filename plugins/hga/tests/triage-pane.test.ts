@@ -305,7 +305,7 @@ test('phase: branch, issue, step and the five verdicts; "preceded" has inverted 
   await start($)
   await triage($)
   expect((await phase($, { branch: 'A', issue: 'acme/web-app#51', step: 'reproducing on the real modules' })).result)
-    .toBe('Dashboard: A. Vet · acme/web-app#51.')
+    .toBe('Dashboard: A. Assess · acme/web-app#51.')
   await phase($, { branch: 'A', verdicts: { current: 'yes', complete: 'partly', preceded: 'no' } })
   await phase($, { branch: 'B', proposed: 'ready-for-agent', decisions: 1 })
   const drawn = await pane($)

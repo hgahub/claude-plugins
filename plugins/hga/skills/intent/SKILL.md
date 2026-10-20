@@ -224,7 +224,7 @@ issue, it runs in comment mode. With the "Knowledge base only" answer this stati
 ### 8. Handoff
 
 - `HGA repo-check <owner/repo>`: if this session runs in the repository's main checkout, load the `hga:triage`
-  skill with the issue URL (A. vet → B. finalize → D. launch, by the triage's rules; branch B's questions are the
+  skill with the issue URL (A. assess → B. finalize → D. launch, by the triage's rules; branch B's questions are the
   user's).
 - Otherwise the report gives the command for the repository's triage session: `/hga:triage <issue URL>`.
 

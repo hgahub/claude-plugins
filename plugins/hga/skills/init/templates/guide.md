@@ -33,7 +33,7 @@ idea → /hga:intent → /hga:new-issue → /hga:triage → /hga:issue → revie
 |---|---|---|---|
 | 1. Describe | `/hga:intent` | Claude asks 1–3 questions per round and researches until the picture is complete, then writes an intent into the knowledge base. | Answer the questions, approve the intent. |
 | 2. File | `/hga:new-issue` | The intent becomes a GitHub issue, checked for duplicates. | Nothing, unless it finds a duplicate. |
-| 3. Prepare | `/hga:triage <owner/repo>` | The issue is vetted with five questions and labeled `ready-for-agent`, `ready-for-human` or `needs-info`; it can start the implementation in a parallel session. | Decide the open questions it lists. |
+| 3. Prepare | `/hga:triage <owner/repo>` | The issue is assessed with five questions and labeled `ready-for-agent`, `ready-for-human` or `needs-info`; it can start the implementation in a parallel session. | Decide the open questions it lists. |
 | 4. Implement | `/hga:issue <issue URL>` | Claim, worktree, code and tests, live test in the browser, PR, review, report — on a 13-step checklist in the issue pane. | Approve what it asks, decide when the review is closed, merge. |
 | 5. Remember | `/hga:knowledge` | Answers from the knowledge base, and records verified findings with a date and a source. | Ask; say "write this down" when something is worth keeping. |
 
