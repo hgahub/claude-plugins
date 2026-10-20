@@ -1,27 +1,53 @@
 # hga — from GitHub issue to reviewed pull request
 
 One Claude Code plugin with seven skills, three live panes and a progress band. An issue's path:
-**`/hga:intent`** turns a few sentences into an intent.md in the knowledge base, by interviewing and research,
-**`/hga:new-issue`** makes an issue from it, **`/hga:triage`** prepares it, **`/hga:issue`** takes it to a
-reviewed PR, **`/hga:knowledge`** keeps what was learned on the way, **`/hga:dashboard`** shows how the runs
-went, and **`/hga:init`** sets everything up.
+**[`/hga:intent`](skills/intent/SKILL.md)** turns a few sentences into an intent.md in the knowledge base, by interviewing and research,
+**[`/hga:new-issue`](skills/new-issue/SKILL.md)** makes an issue from it, **[`/hga:triage`](skills/triage/SKILL.md)** prepares it, **[`/hga:issue`](skills/issue/SKILL.md)** takes it to a
+reviewed PR, **[`/hga:knowledge`](skills/knowledge/SKILL.md)** keeps what was learned on the way, **[`/hga:dashboard`](skills/dashboard/SKILL.md)** shows how the runs
+went, and **[`/hga:init`](skills/init/SKILL.md)** sets everything up.
 
 ```
 /hga:intent → /hga:new-issue → /hga:triage → /hga:issue
 ```
 
-| | What it does |
+The groups below describe each skill's primary role. All seven skills can be invoked by either the user or
+Claude; the grouping does not restrict invocation.
+
+### User-invoked
+
+Entry points for setting up the plugin, starting work and inspecting results. Triage can also launch
+[`/hga:issue`](skills/issue/SKILL.md) in an implementation session.
+
+| Command | What it does |
 |---|---|
-| `/hga:init [new \| join <URL> \| check]` | Checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration and a short usage guide in the team's language (`workflow/hga-guide.md`, optionally a Docs copy), and on a re-run repairs what the check found |
-| `/hga:intent [intent]` | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
-| `/hga:new-issue <intent>` | An issue from the intent: readiness gate, duplicate search, the body from the intent's sections, create and read back, board (Todo) and type, the issue number back into the intent |
-| `/hga:triage [issue]` | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
-| `/hga:issue <issue>` | Claim (Slack or GitHub, read back: the earliest claim wins) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → Done → cleanup → knowledge base → report, on a verified checklist |
-| `/hga:knowledge [question]` | Reads and writes the knowledge base, with dates and sources |
-| `/hga:dashboard [refresh]` | A claude.ai Dashboard over the metrics records: lead time, elapsed per section, tokens and an API-price cost estimate per section and model, review rounds, the account's five-hour usage — filterable by repository and period; creates it on first use, refreshes it afterwards |
-| `/issue-pane` | Toggles the issue pane (the running issue's 13 steps) |
-| `/triage-pane [refresh \| owner/repo]` | Toggles the triage dashboard |
-| `/intent-pane` | Toggles the intent pane (the band above the prompt comes by itself) |
+| [`/hga:init [new \| join <URL> \| check]`](skills/init/SKILL.md) | Checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration and a short usage guide in the team's language (`workflow/hga-guide.md`, optionally a Docs copy), and on a re-run repairs what the check found |
+| [`/hga:intent [intent]`](skills/intent/SKILL.md) | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
+| [`/hga:triage [issue]`](skills/triage/SKILL.md) | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
+| [`/hga:issue <issue>`](skills/issue/SKILL.md) | Claim (Slack or GitHub, read back: the earliest claim wins) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → Done → cleanup → knowledge base → report, on a verified checklist |
+| [`/hga:dashboard [refresh]`](skills/dashboard/SKILL.md) | A claude.ai Dashboard over the metrics records: lead time, elapsed per section, tokens and an API-price cost estimate per section and model, review rounds, the account's five-hour usage — filterable by repository and period; creates it on first use, refreshes it afterwards |
+
+### Model-invoked
+
+Helpers Claude can use within a workflow: [`/hga:intent`](skills/intent/SKILL.md) calls
+[`/hga:new-issue`](skills/new-issue/SKILL.md) after approval, and
+[`/hga:knowledge`](skills/knowledge/SKILL.md) supplies context and records verified findings.
+You can also invoke either command directly.
+
+| Command | What it does |
+|---|---|
+| [`/hga:new-issue <intent>`](skills/new-issue/SKILL.md) | An issue from the intent: readiness gate, duplicate search, the body from the intent's sections, create and read back, board (Todo) and type, the issue number back into the intent |
+| [`/hga:knowledge [question]`](skills/knowledge/SKILL.md) | Reads and writes the knowledge base, with dates and sources |
+
+### Panes
+
+Commands that toggle live views of the workflows. The progress band above the prompt appears automatically
+while an intent is running.
+
+| Command | What it does |
+|---|---|
+| [`/issue-pane`](#issue-pane) | Toggles the issue pane (the running issue's 13 steps) |
+| [`/triage-pane [refresh \| owner/repo]`](#triage-panel) | Toggles the triage dashboard |
+| [`/intent-pane`](#intent-pane-and-progress-band) | Toggles the intent pane (the band above the prompt comes by itself) |
 
 > The panes are built on Claude Code's mod API (early access, it may change from release to release). Written
 > and tested with Claude Code 2.1.289. The skills work without the panes.
@@ -33,7 +59,7 @@ claude plugin marketplace add hgahub/claude-plugins
 claude plugin install hga@hga-plugins
 ```
 
-Then run `/hga:init` once per machine. Update with `claude plugin update hga@hga-plugins`, then
+Then run [`/hga:init`](skills/init/SKILL.md) once per machine. Update with `claude plugin update hga@hga-plugins`, then
 `/reload-plugins` (or a new session).
 
 **Prerequisites** — without them the skills stop, they do not break anything:
@@ -45,7 +71,7 @@ Then run `/hga:init` once per machine. Update with `claude plugin update hga@hga
 - Optional: a Slack MCP connector (claims and reports in a channel), Claude in Chrome or the built-in browser of
   the desktop app (live tests), a review bot on your repositories (Codex, Copilot or Greptile).
 
-`/hga:init check` (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor`) shows what is missing; the
+[`/hga:init check`](skills/init/SKILL.md) (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor`) shows what is missing; the
 check also offers to repair it — a moved knowledge base, an invalid configuration field, a leftover
 `labels.closed` (moved to `labels.closing` or removed), template files a newer plugin version added.
 
@@ -80,7 +106,7 @@ Two layers, merged (`hga_issue.py config` prints the result):
 
 - **Machine** — `~/.claude/hga/config.json`: `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (the
   user's Docs copy of the guide, if any), `dashboard_url` (the user's metrics dashboard, written by
-  `/hga:dashboard`), and any team field to override on this machine.
+  [`/hga:dashboard`](skills/dashboard/SKILL.md)), and any team field to override on this machine.
 
 | Key | Meaning |
 |---|---|
@@ -90,9 +116,9 @@ Two layers, merged (`hga_issue.py config` prints the result):
 | `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer). `closing`: `null` (default) = issues close with GitHub's own closing — the PR's `Closes #n` at merge, or `gh issue close`; a label name (e.g. `done`) = the maintainer closes an issue with that label after the merge: the PR says only `Ref #n`, the issue may stay open, the label counts as closed for prerequisites and in triage, and the agent never adds it. |
 | `slack` | `null` = claims and reports are GitHub comments on the issue. Otherwise `{"channel": "#dev", "channel_id": "C…"}`. |
 | `review.provider` | `local` (the `code-review` skill), `codex`, `copilot` or `greptile` (a bot on GitHub, in addition to the local review). `ask_after_rounds`: from this round on, the maintainer decides whether to close the review. |
-| `live_test.browser` | `builtin` (the desktop app's browser) or `chrome` (Claude in Chrome): which one `/hga:issue`'s live test tries first; the other one is the fallback. |
-| `parallel` | `/hga:triage` launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |
-| `risk` | The risk classes of `hga_issue.py risk`: `high` if a changed file matches `high_paths` or the issue / PR has `high_label`; `low` if every file matches `low_paths`; `standard` otherwise. A pattern without `/` matches the file name anywhere; with `/`, the path from the repository root (`**` spans folders). A team's list replaces the default one. Per repository, `repos.<owner/repo>.low_paths` replaces the team's list and `high_paths` adds to it — e.g. a repository whose `*.md` files are runtime prompts sets its own `low_paths`. The class decides which steps of `/hga:issue` may be `not_applicable`. |
+| `live_test.browser` | `builtin` (the desktop app's browser) or `chrome` (Claude in Chrome): which one [`/hga:issue`](skills/issue/SKILL.md)'s live test tries first; the other one is the fallback. |
+| `parallel` | [`/hga:triage`](skills/triage/SKILL.md) launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |
+| `risk` | The risk classes of `hga_issue.py risk`: `high` if a changed file matches `high_paths` or the issue / PR has `high_label`; `low` if every file matches `low_paths`; `standard` otherwise. A pattern without `/` matches the file name anywhere; with `/`, the path from the repository root (`**` spans folders). A team's list replaces the default one. Per repository, `repos.<owner/repo>.low_paths` replaces the team's list and `high_paths` adds to it — e.g. a repository whose `*.md` files are runtime prompts sets its own `low_paths`. The class decides which steps of [`/hga:issue`](skills/issue/SKILL.md) may be `not_applicable`. |
 
 `hga_issue.py config` prints a malformed field as a warning on stderr (the JSON still comes out); `doctor` counts
 it as a missing item.
@@ -121,7 +147,7 @@ to it afterwards.
   hga.config.json    the team configuration
 ```
 
-- **Reading:** `/hga:knowledge <question>`, or step 0 of `/hga:issue` and `/hga:triage`. The skill pulls first.
+- **Reading:** [`/hga:knowledge <question>`](skills/knowledge/SKILL.md), or step 0 of [`/hga:issue`](skills/issue/SKILL.md) and [`/hga:triage`](skills/triage/SKILL.md). The skill pulls first.
 - **Writing:** a new finding goes to `notes/` with frontmatter (`title`, `verified_at`, `status`,
   `review_after_days`) and a `## Sources and verification` section. Canonical pages change only with evidence.
   No secrets, passwords, tokens or personal data.
@@ -163,11 +189,11 @@ up to their run, models to their section. `--cost` adds `api_cost_usd_est`: the 
 prices from a small table in the script — an estimate of what they would cost on the API, **not** what a Claude
 subscription costs.
 
-`/hga:dashboard` uploads those rows (CSV) to a claude.ai **Dashboard** artifact as an attached file: tiles,
+[`/hga:dashboard`](skills/dashboard/SKILL.md) uploads those rows (CSV) to a claude.ai **Dashboard** artifact as an attached file: tiles,
 lead time per issue by difficulty, solving speed per week, elapsed by section (stacked), tokens and the cost
 estimate by section and model, review rounds, and the account's five-hour usage as context; filters for the
 repository and the period. The knowledge base stays local, so the dashboard is a snapshot:
-`/hga:dashboard refresh` uploads new rows. Its link is kept as `dashboard_url` in the machine configuration.
+[`/hga:dashboard refresh`](skills/dashboard/SKILL.md) uploads new rows. Its link is kept as `dashboard_url` in the machine configuration.
 Whoever can open the dashboard can read the attached rows; it is private until you share it.
 
 ## Review providers
@@ -186,7 +212,7 @@ report problems as issues.
 
 ### Issue pane
 
-`/hga:issue`'s 13 steps (0 Start … 12 Report) in four sections (Prepare, Build, Review, Finish). At the top the
+[`/hga:issue`](skills/issue/SKILL.md)'s 13 steps (0 Start … 12 Report) in four sections (Prepare, Build, Review, Finish). At the top the
 issue, the counter and the elapsed time, below it a progress bar per section; each section is one row
 (`5/5 ›`, `1/2 · 1 skipped ›`), and only the running section is open, with its steps and evidence. Clicking a
 section's name opens or closes it.
@@ -197,7 +223,7 @@ section's name opens or closes it.
   ✎ Build, ⌕ Review, ⚑ Finish. One accent color (the running step and the bar), green checks and a warning
   color — everything else dim; colors are theme keys.
 - The model reports the state with the `mcp__hga__step` tool (`issue`, `step` 0–12, `state`, `evidence`,
-  `verb`, `started_at`, `checks`); `/hga:issue`'s checklist section requires a call at every state change.
+  `verb`, `started_at`, `checks`); [`/hga:issue`](skills/issue/SKILL.md)'s checklist section requires a call at every state change.
 - A long evidence ends in `…` on a narrow pane: **double-click** the step's name to wrap the row onto several
   lines, double-click again to bring it back to one.
 - **Manual review** (☑, under the Review section): with the PR, the model lists at most 13 points (`checks`) that
@@ -207,7 +233,7 @@ section's name opens or closes it.
   point". The section stays open while a point is unticked, and the step tool's answer gives the standing too
   (`Manual review: 2/5 ticked.`).
 - A button on the right of the footer (`🎫 web-app#142 8/13`, dim while the pane is closed) toggles the pane;
-  so does `/issue-pane`. The first report opens the pane; once you close it, only a new issue reopens it.
+  so does [`/issue-pane`](#issue-pane). The first report opens the pane; once you close it, only a new issue reopens it.
 
   ![The footer button: the issue and its progress](docs/footer-button.png)
 
@@ -230,23 +256,23 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
   triage in the sidebar, the triage gets a
   notification when it ends a turn, and archives it after the merge. Archiving the triage archives its subtasks
   too. (Before 0.2.0 a manual scheduled task, `hga-issue-<repo>-<n>`, launched it.)
-- **Activation:** loading `/hga:triage` (or the Skill tool), `/triage-pane`, a `next` run, or a `phase` call. The
-  repository comes from the session's git remote; `/triage-pane owner/repo` switches.
+- **Activation:** loading [`/hga:triage`](skills/triage/SKILL.md) (or the Skill tool), [`/triage-pane`](#triage-panel), a `next` run, or a `phase` call. The
+  repository comes from the session's git remote; [`/triage-pane owner/repo`](#triage-panel) switches.
 - **Running:** from the issue pane's state files, every minute. An unfinished issue silent for 60 minutes is
   marked stalled and frees its slot; past Done (step 9) it no longer takes a slot. Finished issues stay for a day,
   unfinished ones for a week; ✕ hides one until it reports again. In the desktop app, an issue's name jumps to
   its session.
 - **Issues:** `hga_issue.py next <repo> --json` every five minutes, and right away after a session changes a
   label, a prerequisite or a status.
-- **Why `-pane`:** `/issue` and `/triage` are taken by the plugin's own skills (`/hga:issue`'s short name is
+- **Why `-pane`:** `/issue` and `/triage` are taken by the plugin's own skills ([`/hga:issue`](skills/issue/SKILL.md)'s short name is
   `/issue`). If a pane command cannot be registered, the mod says so in a toast; the panes still work from the
   footer button and the skills.
 
 ### Intent pane and progress band
 
-Shows `/hga:intent`'s run, in the same color scheme as the other two panes.
+Shows [`/hga:intent`](skills/intent/SKILL.md)'s run, in the same color scheme as the other two panes.
 
-- **Pane** (`/intent-pane`): at the top the intent's name and the issue (a link to GitHub), below it the **full picture** bar — the
+- **Pane** ([`/intent-pane`](#intent-pane-and-progress-band)): at the top the intent's name and the issue (a link to GitHub), below it the **full picture** bar — the
   coverage of the intent.md's eight sections (✓ done = 1, ◐ partial = ½, ○ empty), the number of open questions
   and the readiness gate's verdict (PASS green, WARN yellow, BLOCK red). Then the nine stations (Intent, Context,
   Interview, Research, Draft, Approval, Knowledge base, Issue, Handoff) with their evidence, and the sections one
@@ -261,7 +287,7 @@ Shows `/hga:intent`'s run, in the same color scheme as the other two panes.
 - The model reports with the `mcp__hga__intent` tool (`intent`, `step` 0–8 + `state`, `evidence`, `sections`,
   `questions`, `verdict`, `file`, `issue`); only the changed fields are needed.
 - Every report writes the state to `~/.claude/hga/intent/<intent>.json`. After a plugin update or restart, at
-  start and on `/intent-pane`, the intent comes back from there — only the session's own (by the `session`
+  start and on [`/intent-pane`](#intent-pane-and-progress-band), the intent comes back from there — only the session's own (by the `session`
   field). If the write fails, the pane works the same.
 
 ### The readiness gate
