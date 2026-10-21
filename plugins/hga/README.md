@@ -301,14 +301,4 @@ English markers, whatever the configured language. Self-test: `--self-test`.
 
 ## Development
 
-```
-claude --plugin-dir ./plugins/hga     # load it; this also generates the types
-claude plugin validate plugins/hga
-claude plugin test plugins/hga
-python3 -m pytest plugins/hga/tests/py
-```
-
-Only one hooks module can be loaded per plugin, so `hooks/register.tsx` calls the three panes' `register`. An
-event without a matcher can be bound only once: the panes' `ui.close` filter on `id`, and the triage panel's
-`session.start` uses a `{ cwd: /(?:)/ }` matcher, the intent pane's `{ cwd: /^/ }`, both matching every session. `isInteractive` is not a usable
-filter: the desktop app runs in SDK mode, where it is false.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md).
