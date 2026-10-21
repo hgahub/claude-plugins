@@ -355,6 +355,28 @@ def test_config_problems_catch_bad_fields(hga, tmp_path):
     assert "live_test.browser" in text and "labels.closing" not in text
 
 
+def test_config_problems_report_sections_that_are_not_objects(hga, tmp_path, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {
+        "review": "local",
+        "github": {"fields": "Status", "statuses": ["Todo"]},
+        "labels": None,
+        "slack": "#dev",
+        "risk": [],
+    })
+    problems = hga.config_problems(hga.load_config())
+    text = "\n".join(problems)
+    assert 'review must be an object with the fields provider, ask_after_rounds, not "local"' in text
+    assert "review.provider" not in text and "review.ask_after_rounds" not in text
+    assert "github.fields must be an object" in text and "github.fields.status" not in text
+    assert "github.statuses must be an object" in text and "github.statuses.todo" not in text
+    assert "risk must be an object" in text and "risk.low_paths" not in text
+    assert "labels.in_progress" in text  # null: its fields one by one
+    assert "slack must be null" in text
+    assert hga.main(["doctor"]) == 1
+    out = capsys.readouterr().out
+    assert "review provider · None" in out and "review must be an object" in out
+
+
 def test_cli_config_warns_on_problems_but_prints(hga, tmp_path, capsys):
     write(tmp_path / "kb" / "hga.config.json", {"review": {"ask_after_rounds": "5"}})
     assert hga.main(["config"]) == 0

@@ -31,14 +31,16 @@ or `check` (steps 1, 6, 7 and 8 only).
 ## 1. Prerequisites
 
 Run `HGA doctor` and show its table. Before the first setup, the knowledge base and the configuration rows say
-"not set up yet — run /hga:init": that is expected, steps 2–4 create them. Required: Python 3.9+, git, `gh` logged in with the `repo` scope. Optional:
+"not set up yet — run /hga:init": that is expected, steps 2–4 create them. Required: Python 3.9+, git, `gh` logged in with the `repo` scope,
+and the `code-review` skill — every PR's review runs it, whatever `review.provider` is (`/hga:issue` step 8).
+`doctor` cannot see skills: check this session's skill list yourself, and add the line to the table (`ok` or
+`MISSING · comes with Claude Code: claude update, then a new session`). Optional:
 `uv` (live tests of Python apps), the `project` scope (only with a project board: `gh auth refresh -s project`),
 `tzdata` on Windows (`pip install tzdata`, for a named time zone). Also check, and report as optional:
 
 - a Slack MCP connector (any `slack_read_channel` / `slack_send_message` tool in the session);
 - a browser for live tests: Claude in Chrome (`mcp__claude-in-chrome__*`) or the built-in browser
-  (`mcp__Claude_Browser__*`);
-- the `code-review` skill (the default reviewer).
+  (`mcp__Claude_Browser__*`).
 
 If a required item is missing, give the fix command and stop until the user has fixed it. Do not install
 anything yourself.

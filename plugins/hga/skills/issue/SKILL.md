@@ -217,7 +217,9 @@ decide: …"), and if step 5's class is low, report it again as `not_applicable`
 1. **Timestamp:** `HGA now`. Note it: the report measures time (`HGA elapsed`) and tokens
    (`HGA tokens --since`) from it. Right after it, before the repo check: pane, step 0 `in_progress` with this
    `started_at` (see "Side pane").
-2. **Settings:** `HGA config` (see "Settings").
+2. **Settings:** `HGA config` (see "Settings"). Also check that the `code-review` skill is in this session's
+   skill list: step 8 runs it on every PR, whatever `review.provider` is. Without it, stop before the claim and
+   tell the user: it comes with Claude Code (`claude update`, then a new session). Do not swap in another review.
 3. **Repo check:** `HGA repo-check <owner/repo>` where the session started. A worktree is a fine place too (a
    session launched by the triage starts in its own): the work moves to a worktree opened from the main checkout
    in step 3, so a worktree is no reason to stop. On a mismatch (exit 4), do not claim and do not open a

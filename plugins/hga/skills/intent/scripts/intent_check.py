@@ -32,6 +32,35 @@ SECTIONS = {
 QUESTIONS = "open questions"
 # An unfilled placeholder (an error, not a warning): <...>, TBD, TODO, three dots or ….
 PLACEHOLDER = re.compile(r"<[^>\n]+>|\bTBD\b|\bTODO\b|…|\.\.\.")
+# Inside `code` or a ``` block only an angle-bracket placeholder counts (`<sha>`, `origin/<default-branch>`), and
+# not code itself: an HTML element (`<button>`, `</div>`, `<input type="text">`), a component (`<UserCard />`) or a
+# type argument (`List<String>`).
+CODE = re.compile(r"```.*?```|`[^`\n]+`", re.S)
+ANGLE = re.compile(r"<[^>\n]+>")
+TAG = re.compile(r"</?([A-Za-z][\w.-]*)(\s[^>]*)?>")
+HTML_ELEMENTS = frozenset("""
+    a abbr address area article aside audio b base bdi bdo blockquote body br button canvas caption cite code col
+    colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2
+    h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map mark menu meta
+    meter nav noscript object ol optgroup option output p picture pre progress q rp rt ruby s samp script section
+    select slot small source span strong style sub summary sup svg table tbody td template textarea tfoot th thead
+    time title tr track u ul var video wbr
+""".split())
+
+
+def is_code(span: str, m: re.Match) -> bool:
+    if m.start() and (span[m.start() - 1].isalnum() or span[m.start() - 1] == "_"):
+        return True
+    tag = TAG.fullmatch(m[0])
+    return bool(tag) and (
+        tag[1].lower() in HTML_ELEMENTS or tag[1][0].isupper() or "=" in (tag[2] or "") or m[0].endswith("/>")
+    )
+
+
+def unfilled(body: str) -> bool:
+    if PLACEHOLDER.search(CODE.sub(" ", body)):
+        return True
+    return any(not is_code(s, m) for s in CODE.findall(body) for m in ANGLE.finditer(s))
 
 
 def norm(s: str) -> str:
@@ -66,7 +95,7 @@ def check(text: str) -> dict:
     coverage, errors, warnings = {}, [], []
     for key, prefix in SECTIONS.items():
         body = find(sec, prefix)
-        coverage[key] = "empty" if not body else "partial" if PLACEHOLDER.search(body) else "done"
+        coverage[key] = "empty" if not body else "partial" if unfilled(body) else "done"
 
     if not re.search(r"^#\s+Intent:\s*\S", text, re.M):
         errors.append("E_NO_TITLE: the \"# Intent: <name>\" heading is missing")
@@ -159,6 +188,10 @@ def self_test() -> None:
     assert r["verdict"] == "WARN" and r["score"] == 60, r
     assert {w.split(":")[0] for w in r["warnings"]} == {"W_EMPTY_CURRENT", "W_EMPTY_CONSTRAINTS"}, r
     assert check(SAMPLE.replace("- Should it be colored? (not blocking)", "- none"))["questions"] == 0
+    r = check(SAMPLE.replace("The column appears.", "The `<button>` and `List<Row>` render; `fn(...)` stays."))
+    assert r["verdict"] == "PASS", r
+    r = check(SAMPLE.replace("`4a81922`", "`<sha>`"))
+    assert r["verdict"] == "BLOCK" and r["sections"]["current"] == "partial", r
     print("self-test OK")
 
 
