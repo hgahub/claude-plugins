@@ -61,27 +61,9 @@ The progress band above the prompt appears automatically while an intent is runn
 GitHub is required; Slack, a GitHub project board and a review bot are optional. Details:
 [plugins/hga/README.md](plugins/hga/README.md).
 
-## Development
+## Contributing
 
-```
-npm install                                   # TypeScript, for the type check
-claude plugin validate plugins/hga
-claude plugin test plugins/hga                # the panes' tests
-python3 -m pytest plugins/hga/tests/py        # the scripts' tests
-scripts/plugin-types.sh                       # the plugin's types (.claude-plugin/types, tsconfig.json)
-npm run typecheck
-```
-
-Types are generated only by an interactive load (`validate` and `test` do not). `scripts/plugin-types.sh` does
-that load in a pseudo-terminal, with its own empty configuration, a placeholder API key and an unreachable API
-endpoint: no key and no model call are needed, so CI runs it too. Loading the plugin yourself
-(`claude --plugin-dir ./plugins/hga`) generates them as well.
-
-## Releases
-
-Prepare a version PR with `python3 scripts/version.py --set X.Y.Z`, merge it, then push the matching
-`vX.Y.Z` tag. The release workflow verifies the version, runs the full CI suite and creates a GitHub Release
-with generated notes. See [the release guide](docs/releases.md) for the commands and retry procedure.
+Open an issue rather than a pull request. Development, checks and releases: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
