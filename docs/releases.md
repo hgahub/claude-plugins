@@ -52,11 +52,3 @@ merge and push a new tag.
 The GitHub Release is a tested source snapshot and changelog. The current marketplace installation tracks
 the Git repository's default branch; this workflow does not turn plugin updates into release-only delivery.
 Users continue to update with `claude plugin update hga@hga-plugins` and `/reload-plugins`.
-
-## Design references
-
-- [Ponytail publish workflow](https://github.com/DietrichGebert/ponytail/blob/main/.github/workflows/publish.yml):
-  a version tag calls reusable tests before publication. Here the destination is GitHub Releases instead of npm.
-- [Matt Pocock's release workflow](https://github.com/mattpocock/skills/blob/main/.github/workflows/release.yml):
-  Changesets prepares version PRs and tags. With one plugin, an explicit version PR and a small standard-library
-  version helper provide the needed control without adding a release-management dependency.
