@@ -192,7 +192,7 @@ Then `ICHK <file> --json`, and the result to the pane (`sections`, `questions`, 
 
 | Verdict | What to do |
 |---|---|
-| **BLOCK** | the error code says what is missing (`E_NO_CRITERIA`, `E_BLOCKING_QUESTION`, `E_PLACEHOLDER`: a leftover `<…>`, TBD, TODO): back to station 2 or 3 |
+| **BLOCK** | the error code says what is missing (`E_NO_CRITERIA`, `E_BLOCKING_QUESTION`, `E_PLACEHOLDER`: a leftover `<…>`, TBD, TODO; in `code`, only a `<…>` that is not an HTML tag, component or type argument): back to station 2 or 3 |
 | **WARN** | fix it if research or a question solves it; if not, the warning goes to the approval with its reason |
 | **PASS** | on to station 5 |
 

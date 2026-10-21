@@ -220,6 +220,26 @@ def _positive_int(v: object) -> bool:
     return isinstance(v, int) and not isinstance(v, bool) and v >= 1
 
 
+def _obj(v: object) -> dict:
+    """A configuration section, or {} when it is missing or not an object (config_problems reports that)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _section(c: dict, path: str, out: list[str]) -> dict:
+    """The section at a dotted path, for the shape checks. Missing or null → {} (its fields are then reported one
+    by one); any other non-object → one problem for the whole section, and the defaults, so that its fields are
+    not reported again."""
+    *parents, key = path.split(".")
+    default = DEFAULTS
+    for p in parents:
+        default = default[p]
+    v = c.get(key)
+    if v is None or isinstance(v, dict):
+        return v or {}
+    out.append(f"{path} must be an object with the fields {', '.join(default[key])}, not {json.dumps(v)}")
+    return copy.deepcopy(default[key])
+
+
 def config_problems(c: dict) -> list[str]:
     """Shape checks for the merged configuration; an empty list means it is usable. Whether a named time zone
     exists is doctor's own line (it depends on the machine's tz database, not on the file)."""
@@ -228,16 +248,16 @@ def config_problems(c: dict) -> list[str]:
         out.append("language must be a language code, e.g. \"en\"")
     if c.get("timezone") is not None and not _text(c.get("timezone")):
         out.append("timezone must be an IANA name, e.g. \"Europe/Berlin\", or null")
-    gh_ = c.get("github") or {}
+    gh_ = _section(c, "github", out)
     if gh_.get("project") is not None and not isinstance(gh_.get("project"), str):
         out.append("github.project must be a project title or null")
-    if not _text((gh_.get("fields") or {}).get("status")):
+    if not _text(_section(gh_, "github.fields", out).get("status")):
         out.append("github.fields.status must name the board's status field, e.g. \"Status\"")
-    statuses = gh_.get("statuses") or {}
+    statuses = _section(gh_, "github.statuses", out)
     for key in ("todo", "in_progress", "done"):
         if not _text(statuses.get(key)):
             out.append(f"github.statuses.{key} must name a status option, e.g. \"{DEFAULTS['github']['statuses'][key]}\"")
-    labels = c.get("labels") or {}
+    labels = _section(c, "labels", out)
     for key in ("in_progress", "in_review"):
         if not _text(labels.get(key)):
             out.append(f"labels.{key} must be a label name, e.g. \"{DEFAULTS['labels'][key]}\"")
@@ -246,18 +266,18 @@ def config_problems(c: dict) -> list[str]:
     slack = c.get("slack")
     if slack is not None and not (isinstance(slack, dict) and slack.get("channel_id")):
         out.append("slack must be null or {\"channel\": \"#name\", \"channel_id\": \"C…\"}")
-    review = c.get("review") or {}
+    review = _section(c, "review", out)
     if review.get("provider") not in REVIEW_PROVIDERS:
         out.append(f"review.provider must be one of {', '.join(REVIEW_PROVIDERS)}")
     if not _positive_int(review.get("ask_after_rounds")):
         out.append("review.ask_after_rounds must be a positive whole number")
-    if (c.get("live_test") or {}).get("browser") not in BROWSERS:
+    if _section(c, "live_test", out).get("browser") not in BROWSERS:
         out.append(f"live_test.browser must be one of {', '.join(BROWSERS)}")
-    par = c.get("parallel") or {}
+    par = _section(c, "parallel", out)
     for key in ("max_per_repo", "usage_ceiling_pct"):
         if not _positive_int(par.get(key)):
             out.append(f"parallel.{key} must be a positive whole number")
-    risk = c.get("risk") or {}
+    risk = _section(c, "risk", out)
     for key in ("low_paths", "high_paths"):
         if not _patterns(risk.get(key)):
             out.append(f"risk.{key} must be a list of file patterns, e.g. [\"docs/**\"]")
@@ -354,7 +374,7 @@ def cmd_doctor(_a) -> int:
         scopes = _scopes(text)
         if scopes:
             line("repo" in scopes, "gh scope: repo", ", ".join(sorted(scopes)))
-            if c["github"].get("project"):
+            if _obj(c.get("github")).get("project"):
                 line("project" in scopes, "gh scope: project",
                      "needed for the project board: gh auth refresh -s project")
     line(shutil.which("uv") is not None or None, "uv (optional, live tests of Python apps)")
@@ -378,16 +398,16 @@ def cmd_doctor(_a) -> int:
         line((kdir / "hga.config.json").exists(), "team configuration", str(kdir / "hga.config.json"))
     line(c["sources"]["user"] is not None or None, "user configuration",
          str(user_config_path()) if set_up else "not set up yet — run /hga:init")
-    provider = (c.get("review") or {}).get("provider")
+    provider = _obj(c.get("review")).get("provider")
     line(provider in REVIEW_PROVIDERS, "review provider", str(provider))
     for problem in config_problems(c):
         line(False, "configuration", problem)
-    if "closed" in (c.get("labels") or {}):
+    if "closed" in _obj(c.get("labels")):
         line(None, "labels.closed", "no longer used — remove it; a closing label is labels.closing")
-    closing = (c.get("labels") or {}).get("closing")
+    closing = _obj(c.get("labels")).get("closing")
     line(None, "closing", f"the maintainer's label {closing}" if closing else "GitHub's own (Closes #n at merge)")
-    line(None, "Slack", f"channel {c['slack'].get('channel')}" if c.get("slack") else "not configured (GitHub comments)")
-    line(None, "project board", c["github"].get("project") or "not configured (status labels)")
+    line(None, "Slack", f"channel {_obj(c['slack']).get('channel')}" if c.get("slack") else "not configured (GitHub comments)")
+    line(None, "project board", _obj(c.get("github")).get("project") or "not configured (status labels)")
     return 1 if problems else 0
 
 

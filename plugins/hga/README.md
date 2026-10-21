@@ -68,6 +68,8 @@ Then run [`/hga:init`](skills/init/SKILL.md) once per machine. Update with `clau
   the repositories you work on.
 - Python 3.9+ (the scripts use only the standard library; on Windows, a named time zone needs `pip install
   tzdata`). `uv` for live tests of Python apps (optional).
+- The `code-review` skill, which comes with Claude Code: every PR's review runs it, also with a review bot.
+  `/hga:init` and `/hga:issue` check for it; if it is missing, `claude update` and start a new session.
 - Optional: a Slack MCP connector (claims and reports in a channel), Claude in Chrome or the built-in browser of
   the desktop app (live tests), a review bot on your repositories (Codex, Copilot or Greptile).
 
