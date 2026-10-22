@@ -332,6 +332,8 @@ test('manual review: the list under Review, tickable, a same-text point keeps it
   on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
   evidence(on, () => passing(7, 8))
   await start($)
+  await step($, { issue: ISSUE, step: 7, state: 'in_progress' })
+  await step($, { issue: ISSUE, step: 8, state: 'in_progress' })
   const r = await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok', checks: ['Migration is backward compatible', '  Permission:   admin only  ', ''] })
   expect(r.result).toBe(`${ISSUE}: 1/13 done. Manual review: 0/2 ticked.`)
   let drawn = await pane($)
@@ -366,6 +368,7 @@ test('manual review: an empty list = no highlighted point; without a list there 
   mock.env(on, { HOME: '/home/test' })
   evidence(on, () => passing(7))
   await start($)
+  await step($, { issue: ISSUE, step: 7, state: 'in_progress' })
   await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok' })
   expect(await pane($)).not.toContain('Manual review')
   await step($, { issue: ISSUE, step: 7, state: 'done', checks: [] })
@@ -555,6 +558,16 @@ test("a step reported done without an in_progress: the record must be newer than
   expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toContain("older than the step's start")
   at = '2026-10-13T09:30:00.000Z'
   expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toBe(`${ISSUE}: 2/13 done.`)
+})
+
+test("a machine-checked done as the issue's first report has no start to be fresh against: rejected", async ($, on) => {
+  engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  evidence(on, () => passing(9))
+  await start($)
+  expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toContain('report its in_progress first')
+  expect((await step($, { issue: ISSUE, step: 9, state: 'in_progress' })).result).toBe(`${ISSUE}: 0/13 done.`)
+  expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toBe(`${ISSUE}: 1/13 done.`)
 })
 
 // The same vector as the Python test (test_evidence_digest_matches_the_pane): the two implementations agree.

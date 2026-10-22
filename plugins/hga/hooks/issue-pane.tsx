@@ -138,8 +138,8 @@ export function digest(issue: string, step: number, entry: Record<string, unknow
 
 // Why a done of a machine-checked step (VERIFIED) is not accepted, or null if its record passes: the record that
 // `HGA evidence` wrote next to the state file has the step, unchanged since (its digest), all its facts passed, and
-// it was written after the step's (latest) in_progress — else after the issue's start. The record is the script's,
-// not the model's text.
+// it was written after the step's (latest) in_progress — else after the issue's start; with neither, it is not
+// accepted. The record is the script's, not the model's text.
 async function unverified($: EngineInterface, id: string, step: number, since: number | undefined): Promise<string | null> {
   let rec: EvidenceFile | null = null
   try {
@@ -158,7 +158,9 @@ async function unverified($: EngineInterface, id: string, step: number, since: n
   }
   const at = typeof s.at === 'string' ? Date.parse(s.at) : NaN
   if (!Number.isFinite(at)) return "the record's time is missing or invalid"
-  if (since !== undefined && at < since) return `the record (${s.at}) is older than the step's start`
+  // Without a start there is nothing to be fresh against: a record of an earlier run would pass.
+  if (since === undefined) return `the step has no start yet: report its in_progress first, then run evidence again`
+  if (at < since) return `the record (${s.at}) is older than the step's start`
   return null
 }
 

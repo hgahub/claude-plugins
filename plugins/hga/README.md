@@ -230,8 +230,9 @@ section's name opens or closes it.
 - **Machine-checked steps** — 3 Worktree, 5 Build + tests, 7 PR, 8 Review, 9 Done: their ✓ means a script
   checked the facts, not only that the model typed evidence. `HGA evidence <owner/repo> <n> --step N` checks them
   (the worktree and its base; the gate's exit code on the current HEAD and files, recorded by `HGA gate`; the
-  PR's state, head and closing reference; an unchanged head, finished CI and, with a review bot, a clean review
-  of the head, recorded by `review-wait`; the status read back) and writes
+  PR's state, head and closing reference (or `Ref #n` where the skill uses it); an unchanged head, finished CI
+  and, with a review bot, a clean review of the head recorded by `review-wait` or the maintainer's closing with
+  its follow-up issue; the status read back) and writes
   `~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json`. The step tool rejects such a step's `done` when the
   record is missing, a fact failed, the entry was edited, or it is older than the step's `in_progress`.
   Still reported by the model, not checked: the local `code-review` result, test counts and base failures, the

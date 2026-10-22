@@ -99,16 +99,18 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       appends a `gates` entry (command, exit code, start, end, the worktree's HEAD) to the issue's evidence
       record: `~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json`, next to the pane's state file, written
       atomically. A gate of several commands is several gate calls.
-  evidence <owner/repo> <n> --step {3,5,7,8,9} [--worktree <dir>] [--pr <n>]
+  evidence <owner/repo> <n> --step {3,5,7,8,9} [--worktree <dir>] [--pr <n>] [--partial] [--closed-with <n>]
       Checks the step's facts, prints one `ok` or `FAILED` line per fact and writes `steps[N]` (ok, the time,
       the facts) into the evidence record; the issue pane's step tool accepts these steps' `done` only with a
       passing record written after the step's in_progress. 3 (--worktree): a linked worktree of the
       repository, on a branch created from origin's default branch, without an upstream. 5 (--worktree): every
       gate command's latest run on the worktree's HEAD exited 0. 7 (--worktree, --pr): the PR is open, its
-      head is the worktree's HEAD, and it closes the issue (with `labels.closing`: closes nothing). 8 (--pr):
-      the PR's head is the step-7 record's or the latest review's, its CI checks finished with success or
-      skipped, and with a bot provider and a standard or high class a clean review of the head is recorded
-      (review-wait). 9: the status step 9 sets reads back, and the issue is open. Exit 0 every fact passed,
+      head is the worktree's HEAD, and it closes the issue — or, with `labels.closing`, --partial or a base other
+      than the default branch, its description says `Ref #n` and it does not close it (`labels.closing`: closes
+      nothing). 8 (--pr): the PR's head is the step-7 record's or the latest review's, its CI checks finished
+      with success, skipped or neutral, and with a bot provider and a standard or high class a clean review of
+      the head is recorded (review-wait) — or, with --closed-with, the follow-up issue of the maintainer's
+      closing is open and names the PR. 9: the status step 9 sets reads back, and the issue is open. Exit 0 every fact passed,
       1 a fact failed (a failed read too), 64 a usage error.
   deps <owner/repo> <n>
       The issue's native dependencies: what blocks it (prerequisites) and what it blocks. Read-only.
@@ -1215,6 +1217,8 @@ query($owner:String!){repositoryOwner(login:$owner){
 """
 
 CANONICAL = {"todo": "todo", "in progress": "in_progress", "in_progress": "in_progress", "done": "done"}
+# The status names without a board (labels): label_status's answers, by canonical key.
+LABEL_STATUSES = {"todo": "Todo", "in_progress": "In Progress", "done": "Done"}
 
 
 def canonical_status(s: str) -> str:
@@ -1243,10 +1247,15 @@ def label_names(issue: dict) -> set[str]:
 def label_status(labels: set[str]) -> str:
     lab = cfg()["labels"]
     if lab["in_review"] in labels:
-        return "Done"
+        return LABEL_STATUSES["done"]
     if lab["in_progress"] in labels:
-        return "In Progress"
-    return "Todo"
+        return LABEL_STATUSES["in_progress"]
+    return LABEL_STATUSES["todo"]
+
+
+def board_item(issue: dict, project: str) -> dict | None:
+    """The issue's item on the board, or None if it is not on it."""
+    return next((n for n in issue["projectItems"]["nodes"] if n["project"]["title"] == project), None)
 
 
 def ensure_label(repo: str, name: str, color: str, desc: str, existing: set[str] | None = None) -> None:
@@ -1319,12 +1328,10 @@ def cmd_status_set(a) -> int:
     drop_triage_labels(a.repo, a.num, status)
     if not project:
         return set_label_status(a.repo, a.num, status)
-    issue = issue_items(a.repo, a.num)
-    nodes = [n for n in issue["projectItems"]["nodes"] if n["project"]["title"] == project]
-    if not nodes:
+    item = board_item(issue_items(a.repo, a.num), project)
+    if item is None:
         print(f"the issue is not on the \"{project}\" board — add it first (track)", file=sys.stderr)
         return 4
-    item = nodes[0]
     field = gql(FIELD_Q, pid=item["project"]["id"], field=status_field())["node"]["field"]
     if not field:
         print(f"no single-select \"{status_field()}\" field on \"{project}\"", file=sys.stderr)
@@ -1578,8 +1585,12 @@ def classify_risk(files: list[str], low: list[str], high: list[str], labels: set
 
 
 def default_ref(wt: str) -> str:
-    """origin's default branch as a ref (origin/main), from the checkout's origin/HEAD."""
-    return git(wt, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD") or "origin/main"
+    """origin's default branch as a ref (origin/main), from the checkout's origin/HEAD; a checkout without it (made
+    with `remote add` + `fetch`) falls back on whichever of origin/main and origin/master exists."""
+    head = git(wt, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    if head:
+        return head
+    return next((r for r in ("origin/main", "origin/master") if git(wt, "rev-parse", "--verify", "--quiet", r)), "origin/main")
 
 
 def worktree_files(wt: str, base: str | None) -> list[str]:
@@ -1712,6 +1723,9 @@ def worktree_tree(wt: str) -> str | None:
 
 def cmd_gate(a) -> int:
     command = a.command
+    if not re.fullmatch(r"[^/\s]+/[^/\s]+", a.repo):
+        print(f"gate: expected owner/repo, got: {a.repo}", file=sys.stderr)
+        return EX_USAGE
     if not command:
         print("gate: give the gate's command after --, e.g. gate acme/web-app 42 --worktree ../web-app-42 -- npm test",
               file=sys.stderr)
@@ -1816,7 +1830,12 @@ def gate_facts(data: dict, wt: str) -> list[dict]:
 
 
 def pr_view(repo: str, pr: int) -> dict:
-    return json.loads(gh("pr", "view", str(pr), "--repo", repo, "--json", "number,state,headRefOid,closingIssuesReferences"))
+    return json.loads(gh("pr", "view", str(pr), "--repo", repo, "--json",
+                         "number,state,headRefOid,baseRefName,body,closingIssuesReferences"))
+
+
+def default_branch(repo: str) -> str:
+    return gh("repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name").strip()
 
 
 def closing_refs(repo: str, view: dict) -> list[int]:
@@ -1832,7 +1851,7 @@ def closing_refs(repo: str, view: dict) -> list[int]:
     return out
 
 
-def pr_facts(repo: str, num: int, pr: int, wt: str, view: dict) -> list[dict]:
+def pr_facts(repo: str, num: int, pr: int, wt: str, view: dict, partial: bool = False) -> list[dict]:
     head = git(wt, "rev-parse", "HEAD")
     pr_head = view.get("headRefOid") or ""
     facts = [
@@ -1842,16 +1861,23 @@ def pr_facts(repo: str, num: int, pr: int, wt: str, view: dict) -> list[dict]:
     ]
     refs = closing_refs(repo, view)
     listed = ", ".join(f"#{n}" for n in refs) or "nothing"
-    if closing_label():
-        facts.append(fact("pr_references_issue", not refs,
-                          f"labels.closing is set: the PR closes nothing (Ref #{num}); it closes {listed}"))
-    else:
+    # Step 7.1's `Ref #n` cases: the maintainer's closing label, a PR that does only part of the issue, and a base
+    # other than the default branch (GitHub's closing keyword works only there). The description says `Ref #n`.
+    base = view.get("baseRefName") or ""
+    why = ("labels.closing is set" if closing_label() else "a partial PR (--partial)" if partial
+           else None if base == default_branch(repo) else f"base {base}, not the default branch")
+    if why is None:
         facts.append(fact("pr_references_issue", num in refs, f"closingIssuesReferences: {listed}"))
+        return facts
+    said = re.search(rf"(?<![\w#])Ref\s+#{num}(?!\d)", view.get("body") or "", re.I) is not None
+    closes_ok = not refs if closing_label() else num not in refs
+    facts.append(fact("pr_references_issue", said and closes_ok,
+                      f"{why}: the description {'says' if said else 'lacks'} `Ref #{num}`; it closes {listed}"))
     return facts
 
 
 def ci_facts(repo: str, head: str) -> list[dict]:
-    """The head's check runs and commit statuses: finished with success or skipped."""
+    """The head's check runs and commit statuses: finished with success, skipped or neutral."""
     runs = gh("api", "--paginate", f"repos/{repo}/commits/{head}/check-runs", "--jq",
               '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv')
     statuses = gh("api", f"repos/{repo}/commits/{head}/status", "--jq", ".statuses[] | [.context, .state] | @tsv")
@@ -1860,7 +1886,7 @@ def ci_facts(repo: str, head: str) -> list[dict]:
         name, status, conclusion = (ln.split("\t") + ["", "", ""])[:3]
         if status != "completed":
             pending.append(name)
-        elif conclusion in ("success", "skipped"):
+        elif conclusion in ("success", "skipped", "neutral"):  # what a required check accepts
             passed += 1
         else:
             failed.append(f"{name} ({conclusion})")
@@ -1879,7 +1905,15 @@ def ci_facts(repo: str, head: str) -> list[dict]:
     return [fact("ci_finished", not (pending or failed), detail or f"{passed} check(s) passed on {head[:7]}")]
 
 
-def review_facts(repo: str, num: int, pr: int, data: dict, view: dict) -> list[dict]:
+def closed_review_fact(repo: str, pr: int, follow_up: int) -> dict:
+    """A bot review closed by the maintainer (step 8.6): its follow-up issue is open and names the PR."""
+    issue = json.loads(gh("issue", "view", str(follow_up), "--repo", repo, "--json", "state,body"))
+    named = re.search(rf"(?<![\w])#{pr}(?!\d)|/pull/{pr}(?!\d)", issue.get("body") or "") is not None
+    return fact("bot_review_closed", issue.get("state") == "OPEN" and named,
+                f"follow-up #{follow_up} is {issue.get('state')} and {'names' if named else 'does not name'} PR #{pr}")
+
+
+def review_facts(repo: str, num: int, pr: int, data: dict, view: dict, closed_with: int | None = None) -> list[dict]:
     head = view.get("headRefOid") or ""
     s7 = data["steps"].get("7") or {}
     known = [(label, h) for label, h in (("the step-7 record", s7.get("head") if s7.get("ok") else None),
@@ -1903,6 +1937,9 @@ def review_facts(repo: str, num: int, pr: int, data: dict, view: dict) -> list[d
     if cls == "low":
         facts.append(fact("bot_review_clean", True, f"low class: no {provider} round"))
         return facts
+    if closed_with:
+        facts.append(closed_review_fact(repo, pr, closed_with))
+        return facts
     clean = any(r.get("head") == head and r.get("result") == "clean" and r.get("provider") == provider
                 for r in data["reviews"])
     facts.append(fact("bot_review_clean", clean, f"{cls} class: {'a' if clean else 'no'} clean {provider} review of {head[:7]}"))
@@ -1914,12 +1951,12 @@ def done_facts(repo: str, num: int) -> list[dict]:
     project = cfg()["github"].get("project")
     if project:
         want = cfg()["github"]["statuses"][DONE_STATUS]
-        nodes = [n for n in issue["projectItems"]["nodes"] if n["project"]["title"] == project]
-        have = (nodes[0].get("fieldValueByName") or {}).get("name") if nodes else None
+        item = board_item(issue, project)
+        have = (item.get("fieldValueByName") or {}).get("name") if item else None
         ok = (have or "").lower() == want.lower()
         detail = f"{project}: Status {have or '— (not on the board)'}, step 9 sets {want}"
     else:
-        want = {"todo": "Todo", "in_progress": "In Progress", "done": "Done"}[DONE_STATUS]
+        want = LABEL_STATUSES[DONE_STATUS]
         have = label_status(label_names(issue))
         ok = have == want
         detail = f"labels: Status {have}, step 9 sets {want} (label {cfg()['labels']['in_review']})"
@@ -1932,6 +1969,9 @@ def cmd_evidence(a) -> int:
         print(f"evidence: machine checks exist for steps {', '.join(map(str, EVIDENCE_STEPS))}, not {a.step}", file=sys.stderr)
         return EX_USAGE
     missing = [f"--{k}" for k, v in need.items() if v and not getattr(a, k)]
+    if not re.fullmatch(r"[^/\s]+/[^/\s]+", a.repo):
+        print(f"evidence: expected owner/repo, got: {a.repo}", file=sys.stderr)
+        return EX_USAGE
     if missing:
         print(f"evidence: step {a.step} needs {' and '.join(missing)}", file=sys.stderr)
         return EX_USAGE
@@ -1944,12 +1984,12 @@ def cmd_evidence(a) -> int:
             facts = gate_facts(data, a.worktree)
         elif a.step == 7:
             view = pr_view(a.repo, a.pr)
-            facts = pr_facts(a.repo, a.num, a.pr, a.worktree, view)
-            extra = {"pr": a.pr, "head": view.get("headRefOid")}
+            facts = pr_facts(a.repo, a.num, a.pr, a.worktree, view, a.partial)
+            extra = {"pr": a.pr, "head": view.get("headRefOid"), **({"partial": True} if a.partial else {})}
         elif a.step == 8:
             view = pr_view(a.repo, a.pr)
-            facts = review_facts(a.repo, a.num, a.pr, data, view)
-            extra = {"pr": a.pr, "head": view.get("headRefOid")}
+            facts = review_facts(a.repo, a.num, a.pr, data, view, a.closed_with)
+            extra = {"pr": a.pr, "head": view.get("headRefOid"), **({"closed_with": a.closed_with} if a.closed_with else {})}
         else:
             facts = done_facts(a.repo, a.num)
     except (RuntimeError, SystemExit, KeyError, ValueError) as e:
@@ -2615,6 +2655,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--step", type=int, required=True)
     p.add_argument("--worktree")
     p.add_argument("--pr", type=int)
+    p.add_argument("--partial", action="store_true", help="step 7: the PR does only part of the issue (`Ref #n`)")
+    p.add_argument("--closed-with", type=int, help="step 8: the maintainer closed the bot review; its follow-up issue")
     p = sub.add_parser("deps")
     p.add_argument("repo")
     p.add_argument("num", type=int)

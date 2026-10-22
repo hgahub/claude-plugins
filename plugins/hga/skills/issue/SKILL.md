@@ -74,8 +74,8 @@ is. If the evidence is missing, the item is not done.
 | 4 | Decisions | ✅ ➖ | — | who decided what (issue comment, user, decision tool); high: the maintainer's decision; ➖ low, if nothing was decided |
 | 5 | Build + automated tests | ✅ | `evidence --step 5`: every `HGA gate` command's latest run exited 0 on the worktree's HEAD and current files | number of new cases (low: ➖); how many fail on the base and why (high: all of them); the gate's numbers (passed, coverage); `HGA risk --worktree`'s `Risk:` line |
 | 6 | Live test | ✅ ➖ | — | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free — ➖ low, with step 5's `Risk:` line |
-| 7 | PR | ✅ | `evidence --step 7`: the PR is open, its head = the worktree's HEAD, `closingIssuesReferences` lists the issue (`labels.closing`: nothing) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: lists nothing); follow-up issue numbers (7a), if any; high: `checks` not empty, the rollback note in the PR's "Risk" section |
-| 8 | Review | ✅ | `evidence --step 8`: the head unchanged since step 7 or the last clean review, CI finished green, with a bot (standard, high) a clean review of the head | local review result and level (low: one round at `low`, no bot; high: `high` level); bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line, and the gates done if the class rose |
+| 7 | PR | ✅ | `evidence --step 7`: the PR is open, its head = the worktree's HEAD, `closingIssuesReferences` lists the issue (`labels.closing`, `--partial`, another base: the description says `Ref #n` instead) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: lists nothing); follow-up issue numbers (7a), if any; high: `checks` not empty, the rollback note in the PR's "Risk" section |
+| 8 | Review | ✅ | `evidence --step 8`: the head unchanged since step 7 or the last clean review, CI finished green, with a bot (standard, high) a clean review of the head or the maintainer's closing (`--closed-with`) | local review result and level (low: one round at `low`, no bot; high: `high` level); bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line, and the gates done if the class rose |
 | 9 | Done | ✅ | `evidence --step 9`: the status step 9 sets reads back, the issue is OPEN | read-back: `Status: Done · issue: OPEN` |
 | 10 | Cleanup | ✅ | — | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
 | 11 | Knowledge | ✅ ➖ | — | the note's path; `validate_kb` 0 errors; commit SHA after push (or the commit SHA, if the knowledge base has no remote) — ➖ low, if nothing new was learned |
@@ -522,7 +522,9 @@ maintainer instead of skipping, and skip only on their word.
 - **Read the link back:** `gh pr view <pr> --json closingIssuesReferences` lists the issue (step 7's evidence);
   with `labels.closing` it must list **nothing**. If it is wrong, fix the description (`gh pr edit <pr> --body-file …`) and read it back again.
 - **Machine check — before step 7's `done`:** `HGA evidence <owner/repo> <n> --step 7 --worktree ../<repo>-<n> --pr <pr>`
-  (the PR open, its head = the pushed worktree HEAD, the closing reference). Its record's head is what step 8
+  (the PR open, its head = the pushed worktree HEAD, the closing reference). For a PR that deliberately does only
+  part of the issue, add `--partial`; then, as with `labels.closing` or a base other than the default branch, it
+  checks that the description says `Ref #<n>` and does not close the issue. Its record's head is what step 8
   compares against.
 - Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
 - **Manual review list for the pane:** in step 7's `done` call, give the `checks` list — at most 13 short lines
@@ -648,8 +650,10 @@ The class (step 5's `Risk:` line) sets the review:
    (a low PR that became standard gets its live test and, with a bot provider, the bot review; anything that
    became high gets the high column) — step 9 waits for them.
 9. **Machine check — before step 8's `done`:** `HGA evidence <owner/repo> <n> --step 8 --pr <pr>`: the PR's head
-   is the one step 7's record or the last clean bot review saw, CI on the head finished with success or skipped,
-   and with a bot provider and a standard or high class a clean review of the head is recorded. After a fix
+   is the one step 7's record or the last clean bot review saw, CI on the head finished with success, skipped or
+   neutral, and with a bot provider and a standard or high class a clean review of the head is recorded — or,
+   if the maintainer closed the review (point 6), `--closed-with <follow-up issue>`: the follow-up is open and
+   names the PR. After a fix
    pushed without a bot round (the local review's fixes, a low class, a closed review), run `--step 7` again
    first. The local `code-review` result is not machine-checked: report it.
 
