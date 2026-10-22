@@ -1738,7 +1738,8 @@ def cmd_gate(a) -> int:
     # A bare name is looked up on PATH (on Windows also npm.cmd and the like); a path runs as given, from the worktree.
     exe = command[0] if os.path.dirname(command[0]) else (shutil.which(command[0]) or command[0])
     try:
-        code = subprocess.run([exe, *command[1:]], cwd=a.worktree).returncode
+        # stdin closed: a gate is not interactive, and a command that asks for input must not hang the run
+        code = subprocess.run([exe, *command[1:]], cwd=a.worktree, stdin=subprocess.DEVNULL).returncode
     except OSError as e:
         print(f"gate: cannot run {command[0]}: {e}", file=sys.stderr)
         code = 127

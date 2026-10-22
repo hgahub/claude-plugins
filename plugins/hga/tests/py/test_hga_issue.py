@@ -1204,6 +1204,8 @@ def test_gate_passes_output_and_exit_code_and_records_the_head(hga, ev, gitenv, 
     assert ev()["issue"] == "acme/web-app#18" and ev()["schema"] == 1
     # the gate's own options stay its own: `--worktree` after `--` belongs to the command
     assert gate(hga, wt, sys.executable, "-c", "import sys; sys.exit(0)", "--worktree") == 0
+    # a gate is not interactive: a command reading stdin gets end-of-file instead of waiting
+    assert gate(hga, wt, sys.executable, "-c", "import sys; sys.exit(len(sys.stdin.read()))") == 0
 
 
 def test_gate_and_evidence_usage_errors_exit_64(hga, ev, gitenv, tmp_path, capsys):
@@ -1216,7 +1218,8 @@ def test_gate_and_evidence_usage_errors_exit_64(hga, ev, gitenv, tmp_path, capsy
     assert hga.main(["evidence", "acme/web-app", "18", "--step", "7", "--worktree", str(wt)]) == 64
     assert hga.main(["evidence", "acme/web-app", "18", "--step", "5"]) == 64
     assert hga.main(["evidence", "acme-web-app", "18", "--step", "9"]) == 64
-    assert gate(hga, wt, sys.executable) == 0 and hga.main(["gate", "web-app", "18", "--worktree", str(wt), "--", sys.executable]) == 64
+    assert gate(hga, wt, sys.executable, "-c", "pass") == 0
+    assert hga.main(["gate", "web-app", "18", "--worktree", str(wt), "--", sys.executable, "-c", "pass"]) == 64
     # only the one good gate was recorded; the usage errors wrote nothing (acme-web-app shares the file name)
     data = json.loads(hga.evidence_file("acme/web-app", 18).read_text())
     assert len(data["gates"]) == 1 and data["steps"] == {}
