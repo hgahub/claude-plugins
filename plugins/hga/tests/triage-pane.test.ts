@@ -55,6 +55,7 @@ function engine(on: On, opts: { next?: Run; config?: object; registerFails?: boo
   })
   on('ui.toast', ($, e) => { toasts.push(e.text); return { value: undefined } as never })
   on('tool.register', ($, e) => { registered.push(e.name); return { value: undefined } as never })
+  on('session.id', () => ({ value: 's0' }) as never)
   on('session.repo', () => ({ value: { root: 'C:/repo', remote: 'https://github.com/acme/web-app.git' } }) as never)
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 34.4 }] } }) as never)
   on('fs.exists', () => ({ value: true }) as never)
@@ -75,7 +76,7 @@ function engine(on: On, opts: { next?: Run; config?: object; registerFails?: boo
   on('ui.render', { component: 'SessionMode' }, ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as never)
   on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }) as never)
   const nexts = () => runs.filter(r => r.includes('next'))
-  return { runs, nexts, opened, toasts, clock, registered }
+  return { runs, nexts, opened, toasts, clock, registered, files }
 }
 
 // The desktop app runs Claude Code in SDK mode: at start there is no surface, and it is not interactive.
@@ -405,4 +406,22 @@ test('a finished issue sits below the running ones, in a separate collapsible "F
   expect(at('web-app#23')).toBeLessThan(at('"Finished"'))
   expect(at('web-app#24')).toBeGreaterThan(at('"Finished"'))
   expect(at('web-app#24')).toBeLessThan(at('"Issues"'))
+})
+
+test('a launched session shows up within seconds, not after the minute tick', async ($, on) => {
+  const s = engine(on)
+  await start($)
+  await triage($)
+  expect(await pane($)).not.toContain('acme/web-app#99')
+  s.files['acme-web-app-99.json'] = { issue: 'acme/web-app#99', verb: 'fix', startedAt: T0, updatedAt: T0, session: 's99', steps: steps(0, 0) }
+  await s.clock.advance(10_000)
+  const drawn = await pane($)
+  expect(drawn).toContain('web-app#99')
+})
+
+test('the dashboard comes back when the session is reopened', async ($, on) => {
+  const s = engine(on, { store: { 'triage:s0': { repo: 'acme/web-app', open: true } } })
+  await start($)
+  await s.clock.advance(0)
+  expect(s.opened).toEqual(['🧭 web-app'])
 })

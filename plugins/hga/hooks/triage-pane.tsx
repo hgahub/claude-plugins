@@ -251,17 +251,46 @@ async function refresh($: EngineInterface): Promise<void> {
   await loadIssues($)
 }
 
+// A launched session's state file appears within seconds: reading the local files is cheap, so the running section
+// polls often; the rest (usage, the issue groups) stays on the minute / 5-minute cadence.
+async function everyTenSeconds($: EngineInterface): Promise<void> {
+  if (await read($, active)) await loadRunning($)
+}
+
 async function everyMinute($: EngineInterface): Promise<void> {
   if (!(await read($, active))) return
-  await loadRunning($)
   await loadUsage($).catch(() => undefined)
   if ((await $.clock.now()) - (await read($, issuesAt)) >= NEXT_MIN * 60_000) await loadIssues($)
+}
+
+// The atoms live in the session's memory and are empty when the session is reopened (switching to another session
+// and back): the dashboard's on/off state and repository are kept per session in $.store and restored at start.
+async function persist($: EngineInterface): Promise<void> {
+  if (!(await read($, active))) return
+  const value = { repo: await read($, repo), open: await read($, open) }
+  await $.store.set(`triage:${await $.session.id()}`, value).catch(() => undefined)
+}
+
+async function restore($: EngineInterface): Promise<void> {
+  try {
+    if (await read($, active)) return
+    const saved = (await $.store.get(`triage:${await $.session.id()}`)) as { repo?: string | null; open?: boolean } | null | undefined
+    if (saved === undefined || saved === null || typeof saved !== 'object') return
+    await update($, repo, () => saved.repo ?? null)
+    await update($, active, () => true)
+    await loadLimits($)
+    if (saved.open === false) await refresh($)
+    else await activate($)
+  } catch {
+    // no store or session id: the dashboard stays off until the triage skill turns it on
+  }
 }
 
 async function openPane($: EngineInterface): Promise<void> {
   const r = await read($, repo)
   await $.ui.open({ id: PANE, title: `🧭 ${r === null ? 'Triage' : short(r)}` })
   await update($, open, () => true)
+  await persist($)
 }
 
 // Our own close does not go through our `ui.close` hook: `open` is set here.
@@ -269,6 +298,7 @@ async function toggle($: EngineInterface): Promise<boolean> {
   if (await read($, open)) {
     await $.ui.close({ id: PANE })
     await update($, open, () => false)
+    await persist($)
     return false
   }
   await openPane($)
@@ -303,9 +333,11 @@ async function start($: EngineInterface): Promise<void> {
     })
     .catch((err: unknown) => $.ui.toast(`hga: /triage-pane could not be registered (${err instanceof Error ? err.message : String(err)})`))
   $.clock.every(60_000, () => void everyMinute($))
+  $.clock.every(10_000, () => void everyTenSeconds($))
   const stored = await $.store.get('hidden').catch(() => undefined)
   if (stored !== undefined && stored !== null && typeof stored === 'object') await update($, hidden, () => stored as Record<string, number>)
   await $.tool.register(PHASE_SPEC)
+  await restore($)
 }
 
 async function button($: EngineInterface, e: ResolveInput) {
@@ -339,6 +371,7 @@ export const register: Register = on => {
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const result = await next(e)
     await update($, open, () => false)
+    await persist($)
     return result
   })
 
