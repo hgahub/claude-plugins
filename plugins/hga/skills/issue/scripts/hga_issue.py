@@ -1869,7 +1869,8 @@ def pr_facts(repo: str, num: int, pr: int, wt: str, view: dict, partial: bool = 
     if why is None:
         facts.append(fact("pr_references_issue", num in refs, f"closingIssuesReferences: {listed}"))
         return facts
-    said = re.search(rf"(?<![\w#])Ref\s+#{num}(?!\d)", view.get("body") or "", re.I) is not None
+    # `Ref #n`, also as the skill's `**Ref:** #n` line
+    said = re.search(rf"(?<![\w#])Ref[:*\s]+#{num}(?!\d)", view.get("body") or "", re.I) is not None
     closes_ok = not refs if closing_label() else num not in refs
     facts.append(fact("pr_references_issue", said and closes_ok,
                       f"{why}: the description {'says' if said else 'lacks'} `Ref #{num}`; it closes {listed}"))

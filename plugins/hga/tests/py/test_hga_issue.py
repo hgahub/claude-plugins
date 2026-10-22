@@ -1388,6 +1388,10 @@ def test_evidence_step7_ref_cases_of_the_skill(hga, ev, gitenv, tmp_path, monkey
     assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
     assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 0
     assert ev()["steps"]["7"]["partial"] is True
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], body="**Ref:** #18 · the rest in #19"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 0
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], body="Prefs #18"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 1
     fake_gh(hga, monkeypatch, pr(head_of(wt), body="Closes #18, Ref #18"))
     assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 1
 
