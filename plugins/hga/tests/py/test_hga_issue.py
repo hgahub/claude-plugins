@@ -685,6 +685,25 @@ def test_metrics_rows_per_run_section_and_model(hga, tmp_path, capsys):
     assert "API list prices" in err and "not what a Claude subscription costs" in err
 
 
+def test_metrics_lead_time_without_pauses(hga, tmp_path, capsys):
+    m = tmp_path / "kb" / "metrics" / "acme" / "web-app"
+    write(m / "7-20261001T070000Z.json", a_record())
+    no_transcript = {"wall_s": 7200, "active_s": None, "review_wait_s": None, "review_wait_runs": None,
+                     "pause_s": None, "pauses": []}
+    write(m / "8-20261002T070000Z.json", a_record(issue=8, started="2026-10-02T09:00:00+02:00",
+                                                  elapsed=no_transcript, sections=[]))
+    write(m / "9-20261003T070000Z.json", a_record(issue=9, started="2026-10-03T09:00:00+02:00", elapsed={},
+                                                  sections=[]))
+    rows, _ = metrics_out(hga, capsys)
+    runs = {r["issue"]: r for r in rows if r["kind"] == "run"}
+    assert runs[7]["lead_s"] == 5400 - 800  # a run with a pause
+    assert runs[8]["lead_s"] == 7200  # no transcript: no pause measured, lead = wall
+    assert runs[9]["lead_s"] is None  # no wall time, no lead time
+    secs = [r for r in rows if r["kind"] == "section" and r["issue"] == 7]
+    assert [s["lead_s"] for s in secs] == [600, 3000, 1500, 300]  # sections without pause_s
+    assert all(r["lead_s"] is None for r in rows if r["kind"] == "model")
+
+
 def test_metrics_skips_unknown_schemas_and_bad_files(hga, tmp_path, capsys):
     metrics_kb(tmp_path)
     rows, err = metrics_out(hga, capsys)

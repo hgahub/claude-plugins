@@ -30,7 +30,7 @@ own `usage` field names.
 | `difficulty` | `easy` / `medium` / `hard` as reported in step 12, or `null`. |
 | `review_rounds` | The review's rounds (bot rounds, or local review rounds), or `null`. |
 | `risk` | The change's risk class from `hga_issue.py risk` (`low`, `standard`, `high`), or `null`. Absent in older records. |
-| `elapsed` | `wall_s`, `active_s`, `review_wait_s` (idle while `review-wait` ran), `review_wait_runs`, `pause_s`, `pauses` (`from`, `to`, `seconds`, `reason`). Without a transcript only `wall_s` is set, the rest is `null`. |
+| `elapsed` | `wall_s`, `active_s`, `review_wait_s` (idle while `review-wait` ran), `review_wait_runs`, `pause_s`, `pauses` (`from`, `to`, `seconds`, `reason`). Without a transcript only `wall_s` is set, the rest is `null`. `hga_issue.py metrics` adds `lead_s` = `wall_s` − `pause_s` (a `null` pause counts as 0): the lead time without pauses, which the dashboard shows by default. |
 | `tokens` | The run's total: `calls`, `output_tokens`, `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`; subagents included, each API response once. `null` without a transcript. |
 | `models` | The same token fields per model id (`claude-opus-5-5`, …): the basis for a cost estimate. |
 | `sections` | The checklist's four sections: `title` (Prepare, Build, Review, Finish), `steps` (`[from, to]`), `from`, `to`, and `elapsed`, `tokens`, `models` within that window. |
