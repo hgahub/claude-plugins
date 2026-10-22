@@ -2,6 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { digest } from '../hooks/issue-pane'
+
 const TOOL = 'mcp__hga__step'
 const ISSUE = 'acme/web-app#18'
 
@@ -18,6 +20,25 @@ function engine(on: On) {
   on('ui.close', ($, e) => { closed.push(e.id); return { value: undefined } as never })
   on('ui.render', { component: 'SessionMode' }, ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as never)
   return { opened, closed, clock }
+}
+
+// The record `HGA evidence` writes next to the state file (hga_issue.py); the step tool reads it before a done of
+// steps 3, 5, 7, 8 and 9. passing(): an ok entry written at `at` (default: long after every test clock), with its digest.
+const LATER = Date.parse('2100-01-01T00:00:00Z')
+const entry = (step: number, fields: Record<string, unknown> = {}, issue = ISSUE) => {
+  const e = { ok: true, at: new Date(LATER).toISOString(), facts: [], ...fields }
+  return { ...e, digest: digest(issue, step, e) }
+}
+const passing = (...steps: number[]) => Object.fromEntries(steps.map(n => [String(n), entry(n)]))
+// fs.read answers the evidence record from `steps()` (null: there is none); other paths do not exist.
+function evidence(on: On, steps: () => Record<string, unknown> | null) {
+  on('fs.read', ($, e) => {
+    const s = steps()
+    if (!String(e.path).replaceAll('\\', '/').endsWith('/home/test/.claude/hga/issue/acme-web-app-18.evidence.json') || s === null) {
+      throw new Error(`ENOENT: ${String(e.path)}`)
+    }
+    return { value: JSON.stringify({ schema: 1, issue: ISSUE, gates: [], reviews: [], steps: s }) } as never
+  })
 }
 
 const start = ($: Engine) => $.session.start({ cwd: '/tmp', surface: null, isInteractive: false } as never)
@@ -105,6 +126,8 @@ test('invalid input gets an error and writes no state', async ($, on) => {
 
 test('a done or skipped step needs evidence; a finished step reported again keeps its own', async ($, on) => {
   engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  evidence(on, () => passing(5))
   await start($)
   expect((await step($, { issue: ISSUE, step: 0, state: 'done' })).result).toStartWith('Invalid input')
   expect((await step($, { issue: ISSUE, step: 0, state: 'done', evidence: '   ' })).result).toStartWith('Invalid input')
@@ -307,7 +330,10 @@ test('manual review: the list under Review, tickable, a same-text point keeps it
   mock.env(on, { HOME: '/home/test' })
   on('session.id', () => ({ value: 'sess-1' }) as never)
   on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
+  evidence(on, () => passing(7, 8))
   await start($)
+  await step($, { issue: ISSUE, step: 7, state: 'in_progress' })
+  await step($, { issue: ISSUE, step: 8, state: 'in_progress' })
   const r = await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok', checks: ['Migration is backward compatible', '  Permission:   admin only  ', ''] })
   expect(r.result).toBe(`${ISSUE}: 1/13 done. Manual review: 0/2 ticked.`)
   let drawn = await pane($)
@@ -339,7 +365,10 @@ test('manual review: the list under Review, tickable, a same-text point keeps it
 
 test('manual review: an empty list = no highlighted point; without a list there is no section', async ($, on) => {
   engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  evidence(on, () => passing(7))
   await start($)
+  await step($, { issue: ISSUE, step: 7, state: 'in_progress' })
   await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok' })
   expect(await pane($)).not.toContain('Manual review')
   await step($, { issue: ISSUE, step: 7, state: 'done', checks: [] })
@@ -356,6 +385,7 @@ test('step times: in_progress stamps the start, done the end and keeps the start
   mock.env(on, { HOME: '/home/test' })
   on('session.id', () => ({ value: 'sess-1' }) as never)
   on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
+  evidence(on, () => passing(5))
   await s.clock.set(Date.parse('2026-10-13T10:00:00Z'))
   await start($)
   await step($, { issue: ISSUE, step: 0, state: 'in_progress', started_at: '2026-10-13T09:58:00Z' })
@@ -446,4 +476,104 @@ test('five-hour usage: no rate limit (API key) records nothing and the report wo
   await start($)
   expect((await step($, { issue: ISSUE, step: 0, state: 'in_progress' })).result).toBe(`${ISSUE}: 0/13 done.`)
   expect(JSON.parse(writes.at(-1)!.text).fiveHour).toBeUndefined()
+})
+
+// Steps 3, 5, 7, 8 and 9: done only with `HGA evidence`'s passing record, written after the step's start.
+test('a machine-checked step without its record: done is rejected and nothing changes; skipped and n/a are not checked', async ($, on) => {
+  engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  evidence(on, () => null)
+  await start($)
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
+  for (const n of [3, 5, 7, 8, 9]) {
+    const r = (await step($, { issue: ISSUE, step: n, state: 'done', evidence: 'looks fine' })).result
+    expect(r).toStartWith(`Invalid input: step ${n} (`)
+    expect(r).toContain('no evidence record')
+    expect(r).toContain(`HGA evidence acme/web-app 18 --step ${n}`)
+  }
+  expect((await step($, { issue: ISSUE, step: 1, state: 'in_progress' })).result).toBe(`${ISSUE}: 1/13 done.`)
+  // the other steps, and skipped / not_applicable on any step, need no record
+  expect((await step($, { issue: ISSUE, step: 4, state: 'done', evidence: 'nothing to decide' })).result).toBe(`${ISSUE}: 2/13 done.`)
+  expect((await step($, { issue: ISSUE, step: 6, state: 'not_applicable', evidence: 'Risk: low' })).result).toBe(`${ISSUE}: 3/13 done.`)
+  expect((await step($, { issue: ISSUE, step: 7, state: 'skipped', evidence: 'no PR: the user said so' })).result).toBe(`${ISSUE}: 4/13 done.`)
+})
+
+test('a record that is not ok, lacks the step, or was changed by hand is rejected; an ok and fresh one is accepted', async ($, on) => {
+  engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  let steps: Record<string, unknown> = {}
+  evidence(on, () => steps)
+  await start($)
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
+  await step($, { issue: ISSUE, step: 7, state: 'in_progress' })
+  const done = async () => (await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'PR #7' })).result
+  expect(await done()).toContain('the record has no step 7')
+  steps = { '7': entry(7, { ok: false, facts: [{ name: 'pr_open', ok: true }, { name: 'pr_head_matches', ok: false, detail: 'PR head fffffff' }] }) }
+  expect(await done()).toContain('failed: pr_head_matches')
+  // the PR head changed by hand in an ok entry; an entry copied from another step or issue
+  steps = { '7': { ...entry(7, { head: 'a'.repeat(40) }), head: 'b'.repeat(40) } }
+  expect(await done()).toContain('changed by hand')
+  steps = { '7': entry(3) }
+  expect(await done()).toContain('changed by hand')
+  steps = { '7': entry(7, {}, 'acme/web-app#19') }
+  expect(await done()).toContain('changed by hand')
+  steps = { '7': entry(7, { at: 'yesterday' }) }
+  expect(await done()).toContain('invalid')
+  expect(await pane($)).toContain('1/13')
+  steps = { '7': entry(7, { head: 'a'.repeat(40), pr: 7 }) }
+  expect(await done()).toBe(`${ISSUE}: 2/13 done.`)
+})
+
+test("a record older than the step's in_progress is rejected; a step opened again needs a newer one", async ($, on) => {
+  const s = engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  let at = '2026-10-13T09:59:59.999Z'
+  evidence(on, () => ({ '5': entry(5, { at }) }))
+  await s.clock.set(Date.parse('2026-10-13T10:00:00Z'))
+  await start($)
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok', started_at: '2026-10-13T09:00:00Z' })
+  await step($, { issue: ISSUE, step: 5, state: 'in_progress' })
+  const done = async () => (await step($, { issue: ISSUE, step: 5, state: 'done', evidence: '148 passed' })).result
+  expect(await done()).toContain("older than the step's start")
+  at = '2026-10-13T10:00:00.000Z'
+  await s.clock.advance(60_000)
+  expect(await done()).toBe(`${ISSUE}: 2/13 done.`)
+  // opened again (a live test fix round): the record of the first round no longer counts
+  await s.clock.advance(60_000)
+  await step($, { issue: ISSUE, step: 5, state: 'in_progress', evidence: 'live test: C2 ❌' })
+  await s.clock.advance(60_000)
+  expect(await done()).toContain("older than the step's start")
+  at = '2026-10-13T10:03:00.000Z'
+  expect(await done()).toBe(`${ISSUE}: 2/13 done.`)
+})
+
+test("a step reported done without an in_progress: the record must be newer than the issue's start", async ($, on) => {
+  const s = engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  let at = '2026-10-13T08:59:00.000Z'
+  evidence(on, () => ({ '9': entry(9, { at }) }))
+  await s.clock.set(Date.parse('2026-10-13T10:00:00Z'))
+  await start($)
+  await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok', started_at: '2026-10-13T09:00:00Z' })
+  expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toContain("older than the step's start")
+  at = '2026-10-13T09:30:00.000Z'
+  expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toBe(`${ISSUE}: 2/13 done.`)
+})
+
+test("a machine-checked done as the issue's first report has no start to be fresh against: rejected", async ($, on) => {
+  engine(on)
+  mock.env(on, { HOME: '/home/test' })
+  evidence(on, () => passing(9))
+  await start($)
+  expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toContain('report its in_progress first')
+  expect((await step($, { issue: ISSUE, step: 9, state: 'in_progress' })).result).toBe(`${ISSUE}: 0/13 done.`)
+  expect((await step($, { issue: ISSUE, step: 9, state: 'done', evidence: 'Done' })).result).toBe(`${ISSUE}: 1/13 done.`)
+})
+
+// The same vector as the Python test (test_evidence_digest_matches_the_pane): the two implementations agree.
+test('the digest is the one HGA evidence writes', () => {
+  const e = { ok: true, at: '2026-10-22T10:00:00.000+02:00', facts: [{ name: 'pr_open', ok: true, detail: 'PR #7 is OPEN · ő "q"\n' }], pr: 7, head: 'abc' }
+  expect(digest('acme/web-app#18', 7, e)).toBe('fnv1a32:edb2961e')
+  expect(digest('acme/web-app#18', 3, e)).toBe('fnv1a32:eda99bc2')
+  expect(digest('acme/web-app#18', 7, { ...e, digest: 'ignored' })).toBe('fnv1a32:edb2961e')
 })

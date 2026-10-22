@@ -1,8 +1,19 @@
 // not_applicable: the step's gate does not apply to this change (the issue pane only; `HGA risk` is its evidence).
 export type StepState = 'in_progress' | 'done' | 'skipped' | 'not_applicable'
 // startedAt / endedAt (ms): when the step was reported in_progress, and done, skipped or not_applicable. Optional: older state
-// files have neither, and a step reported done without an in_progress has no start.
-export type Step = { state: StepState; evidence: string; startedAt?: number; endedAt?: number }
+// files have neither, and a step reported done without an in_progress has no start. openedAt (ms): when a finished step was
+// reported in_progress again; its evidence record must be newer.
+export type Step = { state: StepState; evidence: string; startedAt?: number; endedAt?: number; openedAt?: number }
+// The step evidence record (~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json), written by `HGA gate`, `HGA evidence`
+// and `HGA review-wait`; the step tool reads steps[N] (at: ISO 8601) before a done of steps 3, 5, 7, 8 and 9.
+export type EvidenceFact = { name: string; ok: boolean; detail?: string }
+export type EvidenceFile = {
+  schema: number
+  issue: string
+  gates?: { command: string; exit: number; started: string; ended: string; head: string; tree?: string | null }[]
+  reviews?: { provider: string; head: string; result: string; at: string }[]
+  steps?: Record<string, { ok: boolean; at: string; facts?: EvidenceFact[]; pr?: number; head?: string; digest?: string } | null>
+}
 // The account's five-hour usage at one moment (`$.session.usage()`, kind five_hour). It is account-wide: context
 // for the issue's numbers, never the issue's own cost.
 export type UsageSnapshot = { at: number; percentUsed: number }

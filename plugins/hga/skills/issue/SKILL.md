@@ -65,21 +65,30 @@ Keep the steps on a **verified checklist**, and show it to the user. An item is 
 exists**: a read-back state, command output, test count, SHA, URL. "I did it" is not evidence; reading it back
 is. If the evidence is missing, the item is not done.
 
-| # | Step | | Evidence |
-|---|---|---|---|
-| 0 | Start: repo, issue, duplicates, knowledge base | ✅ | timestamp; `HGA repo-check` OK; issue OPEN + status; duplicate search result; knowledge pages read and their dates; the provisional risk class (from the labels) |
-| 1 | Claim | ✅ | `claim-check`: free; the claim's message `ts` or comment URL; the read-back: first; the run marker's path @ commit SHA |
-| 2 | In Progress | ✅ | `HGA status-set` read-back: `Status: In Progress · issue: OPEN` |
-| 3 | Worktree | ✅ | branch name + base SHA; upstream unset |
-| 4 | Decisions | ✅ ➖ | who decided what (issue comment, user, decision tool); high: the maintainer's decision; ➖ low, if nothing was decided |
-| 5 | Build + automated tests | ✅ | number of new cases (low: ➖); how many fail on the base and why (high: all of them); the gate's numbers (passed, coverage); `HGA risk --worktree`'s `Risk:` line |
-| 6 | Live test | ✅ ➖ | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free — ➖ low, with step 5's `Risk:` line |
-| 7 | PR | ✅ | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: lists nothing); follow-up issue numbers (7a), if any; high: `checks` not empty, the rollback note in the PR's "Risk" section |
-| 8 | Review | ✅ | local review result and level (low: one round at `low`, no bot; high: `high` level); bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line, and the gates done if the class rose |
-| 9 | Done | ✅ | read-back: `Status: Done · issue: OPEN` |
-| 10 | Cleanup | ✅ | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
-| 11 | Knowledge | ✅ ➖ | the note's path; `validate_kb` 0 errors; commit SHA after push (or the commit SHA, if the knowledge base has no remote) — ➖ low, if nothing new was learned |
-| 12 | Report | ✅ | link to the report message or comment; the metrics record's path and its commit SHA |
+| # | Step | | Machine check | Evidence |
+|---|---|---|---|---|
+| 0 | Start: repo, issue, duplicates, knowledge base | ✅ | — | timestamp; `HGA repo-check` OK; issue OPEN + status; duplicate search result; knowledge pages read and their dates; the provisional risk class (from the labels) |
+| 1 | Claim | ✅ | — | `claim-check`: free; the claim's message `ts` or comment URL; the read-back: first; the run marker's path @ commit SHA |
+| 2 | In Progress | ✅ | — | `HGA status-set` read-back: `Status: In Progress · issue: OPEN` |
+| 3 | Worktree | ✅ | `evidence --step 3`: a linked worktree of the repo, on a branch, based on `origin/<default>`, no upstream | branch name + base SHA; upstream unset |
+| 4 | Decisions | ✅ ➖ | — | who decided what (issue comment, user, decision tool); high: the maintainer's decision; ➖ low, if nothing was decided |
+| 5 | Build + automated tests | ✅ | `evidence --step 5`: every `HGA gate` command's latest run exited 0 on the worktree's HEAD and current files | number of new cases (low: ➖); how many fail on the base and why (high: all of them); the gate's numbers (passed, coverage); `HGA risk --worktree`'s `Risk:` line |
+| 6 | Live test | ✅ ➖ | — | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); which browser, which start path; result per criterion (DOM / state / server log); app stopped, port free — ➖ low, with step 5's `Risk:` line |
+| 7 | PR | ✅ | `evidence --step 7`: the PR is open, its head = the worktree's HEAD, `closingIssuesReferences` lists the issue (`labels.closing`, `--partial`, another base: the description says `Ref #n` instead) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: lists nothing); follow-up issue numbers (7a), if any; high: `checks` not empty, the rollback note in the PR's "Risk" section |
+| 8 | Review | ✅ | `evidence --step 8`: the head unchanged since step 7 or the last clean review, CI finished green, with a bot (standard, high) a clean review of the head or the maintainer's closing (`--closed-with`) | local review result and level (low: one round at `low`, no bot; high: `high` level); bot rounds and severities (`review-wait`), 👍 on the head SHA, or the maintainer's closing decision + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line, and the gates done if the class rose |
+| 9 | Done | ✅ | `evidence --step 9`: the status step 9 sets reads back, the issue is OPEN | read-back: `Status: Done · issue: OPEN` |
+| 10 | Cleanup | ✅ | — | `launch.json` as it was before (our entry removed, or the file deleted if we created it); worktree + local branch deleted; the remote branch stays until merge |
+| 11 | Knowledge | ✅ ➖ | — | the note's path; `validate_kb` 0 errors; commit SHA after push (or the commit SHA, if the knowledge base has no remote) — ➖ low, if nothing new was learned |
+| 12 | Report | ✅ | — | link to the report message or comment; the metrics record's path and its commit SHA |
+
+**Machine check** (steps 3, 5, 7, 8, 9): before the step's `done`, run `HGA evidence <owner/repo> <n> --step N`
+(with the step's `--worktree` / `--pr`). It checks the facts in the column, prints one `ok` / `FAILED` line per
+fact, and writes them into the issue's evidence record (`~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json`).
+The step tool reads that record and **rejects the `done`** if the step is missing from it, a fact failed, the
+entry was edited, or it was written before the step's (latest) `in_progress`. On a `FAILED` line, fix the cause
+— not the record: never edit it by hand — then run `evidence` again. The rest of the Evidence column stays
+reported by you, as before: the local `code-review` result, test counts, base failures, the live test, and the
+other steps. A `skipped` or `not_applicable` step needs no record.
 
 Marks: ✅ done, with evidence · ⏳ in progress · ⬜ not started · ⚠️ skipped (only on explicit exclusion or a
 technical obstacle, with the reason; the live test only if both start paths of 6.1 failed) · ➖ not applicable
@@ -127,7 +136,8 @@ Helper script (standard library + `gh`):
 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (on Windows `python`) —
 `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`, `tokens --since <iso-start>`,
 `claim-check <owner/repo> <n>`, `risk <owner/repo> --worktree <dir> | --pr <n> [--issue <n>]`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n> [--risk <class>]`, `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
-`review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr>`, `deps <owner/repo> <n>`. In the examples
+`review-request <owner/repo> <pr>`, `review-wait <owner/repo> <pr> [--issue <n>]`, `deps <owner/repo> <n>`,
+`gate <owner/repo> <n> --worktree <dir> -- <command…>`, `evidence <owner/repo> <n> --step N [--worktree <dir>] [--pr <n>]`. In the examples
 below `HGA` means this command. Write it out in full in every Bash call, or define a shell function first —
 `hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
 not work (zsh does not split it into words). `elapsed` and `tokens` measure from the session transcript (via
@@ -337,6 +347,7 @@ git -C <main-checkout> reflog -6          # has anyone worked here recently?
 git -C <main-checkout> fetch origin
 git -C <main-checkout> worktree add -b fix/<n>-<short-name> ../<repo>-<n> origin/<default-branch>
 git -C ../<repo>-<n> branch --unset-upstream   # so a plain push does not go to the default branch
+HGA evidence <owner/repo> <n> --step 3 --worktree ../<repo>-<n>   # machine check, before step 3's done
 ```
 
 Branch name: `fix/<n>-…` / `feat/<n>-…` / `perf/<n>-…`. Run the repo's install step in the worktree (per the
@@ -373,7 +384,13 @@ before step 6. If nothing was decided, see the end of "Risk class" for the pane.
   the counterpart of the regression test: first the failing test, then the code.
 - **During development, regularly** run the type check and the test file you are touching; the full gate once,
   at the end.
-- The repo's full gate before the PR (per the workflow page). Record the numbers (passed, coverage) for the PR.
+- The repo's full gate before the PR (per the workflow page), **each of its commands through `HGA gate`**, which
+  passes the output and the exit code through and records them with the worktree's HEAD and files:
+  ```bash
+  HGA gate <owner/repo> <n> --worktree ../<repo>-<n> -- <the gate's command…>
+  ```
+  A gate of several commands is several calls. Record the numbers (passed, coverage) for the PR: you report
+  them, the script only records the exit code. A change after the gate (a fix, a new file) needs it again.
 - **Risk class — the last action of step 5:** `HGA risk <owner/repo> --worktree ../<repo>-<n> --issue <n>`
   ("Risk class", point 2), its `Risk:` line in step 5's evidence. It changes this step's gates:
   - **low** — the gate still runs and its numbers are the evidence; new test cases are not required (➖ in the
@@ -381,6 +398,8 @@ before step 6. If nothing was decided, see the end of "Risk class" for the pane.
     now; step 11 at its turn, if nothing new was learned.
   - **high** — the regression proof above is required for **every** new test, each with its failure on the base;
     with no new test, the step is not done: write one.
+- **Machine check — before step 5's `done`:** `HGA evidence <owner/repo> <n> --step 5 --worktree ../<repo>-<n>`.
+  After a fix round (6.6), the step is `in_progress` again: gate, then `evidence` again before its `done`.
 
 ## 6. Live user test
 
@@ -502,6 +521,11 @@ maintainer instead of skipping, and skip only on their word.
   10. the harness's PR attribution line
 - **Read the link back:** `gh pr view <pr> --json closingIssuesReferences` lists the issue (step 7's evidence);
   with `labels.closing` it must list **nothing**. If it is wrong, fix the description (`gh pr edit <pr> --body-file …`) and read it back again.
+- **Machine check — before step 7's `done`:** `HGA evidence <owner/repo> <n> --step 7 --worktree ../<repo>-<n> --pr <pr>`
+  (the PR open, its head = the pushed worktree HEAD, the closing reference). For a PR that deliberately does only
+  part of the issue, add `--partial`; then, as with `labels.closing` or a base other than the default branch, it
+  checks that the description says `Ref #<n>` and does not close the issue. Its record's head is what step 8
+  compares against.
 - Real bugs left out get a **GitHub issue** (7a), not just PR text, and **no `spawn_task` chip**.
 - **Manual review list for the pane:** in step 7's `done` call, give the `checks` list — at most 13 short lines
   for the PR's human reviewer. The code is written, the tests and the review bot have run; the list says where a
@@ -578,11 +602,12 @@ The class (step 5's `Risk:` line) sets the review:
    requesting: a request that is too early can fail with "ref does not exist".
 3. **Waiting** in the background, with a single notification (Bash `run_in_background`):
    ```bash
-   HGA review-wait <owner/repo> <pr> --timeout-min 30
+   HGA review-wait <owner/repo> <pr> --issue <n> --timeout-min 30
    ```
    Exit codes: 0 = no findings (👍), 1 = inline findings (listed as `severity · path:line · id · title`) or,
    for Copilot and Greptile, requested changes printed from the review's body, 2 = timeout, 3 = the review failed.
-   Only a submitted, not dismissed bot review of the exact head commit counts. The script waits for the PR's current head commit, prints the round
+   Only a submitted, not dismissed bot review of the exact head commit counts. A clean result is recorded in
+   the issue's evidence record for that head (step 8's machine check needs it with a standard or high class). The script waits for the PR's current head commit, prints the round
    number (`Round: N · Result: …`) and the severity breakdown, and only looks at the bot's comments, not your
    replies. (Copilot and Greptile support is newer than Codex's; if the output looks wrong, read the review in
    the API and say so in the report.)
@@ -624,6 +649,13 @@ The class (step 5's `Risk:` line) sets the review:
    class", point 3). Its `Risk:` line goes into step 8's evidence. If the class rose, do the missing gates now
    (a low PR that became standard gets its live test and, with a bot provider, the bot review; anything that
    became high gets the high column) — step 9 waits for them.
+9. **Machine check — before step 8's `done`:** `HGA evidence <owner/repo> <n> --step 8 --pr <pr>`: the PR's head
+   is the one step 7's record or the last clean bot review saw, CI on the head finished with success, skipped or
+   neutral, and with a bot provider and a standard or high class a clean review of the head is recorded — or,
+   if the maintainer closed the review (point 6), `--closed-with <follow-up issue>`: the follow-up is open and
+   names the PR. After a fix
+   pushed without a bot round (the local review's fixes, a low class, a closed review), run `--step 7` again
+   first. The local `code-review` result is not machine-checked: report it.
 
 ## 9. Done — the merge (or the maintainer's label) closes it
 
@@ -631,6 +663,7 @@ Only after step 8's `HGA risk --pr` check, and the gates of a risen class.
 
 ```bash
 HGA status-set <owner/repo> <n> Done
+HGA evidence <owner/repo> <n> --step 9   # machine check, before step 9's done
 ```
 
 With a board, the Status becomes Done; without one, `labels.in_review` replaces `labels.in_progress`. In the

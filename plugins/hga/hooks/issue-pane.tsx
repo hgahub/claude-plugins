@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ResolveInput } from 'claude-code'
 
-import type { Issue, IssueFile, Step, StepState, UsageSnapshot } from '../types'
+import type { EvidenceFile, Issue, IssueFile, Step, StepState, UsageSnapshot } from '../types'
 
 const PANE = 'hga-issue'
 const TOOL = 'mcp__hga__step'
@@ -44,6 +44,8 @@ const MARK: Record<StepState | 'none', { mark: string; color?: string }> = {
 }
 const BAR = 7
 const STATES: readonly string[] = ['in_progress', 'done', 'skipped', 'not_applicable']
+// The machine-checked steps: done needs `HGA evidence`'s passing record (hga_issue.py: EVIDENCE_STEPS).
+const VERIFIED: readonly number[] = [3, 5, 7, 8, 9]
 // Fixed-width columns: with the desktop app's proportional font, padding with spaces does not align.
 const NAME = 18
 const TITLE = 14
@@ -97,15 +99,69 @@ const finished = (j: Issue) => j.steps.filter(l => l !== null && l.state !== 'in
 // The step's times for the metrics record: in_progress keeps an earlier start (a repeated report, or a step
 // opened again) and drops the end; done / skipped / not_applicable stamps the end and keeps the start. A finished step reported
 // again (its evidence amended) keeps its end. A step reported done without an in_progress gets no start (step 0
-// takes the given started_at): the record falls back on the step before it.
+// takes the given started_at): the record falls back on the step before it. A finished step opened again gets
+// openedAt: from then on, its evidence record must be newer than that.
 export function stamp(prev: Step | null, state: StepState, evidence: string, t: number, start?: number): Step {
   const startedAt = prev?.startedAt ?? start ?? (state === 'in_progress' ? t : undefined)
+  const openedAt = state === 'in_progress' && prev !== null && prev.state !== 'in_progress' ? t : prev?.openedAt
   return {
     state,
     evidence,
     ...(startedAt === undefined ? {} : { startedAt }),
     ...(state === 'in_progress' ? {} : { endedAt: prev !== null && prev.state !== 'in_progress' ? (prev.endedAt ?? t) : t }),
+    ...(openedAt === undefined ? {} : { openedAt }),
   }
+}
+
+// The state file's name for an issue: owner/repo#n with every other character run as `-` (hga_issue.py: state_file).
+const fileBase = (id: string) => id.replace(/[^A-Za-z0-9_-]+/g, '-')
+
+// JSON with sorted keys and no spaces: Python's json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False).
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`
+  if (v !== null && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    return `{${Object.keys(o).sort().map(k => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`
+  }
+  return JSON.stringify(v)
+}
+
+// The step entry's digest, as `HGA evidence` writes it (hga_issue.py: evidence_digest): FNV-1a, 32 bits, over the
+// UTF-16 code units of the canonical JSON of the entry (without its digest) with the issue and the step.
+export function digest(issue: string, step: number, entry: Record<string, unknown>): string {
+  const { digest: _d, ...body } = entry
+  const text = canonical({ ...body, issue, step })
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
+  return `fnv1a32:${h.toString(16).padStart(8, '0')}`
+}
+
+// Why a done of a machine-checked step (VERIFIED) is not accepted, or null if its record passes: the record that
+// `HGA evidence` wrote next to the state file has the step, unchanged since (its digest), all its facts passed, and
+// it was written after the step's (latest) in_progress — else after the issue's start; with neither, it is not
+// accepted. The record is the script's, not the model's text.
+async function unverified($: EngineInterface, id: string, step: number, since: number | undefined): Promise<string | null> {
+  let rec: EvidenceFile | null = null
+  try {
+    const dir = await stateDir($)
+    if (dir !== null) rec = JSON.parse(await $.fs.read(`${dir}/${fileBase(id)}.evidence.json`)) as EvidenceFile
+  } catch {
+    rec = null
+  }
+  if (rec === null || typeof rec !== 'object') return 'no evidence record'
+  const s = rec.steps?.[String(step)]
+  if (s === undefined || s === null || typeof s !== 'object') return `the record has no step ${step}`
+  if (s.digest !== digest(id, step, s)) return `the record's step ${step} was changed by hand (its digest does not match)`
+  if (s.ok !== true) {
+    const failed = (s.facts ?? []).filter(f => f.ok !== true).map(f => f.name)
+    return `failed: ${failed.length > 0 ? failed.join(', ') : 'not ok'}`
+  }
+  const at = typeof s.at === 'string' ? Date.parse(s.at) : NaN
+  if (!Number.isFinite(at)) return "the record's time is missing or invalid"
+  // Without a start there is nothing to be fresh against: a record of an earlier run would pass.
+  if (since === undefined) return `the step has no start yet: report its in_progress first, then run evidence again`
+  if (at < since) return `the record (${s.at}) is older than the step's start`
+  return null
 }
 
 // The account's five-hour usage now; null if the engine has no rate limit data (API key, older version, test).
@@ -138,7 +194,7 @@ async function save($: EngineInterface, j: Issue): Promise<void> {
     // The desktop app's session id (absent in a terminal): the triage panel links to this session with it.
     const desktop = (await $.env.get('CLAUDE_CODE_HOST_SESSION_ID')) || undefined
     const file: IssueFile = { ...j, updatedAt: await $.clock.now(), session: await $.session.id(), ...(desktop ? { desktop } : {}) }
-    await $.fs.write(`${dir}/${j.issue.replace(/[^A-Za-z0-9_-]+/g, '-')}.json`, JSON.stringify(file, null, 2))
+    await $.fs.write(`${dir}/${fileBase(j.issue)}.json`, JSON.stringify(file, null, 2))
   } catch {
     // no file system or permission: the triage panel does not see this issue
   }
@@ -289,6 +345,18 @@ export const register: Register = on => {
     if (state !== 'in_progress' && evidence === '') {
       const what = state === 'done' ? 'the read-back result' : state === 'skipped' ? 'the reason' : 'the `HGA risk` line'
       return { result: `Invalid input: a ${state} step needs its evidence (${what}).` }
+    }
+    // Steps 3, 5, 7, 8 and 9: done only with the script's passing record; the evidence text is still shown.
+    if (state === 'done' && VERIFIED.includes(step)) {
+      const since = was?.openedAt ?? was?.startedAt ?? (prev?.issue === id ? base.startedAt : undefined)
+      const why = await unverified($, id, step, since)
+      if (why !== null) {
+        const cmd = `HGA evidence ${id.replace('#', ' ')} --step ${step}`
+        return {
+          result: `Invalid input: step ${step} (${STEPS[step]}) is done only with a passing \`HGA evidence\` record — ${why}. ` +
+            `Run \`${cmd}\` (with its --worktree / --pr), fix what failed, and report again.`,
+        }
+      }
     }
     // The model may report steps late: the real start is step 0's timestamp. A future or invalid value does not count.
     const given = typeof e.started_at === 'string' ? Date.parse(e.started_at) : NaN
