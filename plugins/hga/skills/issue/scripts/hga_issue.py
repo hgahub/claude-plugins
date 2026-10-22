@@ -46,7 +46,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       schema are skipped with a warning): `kind` = `run` (one per run: elapsed, tokens, the account's
       five-hour usage at start and end), `section` (one per run and section: Prepare, Build, Review,
       Finish) and `model` (one per run, section and model: tokens). --since/--until filter on the run's
-      start date (both inclusive). `outcome` on every row: `finished` / `unfinished` (a record), `aborted`
+      start date (both inclusive). `lead_s` on run and section rows: `wall_s` − `pause_s` (no pause_s = 0), the
+      lead time without pauses. `outcome` on every row: `finished` / `unfinished` (a record), `aborted`
       (only the start marker, older than --stale-hours), `open` (a younger marker), empty for records from
       before the markers; `risk` and `na_steps` (steps reported not_applicable) on every row of a record.
       stderr gets the counts and the abort rate. --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
@@ -965,7 +966,7 @@ COST_NOTE = (f"{COST_COLUMN}: an estimate at Anthropic API list prices ({API_PRI
 METRICS_COLUMNS = (
     "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "outcome", "difficulty",
     "review_rounds", "risk", "na_steps", "section", "section_index", "model",
-    "wall_s", "active_s", "review_wait_s", "pause_s",
+    "wall_s", "active_s", "review_wait_s", "pause_s", "lead_s",
     "calls", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
     "total_tokens",
     "five_hour_start_at", "five_hour_start_pct", "five_hour_end_at", "five_hour_end_pct",
@@ -995,7 +996,10 @@ def _token_cols(tok: dict | None) -> dict:
 
 def _elapsed_cols(el: dict | None) -> dict:
     el = el if isinstance(el, dict) else {}
-    return {k: el.get(k) for k in ("wall_s", "active_s", "review_wait_s", "pause_s")}
+    cols = {k: el.get(k) for k in ("wall_s", "active_s", "review_wait_s", "pause_s")}
+    # lead time without pauses: no pause measured (no transcript) counts as none
+    cols["lead_s"] = None if cols["wall_s"] is None else cols["wall_s"] - (cols["pause_s"] or 0)
+    return cols
 
 
 def _models_cost(models: dict, unpriced: set[str]) -> float | None:
