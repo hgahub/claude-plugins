@@ -227,6 +227,15 @@ section's name opens or closes it.
   color — everything else dim; colors are theme keys.
 - The model reports the state with the `mcp__hga__step` tool (`issue`, `step` 0–12, `state`, `evidence`,
   `verb`, `started_at`, `checks`); [`/hga:issue`](skills/issue/SKILL.md)'s checklist section requires a call at every state change.
+- **Machine-checked steps** — 3 Worktree, 5 Build + tests, 7 PR, 8 Review, 9 Done: their ✓ means a script
+  checked the facts, not only that the model typed evidence. `HGA evidence <owner/repo> <n> --step N` checks them
+  (the worktree and its base; the gate's exit code on the current HEAD and files, recorded by `HGA gate`; the
+  PR's state, head and closing reference; an unchanged head, finished CI and, with a review bot, a clean review
+  of the head, recorded by `review-wait`; the status read back) and writes
+  `~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json`. The step tool rejects such a step's `done` when the
+  record is missing, a fact failed, the entry was edited, or it is older than the step's `in_progress`.
+  Still reported by the model, not checked: the local `code-review` result, test counts and base failures, the
+  live test, and the other steps.
 - A long evidence ends in `…` on a narrow pane: **double-click** the step's name to wrap the row onto several
   lines, double-click again to bring it back to one.
 - **Manual review** (☑, under the Review section): with the PR, the model lists at most 13 points (`checks`) that

@@ -69,10 +69,12 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
   review-request <owner/repo> <pr> [--provider P]
       Asks the configured review bot for a review (codex: `@codex review` comment; copilot: adds
       @copilot as reviewer; greptile: `@greptileai` comment).
-  review-wait <owner/repo> <pr> [--provider P] [--sha <head-sha>] [--timeout-min 30] [--interval 20]
+  review-wait <owner/repo> <pr> [--provider P] [--issue <n>] [--sha <head-sha>] [--timeout-min 30] [--interval 20]
       Waits until the review bot has reviewed the given (or the PR's current) head commit, then prints the
       result, the round number, the severity breakdown and the inline findings. From round
-      `review.ask_after_rounds` on, it says to ask the maintainer about closing the review.
+      `review.ask_after_rounds` on, it says to ask the maintainer about closing the review. A clean result
+      appends a `reviews` entry for that head to the evidence record (see gate) of --issue, else of the
+      issues the PR closes.
       Copilot and Greptile: only the bot's submitted reviews of that exact commit count (a dismissed one does
       not); requested changes without inline comments are findings too, printed from the review's body.
       Exit codes: 0 no findings, 1 findings, 2 timeout, 3 the review failed.
@@ -92,6 +94,22 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       (default: origin's default branch), committed or not, untracked files included; --pr: the PR's
       files. Prints the class, each file's match and the gates the class changes: the evidence of a
       not_applicable step. Exit 4 if there is no changed file.
+  gate <owner/repo> <n> --worktree <dir> -- <command…>
+      Runs the gate's command in the worktree, its output passed through, and exits with its exit code. It
+      appends a `gates` entry (command, exit code, start, end, the worktree's HEAD) to the issue's evidence
+      record: `~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json`, next to the pane's state file, written
+      atomically. A gate of several commands is several gate calls.
+  evidence <owner/repo> <n> --step {3,5,7,8,9} [--worktree <dir>] [--pr <n>]
+      Checks the step's facts, prints one `ok` or `FAILED` line per fact and writes `steps[N]` (ok, the time,
+      the facts) into the evidence record; the issue pane's step tool accepts these steps' `done` only with a
+      passing record written after the step's in_progress. 3 (--worktree): a linked worktree of the
+      repository, on a branch created from origin's default branch, without an upstream. 5 (--worktree): every
+      gate command's latest run on the worktree's HEAD exited 0. 7 (--worktree, --pr): the PR is open, its
+      head is the worktree's HEAD, and it closes the issue (with `labels.closing`: closes nothing). 8 (--pr):
+      the PR's head is the step-7 record's or the latest review's, its CI checks finished with success or
+      skipped, and with a bot provider and a standard or high class a clean review of the head is recorded
+      (review-wait). 9: the status step 9 sets reads back, and the issue is open. Exit 0 every fact passed,
+      1 a fact failed (a failed read too), 64 a usage error.
   deps <owner/repo> <n>
       The issue's native dependencies: what blocks it (prerequisites) and what it blocks. Read-only.
       Exit code 3 if a prerequisite is still open.
@@ -106,7 +124,7 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
 The session (`--session`) defaults to the CLAUDE_CODE_SESSION_ID environment variable; transcripts live
 in `~/.claude/projects/*/<id>.jsonl` (subagents in `<id>/subagents/*.jsonl`).
 
-Exit code on wrong usage or a gh error: 4.
+Exit code on wrong usage or a gh error: 4 (gate and evidence: 64 on wrong usage).
 """
 
 from __future__ import annotations
@@ -118,9 +136,11 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone, tzinfo
@@ -1557,6 +1577,11 @@ def classify_risk(files: list[str], low: list[str], high: list[str], labels: set
     return "standard", rows, [f"{len(other)} file(s) match no low pattern"]
 
 
+def default_ref(wt: str) -> str:
+    """origin's default branch as a ref (origin/main), from the checkout's origin/HEAD."""
+    return git(wt, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD") or "origin/main"
+
+
 def worktree_files(wt: str, base: str | None) -> list[str]:
     def run(*args: str) -> str:
         res = subprocess.run(["git", "-C", wt, *args], capture_output=True, text=True, encoding="utf-8")
@@ -1564,11 +1589,7 @@ def worktree_files(wt: str, base: str | None) -> list[str]:
             raise RuntimeError(f"git {' '.join(args[:2])}…: {res.stderr.strip()[:300]}")
         return res.stdout
 
-    if not base:
-        head = subprocess.run(["git", "-C", wt, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-                              capture_output=True, text=True, encoding="utf-8")
-        base = head.stdout.strip() or "origin/main"
-    mb = run("merge-base", base, "HEAD").strip()
+    mb = run("merge-base", base or default_ref(wt), "HEAD").strip()
     # The working tree against the merge base: committed, staged and unstaged changes; both names of a rename.
     # -z: the literal paths, NUL-separated; without it git quotes a non-ASCII name ("auth/entr\303\251e.py").
     changed = run("diff", "--name-only", "--no-renames", "-z", mb).split("\0")
@@ -1576,24 +1597,31 @@ def worktree_files(wt: str, base: str | None) -> list[str]:
     return sorted({f for f in changed + untracked if f})
 
 
+def pr_files_labels(repo: str, pr: int) -> tuple[list[str], set[str]]:
+    """The PR's changed files (both names of a rename) and its labels."""
+    owner, name = split_repo(repo)
+    raw = gh("api", "--paginate", f"repos/{owner}/{name}/pulls/{pr}/files", "--jq",
+             ".[] | .filename, (.previous_filename // empty)")
+    labels = set(json.loads(gh("pr", "view", str(pr), "--repo", repo, "--json", "labels", "--jq", "[.labels[].name]")))
+    return sorted({f for f in raw.splitlines() if f}), labels
+
+
+def issue_labels(repo: str, num: int) -> set[str]:
+    return set(json.loads(gh("issue", "view", str(num), "--repo", repo, "--json", "labels", "--jq", "[.labels[].name]")))
+
+
 def cmd_risk(a) -> int:
     if bool(a.worktree) == bool(a.pr):
         raise SystemExit("risk: give either --worktree <dir> or --pr <n>")
-    owner, name = split_repo(a.repo)
     labels: set[str] = set()
     if a.pr:
-        raw = gh("api", "--paginate", f"repos/{owner}/{name}/pulls/{a.pr}/files", "--jq",
-                 ".[] | .filename, (.previous_filename // empty)")
-        files = sorted({f for f in raw.splitlines() if f})
-        labels |= set(json.loads(gh("pr", "view", str(a.pr), "--repo", a.repo, "--json", "labels",
-                                    "--jq", "[.labels[].name]")))
+        files, labels = pr_files_labels(a.repo, a.pr)
         source = f"PR #{a.pr}"
     else:
         files = worktree_files(a.worktree, a.base)
         source = f"worktree {a.worktree} since its merge base with {a.base or 'the default branch'}"
     if a.issue:
-        labels |= set(json.loads(gh("issue", "view", str(a.issue), "--repo", a.repo, "--json", "labels",
-                                    "--jq", "[.labels[].name]")))
+        labels |= issue_labels(a.repo, a.issue)
     low, high, high_label = risk_patterns(a.repo)
     cls, rows, reasons = classify_risk(files, low, high, labels, high_label)
     if a.json:
@@ -1608,6 +1636,335 @@ def cmd_risk(a) -> int:
         print("no changed file: nothing to classify", file=sys.stderr)
         return 4
     return 0
+
+
+# --- step evidence: the gate's runs and the steps' facts, read by the issue pane's step tool -------
+
+EVIDENCE_SCHEMA = 1
+# The steps whose `done` the step tool accepts only with a passing, fresh record (hooks/issue-pane.tsx: VERIFIED).
+EVIDENCE_STEPS = (3, 5, 7, 8, 9)
+# The status step 9 sets, as a github.statuses key (without a board, `done` is the labels.in_review label).
+DONE_STATUS = "done"
+# A usage error of gate and evidence (sysexits' EX_USAGE): 1 is a failed fact, a gate passes its command's code.
+EX_USAGE = 64
+
+
+def evidence_file(repo: str, num: int) -> Path:
+    """The step evidence record, next to the pane's state file: <owner>-<repo>-<n>.evidence.json."""
+    return state_file(repo, num).with_suffix(".evidence.json")
+
+
+def _stamp() -> str:
+    # Milliseconds: the step tool compares it with the step's in_progress time, which is in milliseconds.
+    return datetime.now(local_tz()).isoformat(timespec="milliseconds")
+
+
+def load_evidence(repo: str, num: int) -> dict:
+    path = evidence_file(repo, num)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        data = {}
+    except (OSError, ValueError) as e:
+        print(f"warning: unreadable evidence record {path} ({e}): starting a new one", file=sys.stderr)
+        data = {}
+    if not isinstance(data, dict) or data.get("schema") != EVIDENCE_SCHEMA:
+        data = {}
+    return {
+        "schema": EVIDENCE_SCHEMA,
+        "issue": f"{repo}#{num}",
+        "gates": [g for g in data.get("gates") or [] if isinstance(g, dict)],
+        "reviews": [r for r in data.get("reviews") or [] if isinstance(r, dict)],
+        "steps": data["steps"] if isinstance(data.get("steps"), dict) else {},
+    }
+
+
+def save_evidence(repo: str, num: int, data: dict) -> Path:
+    """Atomic: the step tool never reads a half-written record. The temporary name does not end in .json, so the
+    panes listing the folder skip it."""
+    path = evidence_file(repo, num)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    os.replace(tmp, path)
+    return path
+
+
+def worktree_tree(wt: str) -> str | None:
+    """The working tree's content as a git tree id — committed, staged, unstaged and untracked files (.gitignore
+    applies) — through a copy of the index, so the real one is untouched. The gate runs before the commit (step 7),
+    when HEAD alone is still the base: this tells which code it ran on."""
+    index = git(wt, "rev-parse", "--path-format=absolute", "--git-path", "index")
+    with tempfile.TemporaryDirectory() as d:
+        tmp = os.path.join(d, "index")
+        if index and os.path.isfile(index):
+            # Its stat data spares re-hashing unchanged files. copy2 keeps the index's mtime: git re-hashes a file
+            # changed in the same second as the index ("racily clean"), which a fresh mtime would hide.
+            shutil.copy2(index, tmp)
+        env = {**os.environ, "GIT_INDEX_FILE": tmp}
+        for args in (("add", "-A"), ("write-tree",)):
+            res = subprocess.run(["git", "-C", wt, *args], env=env, capture_output=True, text=True, encoding="utf-8")
+            if res.returncode != 0:
+                return None
+        return res.stdout.strip() or None
+
+
+def cmd_gate(a) -> int:
+    command = a.command
+    if not command:
+        print("gate: give the gate's command after --, e.g. gate acme/web-app 42 --worktree ../web-app-42 -- npm test",
+              file=sys.stderr)
+        return EX_USAGE
+    head = git(a.worktree, "rev-parse", "HEAD")
+    if head is None:
+        print(f"gate: not a git checkout: {a.worktree}", file=sys.stderr)
+        return EX_USAGE
+    started = _stamp()
+    # A bare name is looked up on PATH (on Windows also npm.cmd and the like); a path runs as given, from the worktree.
+    exe = command[0] if os.path.dirname(command[0]) else (shutil.which(command[0]) or command[0])
+    try:
+        code = subprocess.run([exe, *command[1:]], cwd=a.worktree).returncode
+    except OSError as e:
+        print(f"gate: cannot run {command[0]}: {e}", file=sys.stderr)
+        code = 127
+    if code < 0:  # killed by a signal (POSIX): the shell's convention
+        code = 128 - code
+    # After the run: a file the gate itself writes (a report, a cache git does not ignore) is part of what step 5 sees.
+    tree = worktree_tree(a.worktree)
+    data = load_evidence(a.repo, a.num)
+    data["gates"].append({"command": shlex.join(command), "exit": code, "started": started, "ended": _stamp(),
+                          "head": head, "tree": tree})
+    path = save_evidence(a.repo, a.num, data)
+    print(f"gate: exit {code} · HEAD {head[:7]} · recorded in {path}", file=sys.stderr)
+    return code
+
+
+def evidence_digest(issue: str, step: int, entry: dict) -> str:
+    """FNV-1a (32 bits, over UTF-16 code units) of the step entry's canonical JSON, with the issue and the step: the
+    step tool recomputes it (hooks/issue-pane.tsx: digest), so a hand-edited entry, or one copied to another step or
+    issue, does not pass. A check against mistakes, not a signature."""
+    body = {k: v for k, v in entry.items() if k != "digest"}
+    text = json.dumps({**body, "issue": issue, "step": step}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    h = 0x811C9DC5
+    b = text.encode("utf-16-le", "surrogatepass")
+    for i in range(0, len(b), 2):
+        h = ((h ^ (b[i] | b[i + 1] << 8)) * 0x01000193) & 0xFFFFFFFF
+    return f"fnv1a32:{h:08x}"
+
+
+def fact(name: str, ok: bool, detail: str) -> dict:
+    return {"name": name, "ok": bool(ok), "detail": detail}
+
+
+def branch_base(wt: str, branch: str) -> str | None:
+    """The commit the branch was created at (its oldest reflog entry), else its merge base with the default branch."""
+    log = git(wt, "reflog", "show", "--format=%H", f"refs/heads/{branch}")
+    if log:
+        return log.splitlines()[-1]
+    return git(wt, "merge-base", default_ref(wt), "HEAD")
+
+
+def worktree_facts(repo: str, wt: str) -> list[dict]:
+    dirs = git(wt, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+    if dirs is None:
+        return [fact("is_worktree", False, f"not a git checkout: {wt}")]
+    git_dir, common = (dirs.splitlines() + ["", ""])[:2]
+    m = REMOTE_RE.search(git(wt, "remote", "get-url", "origin") or "")
+    have = f"{m.group(1)}/{m.group(2)}" if m else "no GitHub origin"
+    linked = git_dir != common
+    facts = [fact("is_worktree", linked and have.lower() == repo.lower(),
+                  f"{'a linked worktree' if linked else 'the main checkout, not a worktree'} of {have}")]
+    branch = git(wt, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if branch is None:
+        return facts + [fact("branch_exists", False, "detached HEAD: no branch")]
+    facts.append(fact("branch_exists", git(wt, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}") is not None,
+                      f"branch {branch}"))
+    ref = default_ref(wt)
+    base = branch_base(wt, branch)
+    on_default = base is not None and git(wt, "merge-base", "--is-ancestor", base, ref) is not None
+    facts.append(fact("base_on_default", on_default,
+                      f"base {base[:7]} {'is' if on_default else 'is not'} on {ref}" if base else f"no base commit for {branch}"))
+    upstream = git(wt, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}")
+    facts.append(fact("no_upstream", upstream is None, f"upstream {upstream}" if upstream else "no upstream"))
+    return facts
+
+
+def gate_facts(data: dict, wt: str) -> list[dict]:
+    """Every gate command's latest run on the worktree's HEAD and its current content has exit 0 (a gate may be
+    several commands). A change after the run (a fix, a new file) needs a new run."""
+    head = git(wt, "rev-parse", "HEAD")
+    if head is None:
+        return [fact("gate_passed_on_head", False, f"not a git checkout: {wt}")]
+    tree = worktree_tree(wt)
+    gates = data["gates"]
+    latest: dict[str, dict] = {}
+    for g in gates:
+        if g.get("head") == head and g.get("tree") == tree:
+            latest[str(g.get("command"))] = g
+    if not latest:
+        if not gates:
+            last = " (run it through `HGA gate`)"
+        elif gates[-1].get("head") != head:
+            last = f"; the last one ran on HEAD {str(gates[-1].get('head'))[:7]}"
+        else:
+            last = "; the files changed since the last one"
+        return [fact("gate_passed_on_head", False, f"no gate run on HEAD {head[:7]} with the current files{last}")]
+    failed = [g for g in latest.values() if g.get("exit") != 0]
+    runs = ", ".join(f"`{g.get('command')}` exit {g.get('exit')}" for g in (failed or latest.values()))
+    return [fact("gate_passed_on_head", not failed, f"{runs} on HEAD {head[:7]}")]
+
+
+def pr_view(repo: str, pr: int) -> dict:
+    return json.loads(gh("pr", "view", str(pr), "--repo", repo, "--json", "number,state,headRefOid,closingIssuesReferences"))
+
+
+def closing_refs(repo: str, view: dict) -> list[int]:
+    """The issues of this repository that the PR closes (closingIssuesReferences)."""
+    owner, name = split_repo(repo)
+    out = []
+    for r in view.get("closingIssuesReferences") or []:
+        rr = r.get("repository") or {}
+        other = rr and (rr.get("name", "").lower() != name.lower()
+                        or (rr.get("owner") or {}).get("login", "").lower() != owner.lower())
+        if isinstance(r.get("number"), int) and not other:
+            out.append(r["number"])
+    return out
+
+
+def pr_facts(repo: str, num: int, pr: int, wt: str, view: dict) -> list[dict]:
+    head = git(wt, "rev-parse", "HEAD")
+    pr_head = view.get("headRefOid") or ""
+    facts = [
+        fact("pr_open", view.get("state") == "OPEN", f"PR #{pr} is {view.get('state')}"),
+        fact("pr_head_matches", head is not None and pr_head == head,
+             f"PR head {pr_head[:7] or '(none)'}, worktree HEAD {head[:7] if head else '(not a git checkout)'}"),
+    ]
+    refs = closing_refs(repo, view)
+    listed = ", ".join(f"#{n}" for n in refs) or "nothing"
+    if closing_label():
+        facts.append(fact("pr_references_issue", not refs,
+                          f"labels.closing is set: the PR closes nothing (Ref #{num}); it closes {listed}"))
+    else:
+        facts.append(fact("pr_references_issue", num in refs, f"closingIssuesReferences: {listed}"))
+    return facts
+
+
+def ci_facts(repo: str, head: str) -> list[dict]:
+    """The head's check runs and commit statuses: finished with success or skipped."""
+    runs = gh("api", "--paginate", f"repos/{repo}/commits/{head}/check-runs", "--jq",
+              '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv')
+    statuses = gh("api", f"repos/{repo}/commits/{head}/status", "--jq", ".statuses[] | [.context, .state] | @tsv")
+    pending, failed, passed = [], [], 0
+    for ln in runs.splitlines():
+        name, status, conclusion = (ln.split("\t") + ["", "", ""])[:3]
+        if status != "completed":
+            pending.append(name)
+        elif conclusion in ("success", "skipped"):
+            passed += 1
+        else:
+            failed.append(f"{name} ({conclusion})")
+    for ln in statuses.splitlines():
+        context, state = (ln.split("\t") + ["", ""])[:2]
+        if state == "pending":
+            pending.append(context)
+        elif state == "success":
+            passed += 1
+        else:
+            failed.append(f"{context} ({state})")
+    if not (pending or failed or passed):
+        return [fact("ci_finished", True, f"no CI check on {head[:7]}")]
+    detail = "; ".join(x for x in (f"failed: {', '.join(failed)}" if failed else "",
+                                    f"pending: {', '.join(pending)}" if pending else "") if x)
+    return [fact("ci_finished", not (pending or failed), detail or f"{passed} check(s) passed on {head[:7]}")]
+
+
+def review_facts(repo: str, num: int, pr: int, data: dict, view: dict) -> list[dict]:
+    head = view.get("headRefOid") or ""
+    s7 = data["steps"].get("7") or {}
+    known = [(label, h) for label, h in (("the step-7 record", s7.get("head") if s7.get("ok") else None),
+                                         ("the latest review", (data["reviews"][-1:] or [{}])[0].get("head"))) if h]
+    match = next((label for label, h in known if h == head), None)
+    if match:
+        unchanged = fact("head_unchanged", True, f"PR head {head[:7]} = {match}")
+    elif known:
+        unchanged = fact("head_unchanged", False, f"PR head {head[:7]} changed since "
+                         + ", ".join(f"{label} ({h[:7]})" for label, h in known) + ": run evidence --step 7 again")
+    else:
+        unchanged = fact("head_unchanged", False, "no passing step-7 record and no review entry: run evidence --step 7")
+    facts = [unchanged, *ci_facts(repo, head)]
+    provider = (cfg()["review"].get("provider") or "local").lower()
+    if provider == "local":
+        facts.append(fact("bot_review_clean", True, "review.provider local: no bot (the code-review result stays reported)"))
+        return facts
+    files, labels = pr_files_labels(repo, pr)
+    low, high, high_label = risk_patterns(repo)
+    cls = classify_risk(files, low, high, labels | issue_labels(repo, num), high_label)[0]
+    if cls == "low":
+        facts.append(fact("bot_review_clean", True, f"low class: no {provider} round"))
+        return facts
+    clean = any(r.get("head") == head and r.get("result") == "clean" and r.get("provider") == provider
+                for r in data["reviews"])
+    facts.append(fact("bot_review_clean", clean, f"{cls} class: {'a' if clean else 'no'} clean {provider} review of {head[:7]}"))
+    return facts
+
+
+def done_facts(repo: str, num: int) -> list[dict]:
+    issue = issue_items(repo, num)
+    project = cfg()["github"].get("project")
+    if project:
+        want = cfg()["github"]["statuses"][DONE_STATUS]
+        nodes = [n for n in issue["projectItems"]["nodes"] if n["project"]["title"] == project]
+        have = (nodes[0].get("fieldValueByName") or {}).get("name") if nodes else None
+        ok = (have or "").lower() == want.lower()
+        detail = f"{project}: Status {have or '— (not on the board)'}, step 9 sets {want}"
+    else:
+        want = {"todo": "Todo", "in_progress": "In Progress", "done": "Done"}[DONE_STATUS]
+        have = label_status(label_names(issue))
+        ok = have == want
+        detail = f"labels: Status {have}, step 9 sets {want} (label {cfg()['labels']['in_review']})"
+    return [fact("status_read_back", ok, detail), fact("issue_open", issue.get("state") == "OPEN", f"issue {issue.get('state')}")]
+
+
+def cmd_evidence(a) -> int:
+    need = {"worktree": a.step in (3, 5, 7), "pr": a.step in (7, 8)}
+    if a.step not in EVIDENCE_STEPS:
+        print(f"evidence: machine checks exist for steps {', '.join(map(str, EVIDENCE_STEPS))}, not {a.step}", file=sys.stderr)
+        return EX_USAGE
+    missing = [f"--{k}" for k, v in need.items() if v and not getattr(a, k)]
+    if missing:
+        print(f"evidence: step {a.step} needs {' and '.join(missing)}", file=sys.stderr)
+        return EX_USAGE
+    data = load_evidence(a.repo, a.num)
+    extra: dict = {}
+    try:
+        if a.step == 3:
+            facts = worktree_facts(a.repo, a.worktree)
+        elif a.step == 5:
+            facts = gate_facts(data, a.worktree)
+        elif a.step == 7:
+            view = pr_view(a.repo, a.pr)
+            facts = pr_facts(a.repo, a.num, a.pr, a.worktree, view)
+            extra = {"pr": a.pr, "head": view.get("headRefOid")}
+        elif a.step == 8:
+            view = pr_view(a.repo, a.pr)
+            facts = review_facts(a.repo, a.num, a.pr, data, view)
+            extra = {"pr": a.pr, "head": view.get("headRefOid")}
+        else:
+            facts = done_facts(a.repo, a.num)
+    except (RuntimeError, SystemExit, KeyError, ValueError) as e:
+        # A read that failed proves nothing: the step is recorded as not ok, so an earlier ok record cannot stand.
+        facts = [fact("read", False, str(e) or type(e).__name__)]
+    ok = all(f["ok"] for f in facts)
+    entry = {"ok": ok, "at": _stamp(), "facts": facts, **extra}
+    entry["digest"] = evidence_digest(data["issue"], a.step, entry)
+    data["steps"][str(a.step)] = entry
+    path = save_evidence(a.repo, a.num, data)
+    for f in facts:
+        print(f"{'ok' if f['ok'] else 'FAILED':<6} {f['name']} · {f['detail']}")
+    print(f"Step {a.step}: {'every fact passed' if ok else 'a fact FAILED — fix the cause, then run evidence again'}"
+          f" · recorded in {path}")
+    return 0 if ok else 1
 
 
 # --- issue metadata: type, Priority / Effort, iteration ------------------------------------------
@@ -1888,6 +2245,23 @@ def wait_review(a, provider: str, head: str) -> tuple[int | None, dict | None]:
     return 2, None
 
 
+def record_review(a, provider: str, head: str) -> None:
+    """A clean bot review of the head, in the issue's evidence record (step 8's check reads it): --issue, else the
+    issues the PR closes."""
+    try:
+        issues = [a.issue] if a.issue else closing_refs(a.repo, pr_view(a.repo, a.pr))
+    except RuntimeError as e:
+        print(f"warning: the review is not recorded: {e}", file=sys.stderr)
+        return
+    if not issues:
+        print("note: the review is not recorded: the PR closes no issue of this repository (pass --issue <n>)",
+              file=sys.stderr)
+    for n in issues:
+        data = load_evidence(a.repo, n)
+        data["reviews"].append({"provider": provider, "head": head, "result": "clean", "at": _stamp()})
+        print(f"Recorded: the clean {provider} review of {head[:7]} in {save_evidence(a.repo, n, data)}")
+
+
 def cmd_review_wait(a) -> int:
     provider = provider_of(a)
     if provider == "local":
@@ -1925,6 +2299,7 @@ def cmd_review_wait(a) -> int:
     rounds = count_rounds(provider, bot_reviews(a.repo, a.pr, provider), comments)
     if clean_result:
         print(f"Round: {rounds} · Result: no significant findings (👍)")
+        record_review(a, provider, head)
         return 0
     if changes_requested and not inline:
         print(f"Round: {rounds} · Result: changes requested in the review's body, no inline findings"
@@ -2211,6 +2586,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("pr", type=int)
         p.add_argument("--provider", choices=REVIEW_PROVIDERS)
         if name == "review-wait":
+            p.add_argument("--issue", type=int, help="the issue whose evidence record gets a clean review "
+                                                     "(default: the issues the PR closes)")
             p.add_argument("--sha")
             p.add_argument("--timeout-min", type=float, default=30)
             p.add_argument("--interval", type=float, default=20)
@@ -2227,6 +2604,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pr", type=int, help="the PR whose files are classified")
     p.add_argument("--issue", type=int, help="the issue, for its labels (risk.high_label)")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("gate", help="run the gate's command in the worktree and record its exit code and HEAD")
+    p.add_argument("repo")
+    p.add_argument("num", type=int)
+    p.add_argument("--worktree", required=True)
+    p.set_defaults(command=[])  # everything after `--`, split off before parsing
+    p = sub.add_parser("evidence", help="check a step's facts and record them for the step tool")
+    p.add_argument("repo")
+    p.add_argument("num", type=int)
+    p.add_argument("--step", type=int, required=True)
+    p.add_argument("--worktree")
+    p.add_argument("--pr", type=int)
     p = sub.add_parser("deps")
     p.add_argument("repo")
     p.add_argument("num", type=int)
@@ -2250,7 +2638,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("repo")
     p.add_argument("--project")
     p.add_argument("--json", action="store_true", help="machine output (the hga plugin's triage panel)")
-    a = ap.parse_args(argv)
+    given = list(sys.argv[1:] if argv is None else argv)
+    # The gate's command is everything after `--`: argparse would read its options as the gate's own.
+    command = None
+    if given[:1] == ["gate"] and "--" in given:
+        i = given.index("--")
+        given, command = given[:i], given[i + 1:]
+    try:
+        a = ap.parse_args(given)
+    except SystemExit as e:
+        # gate and evidence have their own usage error code: a gate passes its command's 2 through
+        if e.code == 2 and given[:1] in (["gate"], ["evidence"]):
+            return EX_USAGE
+        raise
+    if command is not None:
+        a.command = command
     try:
         if a.cmd == "config":
             print(json.dumps(cfg(), ensure_ascii=False, indent=2))
@@ -2280,6 +2682,8 @@ def main(argv: list[str] | None = None) -> int:
             "review-wait": cmd_review_wait,
             "claim-check": cmd_claim_check,
             "risk": cmd_risk,
+            "gate": cmd_gate,
+            "evidence": cmd_evidence,
             "deps": cmd_deps,
             "block": cmd_block,
             "triage-state": cmd_triage_state,
