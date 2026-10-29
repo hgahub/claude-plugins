@@ -16,5 +16,6 @@
     "high_paths": ["**/migrations/**", "*.sql", "**/auth/**", "**/permissions/**", ".github/workflows/**"],
     "high_label": "risk:high",
     "repos": {}
-  }
+  },
+  "repos": {}
 }

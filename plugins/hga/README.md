@@ -79,7 +79,7 @@ check also offers to repair it — a moved knowledge base, an invalid configurat
 
 ## Configuration
 
-Two layers, merged (`hga_issue.py config` prints the result):
+Two layers, merged (`hga_issue.py config` prints the result; `config --repo <owner/repo>` a repository's view):
 
 - **Team** — `hga.config.json` in the knowledge base, versioned and shared:
 
@@ -102,7 +102,8 @@ Two layers, merged (`hga_issue.py config` prints the result):
       "high_paths": ["**/migrations/**", "*.sql", "**/auth/**", "**/permissions/**", ".github/workflows/**"],
       "high_label": "risk:high",
       "repos": {}
-    }
+    },
+    "repos": {}
   }
   ```
 
@@ -116,6 +117,7 @@ Two layers, merged (`hga_issue.py config` prints the result):
 | `timezone` | `null` = the machine's; an IANA name makes "today" (Slack claims, iterations) the same for the whole team. |
 | `github.project` | `null` = no board: the status is kept with labels. Otherwise the project's title; its status field and option names map through `fields.status` and `statuses`: `in_review` is set by step 9 (implemented, waiting for the maintainer), `done` after the merge — map both to the same option to keep one status for both. `doctor` reports a status name the board has no option for. Turn on the board's built-in "Item closed" workflow (→ Done) so a merge that closes the issue moves it even without the agent. Iteration, Priority and Effort are used only if they exist. |
 | `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer) until the issue closes — there is no Done label. `closing`: `null` (default) = issues close with GitHub's own closing — the PR's `Closes #n` at merge, or `gh issue close`; a label name (e.g. `done`) = the maintainer closes an issue with that label after the merge: the PR says only `Ref #n`, the issue may stay open, the label counts as closed for prerequisites and in triage, and the agent never adds it. |
+| `repos` | Per repository (`owner/repo`, any case): its own `github` and `labels`, merged field by field over the team's, for every command that names the repository — e.g. `{"acme/tools": {"github": {"project": null}, "labels": {"closing": null}}}` for one that has no board and closes with `Closes #n` while the team's other repositories use a board and a closing label. `hga_issue.py config --repo <owner/repo>` prints that repository's view; the skills read it from there. |
 | `slack` | `null` = claims and reports are GitHub comments on the issue. Otherwise `{"channel": "#dev", "channel_id": "C…"}`. |
 | `review.provider` | `local` (the `code-review` skill), `codex`, `copilot` or `greptile` (a bot on GitHub, in addition to the local review). `ask_after_rounds`: from this round on, the maintainer decides whether to close the review. |
 | `live_test.browser` | `builtin` (the desktop app's browser) or `chrome` (Claude in Chrome): which one [`/hga:issue`](skills/issue/SKILL.md)'s live test tries first; the other one is the fallback. |

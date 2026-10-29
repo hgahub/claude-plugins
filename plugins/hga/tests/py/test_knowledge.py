@@ -130,7 +130,8 @@ def test_default_root_follows_the_machine_config(tmp_path, monkeypatch):
 GUIDE = Path(__file__).resolve().parents[2] / "skills" / "init" / "templates" / "guide.md"
 GUIDE_FIELDS = {"DATE", "KNOWLEDGE_DIR", "REMOTE", "LANGUAGE", "PROJECT", "LABEL_IN_PROGRESS", "LABEL_IN_REVIEW",
                 "SLACK_CHANNEL", "REVIEW_PROVIDER", "ASK_AFTER_ROUNDS", "MAX_PER_REPO", "USAGE_CEILING_PCT",
-                "RISK_HIGH_PATHS", "RISK_HIGH_LABEL", "RISK_LOW_PATHS", "RISK_REPO_OVERRIDES", "CLOSING_LABEL", "BROWSER"}
+                "RISK_HIGH_PATHS", "RISK_HIGH_LABEL", "RISK_LOW_PATHS", "RISK_REPO_OVERRIDES", "CLOSING_LABEL", "BROWSER",
+                "REPO_OVERRIDES"}
 
 
 def test_guide_template_fills_into_a_valid_page(tmp_path):
@@ -140,7 +141,7 @@ def test_guide_template_fills_into_a_valid_page(tmp_path):
     # what /hga:init does: drop the instructions comment, fill the values, keep the matching variant lines
     page_text = text.split("-->\n", 1)[1].replace("{{DATE}}", "2026-10-16")
     page_text = re.sub(r"\{\{\w+\}\}", "x", page_text)
-    page_text = re.sub(r"\[(remote|local only|board|no board|slack|no slack|bot|local|closing label|github closing)\] ", "", page_text)
+    page_text = re.sub(r"\[(remote|local only|board|no board|slack|no slack|bot|local|closing label|github closing|repos)\] ", "", page_text)
     assert page_text.startswith("---\n")
     kb = tmp_path / "kb"
     assert scaffold.main([str(kb)]) == 0

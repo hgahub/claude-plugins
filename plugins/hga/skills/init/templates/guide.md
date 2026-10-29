@@ -7,6 +7,8 @@ How /hga:init fills this in (this comment does not go into the page):
   drop the marker itself.
 - `{{RISK_…_PATHS}}` lists the patterns in backticks; `{{RISK_REPO_OVERRIDES}}` names the repositories with their
   own `risk.repos` patterns ("own low paths: acme/prompts"), or says "no per-repository overrides".
+- `[repos]` lines stay only if `repos` has entries; `{{REPO_OVERRIDES}}` names each repository with what it
+  changes ("acme/tools: no board, GitHub's own closing").
 - Keep it short: what is here is the whole page. Do not add the plugin's internals; link to them instead.
 -->
 ---
@@ -49,6 +51,7 @@ idea → /hga:intent → /hga:new-issue → /hga:triage → /hga:issue → revie
 | [no board] Status | labels `{{LABEL_IN_PROGRESS}}`, `{{LABEL_IN_REVIEW}}` | No board: the status is a label on the issue. |
 | [github closing] Closing | GitHub's own | The PR says `Closes #n`: merging it closes the issue. |
 | [closing label] Closing | label `{{CLOSING_LABEL}}` | The PR only says `Ref #n`. After the merge, you add `{{CLOSING_LABEL}}` — that closes the issue for us (prerequisites, triage); Claude never adds it. |
+| [repos] Exceptions | {{REPO_OVERRIDES}} | These repositories keep their status and closing their own way; the rows above hold for the rest. |
 | Live test | {{BROWSER}} first | `/hga:issue` tests the change in this browser, or in the other one if this one is not in the session. |
 | [slack] Claims and reports | Slack {{SLACK_CHANNEL}} | Taking an issue is announced there, and the final report goes into that thread. |
 | [no slack] Claims and reports | GitHub comments | Taking an issue and the final report are comments on the issue. |

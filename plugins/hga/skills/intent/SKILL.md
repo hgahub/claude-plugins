@@ -29,7 +29,7 @@ questions" instead of holding up the work.
 - **The author's words are sacred.** The "Intent" section is a verbatim quote; if you misunderstood, the author
   corrects it, you do not rewrite it.
 - **Measured and inferred apart.** An inference is marked "(inference)", as in the knowledge base.
-- **Settings:** `HGA config` once at the start — `language` (the intent's text; the `##` headings and the
+- **Settings:** `HGA config` once at the start (`HGA config --repo <owner/repo>` once the repository is known) — `language` (the intent's text; the `##` headings and the
   scenario keywords stay English, the gate looks for them), `knowledge_dir`, `github.project`.
 - **Helper scripts:** `ICHK` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/intent/scripts/intent_check.py"`;
   `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (`python` on Windows). Spell them
