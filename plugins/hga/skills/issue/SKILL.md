@@ -1,17 +1,17 @@
 ---
 name: issue
-description: Use when the user asks to take a GitHub issue end to end — claim it (Slack or GitHub), set it In Progress, implement it in an isolated worktree, test it (automated + live in Chrome or the built-in browser), open a PR, get it reviewed (local code-review, optionally Codex, Copilot or Greptile, with a round limit — closing the review is the maintainer's call), fix the findings, set Done, clean up, update the knowledge base, and report last with measured time / difficulty / token use — every step tracked on a verified checklist (✅ only with read-back evidence). Works for any GitHub repository. Triggers include "take issue 142 end to end", "implement #142", "do this issue up to a PR", "work on this issue", or a pasted github.com/<owner>/<repo>/issues/N link with a request to do it.
+description: Use when the user asks to take a GitHub issue end to end — claim it (Slack or GitHub), set it In Progress, implement it in an isolated worktree, test it (automated + live in Chrome or the built-in browser), open a PR, get it reviewed (local code-review, optionally Codex, Copilot or Greptile, with a round limit — closing the review is the maintainer's call), fix the findings, set it In Review, clean up, update the knowledge base, and report last with measured time / difficulty / token use — every step tracked on a verified checklist (✅ only with read-back evidence). Works for any GitHub repository. Triggers include "take issue 142 end to end", "implement #142", "do this issue up to a PR", "work on this issue", or a pasted github.com/<owner>/<repo>/issues/N link with a request to do it.
 user-invocable: true
 argument-hint: "<issue URL | owner/repo#number> [e.g. https://github.com/acme/web-app/issues/142]"
 ---
 
 # Issue workflow
 
-Takes one issue from the claim to the report. The claim comes before the work, Done before the cleanup, and the
+Takes one issue from the claim to the report. The claim comes before the work, In review before the cleanup, and the
 report last, because only the report may say that everything is finished.
 
 **Invoking the skill means the whole workflow**, even with a bare issue URL: claim, In Progress, worktree, build
-and tests, live test, PR, review and its fixes, Done, cleanup, knowledge base, report. Steps 0–3, 7, 9, 10 and 12
+and tests, live test, PR, review and its fixes, In review, cleanup, knowledge base, report. Steps 0–3, 7, 9, 10 and 12
 are always required; the others follow the change's risk class ("Risk class"), which `HGA risk` sets — never your
 own judgment. Otherwise a step is skipped only if the user **explicitly** excludes it or it is technically
 impossible; the PR and the report then say what was skipped and why. (Stopping after the PR "because the request
@@ -25,7 +25,7 @@ Run `HGA config` once at the start and keep the values for the whole run:
   Code, code comments and UI strings follow the repository.
 - `slack` — `null`: claim and report are GitHub comments on the issue; otherwise `channel` and `channel_id`.
 - `github.project` — `null`: status is kept with labels (`labels.in_progress`, `labels.in_review`); otherwise the
-  board's Status field.
+  board's Status field, its options named by `github.statuses` (`in_review` after step 9, `done` after the merge).
 - `review.provider` — `local` (`code-review` only), or `codex` / `copilot` / `greptile` (a bot on top of the
   local review); `review.ask_after_rounds` — the round limit (step 8).
 - `labels.closing` — `null`: the merge closes the issue through `Closes #n`; a label name: **closing is the
@@ -43,7 +43,7 @@ the user instead.
 
 **Helper script:** `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (`python` on
 Windows), written `HGA` below; spell it out in every Bash call — a shell variable does not split in zsh.
-Subcommands: `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`,
+Subcommands: `config`, `doctor [--repo <owner/repo>]`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`,
 `tokens --since <iso-start>`, `claim-check <owner/repo> <n>`, `risk <owner/repo> --worktree <dir> | --pr <n>
 [--issue <n>]`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n> [--risk <class>]`,
 `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
@@ -71,7 +71,7 @@ it" is not evidence.
 | 6 | Live test | ✅ ➖ | — | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); browser, start path; result per criterion; app stopped, port free — ➖ low |
 | 7 | PR | ✅ | PR open, head = worktree HEAD, closes the issue (or says `Ref #n` where step 7 uses it) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: nothing); follow-up issues (7a); high: `checks` not empty, rollback note |
 | 8 | Review | ✅ | head unchanged, CI green; with a bot (standard, high) a clean review of the head, or `--closed-with` | local review result and level; bot rounds and severities, 👍 on the head SHA, or the maintainer's closing + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line |
-| 9 | Done | ✅ | step 9's status reads back, issue OPEN | read-back: `Status: Done · issue: OPEN` |
+| 9 | In review | ✅ | step 9's status reads back, issue OPEN | read-back: `Status: In Review · issue: OPEN` |
 | 10 | Cleanup | ✅ | — | `launch.json` as before; worktree + local branch deleted; remote branch kept until merge |
 | 11 | Knowledge | ✅ ➖ | — | the note's path; `validate_kb` 0 errors; commit SHA after push — ➖ low, if nothing new was learned |
 | 12 | Report | ✅ | — | link to the report; the metrics record's path and commit SHA |
@@ -372,12 +372,13 @@ decides (see "Risk class").
    naming the PR). After fixes pushed without a bot round (local review, low class, closed review), run `--step 7`
    again first. The local `code-review` result is not machine-checked: report it.
 
-## 9. Done
+## 9. In review
 
-`HGA status-set <owner/repo> <n> Done` (board Done, or `labels.in_review` replaces `labels.in_progress`). The issue
+`HGA status-set <owner/repo> <n> "In Review"` (the board's `statuses.in_review` option, or `labels.in_review`
+replaces `labels.in_progress`). Done comes after the merge ("After the merge"). The issue
 stays `OPEN` — the merge closes it through `Closes #n` (or the maintainer, with `labels.closing`). If it is
 already closed, tell the user; do not reopen it. Do not close it before the merge (`HGA deps` treats `CLOSED` as
-complete), and do not wait for the merge either. Several claimed issues in one PR: set each Done. Machine check:
+complete), and do not wait for the merge either. Several claimed issues in one PR: set each In Review. Machine check:
 `HGA evidence <owner/repo> <n> --step 9`.
 
 ## 10. Cleanup — before the report
@@ -411,7 +412,7 @@ record, then step 12 `done` again with the record's path.
 the full report on the main one, a short pointer on each other. In the configured language:
 
 - ✅ Done: #n — PR link (head SHA), CI, the review's result (local; bot rounds; 👍 or the maintainer's closing with
-  the follow-up), the issue is Done and open (the merge closes it — or, with `labels.closing`, the maintainer)
+  the follow-up), the issue is In Review and open (the merge closes it — or, with `labels.closing`, the maintainer)
 - **Fix** in 1–2 lines; **Tests**: new cases, base failure, the gate's numbers; **Live test verdict** with the
   browser and fix rounds
 - **Risk:** the run's class (highest since step 5) and the reason from the `Risk:` line that set it; if it rose,
@@ -444,10 +445,12 @@ Finally show the whole checklist with item 12.
 
 ## After the merge (when the user says so)
 
-1. `gh pr view <pr> --json state,mergedAt,mergeCommit` and `HGA status …`: expected `MERGED`, issue
+1. `gh pr view <pr> --json state,mergedAt,mergeCommit`: expected `MERGED`. Then `HGA status-set <owner/repo> <n> Done`
+   (each issue of the PR; without a board it keeps `labels.in_review`) and `HGA status …`: issue
    `CLOSED (COMPLETED)` + Done. Still open although the PR covered it whole: `gh issue close <n> --reason
    completed --comment "Done in #<pr> (<merge-sha>)"` and read back. `Ref #<n>` leaves it open. **With
-   `labels.closing`:** expected `OPEN` + Done; leave it to the maintainer.
+   `labels.closing`:** expected `OPEN` + Done (without a board: `In Review`, the label stays); leave it to the
+   maintainer.
 2. Delete the remote branch if GitHub did not (`git push origin --delete <branch>`).
 3. A dated line in the knowledge note: merge SHA, follow-up issues, the report's link (still no deployment proof).
 4. Follow-ups not yet filed: file them now as in 7a, checked on the merged default branch.

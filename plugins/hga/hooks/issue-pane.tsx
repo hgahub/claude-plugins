@@ -22,7 +22,7 @@ let lastPress: { key: string; at: number } | null = null
 // The issue skill's "Verified checklist", in order (skills/issue/SKILL.md).
 const STEPS = [
   'Start', 'Claim', 'In Progress', 'Worktree', 'Decisions', 'Build + tests',
-  'Live test', 'PR', 'Review', 'Done', 'Cleanup', 'Knowledge', 'Report',
+  'Live test', 'PR', 'Review', 'In review', 'Cleanup', 'Knowledge', 'Report',
 ]
 // A section's icon shows its kind, not its state: plan, build, review, finish.
 // Unicode symbols, because a mod only draws text; all of them are in the common symbol fonts.

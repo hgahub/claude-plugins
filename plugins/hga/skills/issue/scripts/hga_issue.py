@@ -7,9 +7,10 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       The merged configuration as JSON: defaults < team (`<knowledge_dir>/hga.config.json`) < user
       (`~/.claude/hga/config.json`). Skills and panels read their settings from here. Shape problems go to
       stderr as warnings (doctor counts them as missing items).
-  doctor
-      Checks the prerequisites (Python, git, gh login and scopes, uv, knowledge base, configuration).
-      Exit code 1 if a required item is missing.
+  doctor [--repo <owner/repo>]
+      Checks the prerequisites (Python, git, gh login and scopes, uv, knowledge base, configuration), and
+      with a board, that its Status field has an option for every github.statuses name (the board's owner
+      from --repo, else from the checkout's origin). Exit code 1 if a required item is missing.
   midnight
       Today's local midnight as a Unix timestamp (the `oldest` parameter for reading today's Slack
       messages), in the configured time zone.
@@ -54,10 +55,10 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       list prices (a table in this script), an estimate, not what a Claude subscription costs.
   status <owner/repo> <n>
       The issue's workflow status: on the project board if one is configured, otherwise from labels.
-  status-set <owner/repo> <n> {Todo,"In Progress",Done}
+  status-set <owner/repo> <n> {Todo,"In Progress","In Review",Done}
       Sets the workflow status and reads it back. With a board: the Status field (option IDs are read from
       the project). Without a board: Todo = no status label, In Progress = the in-progress label,
-      Done = the in-review label. Closing is GitHub's own (the PR's closing keyword at merge, or
+      In Review and Done = the in-review label (the issue's closing marks it finished). Closing is GitHub's own (the PR's closing keyword at merge, or
       `gh issue close`), or the maintainer's `labels.closing` label if one is configured.
   track <owner/repo> <n> [--status Todo]
       Adds the issue to the configured board if it is not on it yet, then sets the status. Without a board
@@ -163,7 +164,9 @@ DEFAULTS: dict = {
     "github": {
         "project": None,
         "fields": {"status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort"},
-        "statuses": {"todo": "Todo", "in_progress": "In Progress", "done": "Done"},
+        # `in_review`: step 9 (implemented, waiting for the maintainer); `done`: after the merge. A team that wants
+        # one status for both maps them to the same option.
+        "statuses": {"todo": "Todo", "in_progress": "In Progress", "in_review": "In Review", "done": "Done"},
     },
     # `closing`: null = an issue is closed by GitHub's own closing (the PR's `Closes #n`); a label name = the
     # maintainer closes it with that label after the merge (the issue may stay OPEN), and the PR only says `Ref #n`.
@@ -277,7 +280,7 @@ def config_problems(c: dict) -> list[str]:
     if not _text(_section(gh_, "github.fields", out).get("status")):
         out.append("github.fields.status must name the board's status field, e.g. \"Status\"")
     statuses = _section(gh_, "github.statuses", out)
-    for key in ("todo", "in_progress", "done"):
+    for key in ("todo", "in_progress", "in_review", "done"):
         if not _text(statuses.get(key)):
             out.append(f"github.statuses.{key} must name a status option, e.g. \"{DEFAULTS['github']['statuses'][key]}\"")
     labels = _section(c, "labels", out)
@@ -375,7 +378,7 @@ def _scopes(status_text: str) -> set[str]:
     return {s.strip(" '\"") for s in m.group(1).split(",")} if m else set()
 
 
-def cmd_doctor(_a) -> int:
+def cmd_doctor(a) -> int:
     c = cfg()
     problems = 0
 
@@ -430,8 +433,54 @@ def cmd_doctor(_a) -> int:
     closing = _obj(c.get("labels")).get("closing")
     line(None, "closing", f"the maintainer's label {closing}" if closing else "GitHub's own (Closes #n at merge)")
     line(None, "Slack", f"channel {_obj(c['slack']).get('channel')}" if c.get("slack") else "not configured (GitHub comments)")
-    line(None, "project board", _obj(c.get("github")).get("project") or "not configured (status labels)")
+    project = _obj(c.get("github")).get("project")
+    line(None, "project board", project or "not configured (status labels)")
+    if project and has_gh and not config_problems(c):
+        repo = a.repo or origin_repo(".")
+        if not repo or "/" not in repo:
+            line(None if not a.repo else False, "board status options",
+                 f"expected --repo owner/repo, got: {a.repo}" if a.repo
+                 else "not checked — run doctor in a checkout or with --repo owner/repo")
+        else:
+            try:
+                missing, available = board_missing_statuses(repo, project)
+                line(not missing, f"board status options ({split_repo(repo)[0]}: {project})",
+                     f"no option for {', '.join(missing)} — available: {', '.join(available)}" if missing
+                     else ", ".join(available))
+            except LookupError as e:
+                # The checkout's origin may simply belong to another owner than the board's: only --repo is a claim.
+                line(False if a.repo else None, "board status options",
+                     str(e) if a.repo else f"not checked — {e}; pass --repo with a repository of the board's owner")
+            except RuntimeError as e:
+                line(False, "board status options", str(e))
     return 1 if problems else 0
+
+
+def origin_repo(path: str) -> str | None:
+    """owner/repo of the checkout's GitHub origin, or None."""
+    m = REMOTE_RE.search(git(path, "remote", "get-url", "origin") or "")
+    return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+def owner_project(owner: str, title: str) -> dict | None:
+    """The owner's board with this title ({id, number, title}), or None."""
+    node = gql(PROJECTS_Q, owner=owner).get("repositoryOwner") or {}
+    return next((p for p in (node.get("projectsV2") or {}).get("nodes", []) if p["title"] == title), None)
+
+
+def board_missing_statuses(repo: str, project: str) -> tuple[list[str], list[str]]:
+    """The github.statuses names the board's status field has no option for (case-insensitive), and its options."""
+    owner, _name = split_repo(repo)
+    proj = owner_project(owner, project)
+    if proj is None:
+        raise LookupError(f"no \"{project}\" project for {owner}")
+    field = gql(FIELD_Q, pid=proj["id"], field=status_field())["node"]["field"]
+    if not field:
+        raise LookupError(f"no single-select \"{status_field()}\" field on \"{project}\"")
+    available = [o["name"] for o in field["options"]]
+    have = {x.lower() for x in available}
+    missing = [f"{k} \"{v}\"" for k, v in cfg()["github"]["statuses"].items() if v.lower() not in have]
+    return missing, available
 
 
 # --- repository check --------------------------------------------------------------------------
@@ -740,7 +789,7 @@ METRICS_SCHEMA = 1
 # The issue pane's checklist and sections (hooks/issue-pane.tsx: STEPS, SECTIONS); keep them in step.
 STEP_NAMES = (
     "Start", "Claim", "In Progress", "Worktree", "Decisions", "Build + tests",
-    "Live test", "PR", "Review", "Done", "Cleanup", "Knowledge", "Report",
+    "Live test", "PR", "Review", "In review", "Cleanup", "Knowledge", "Report",
 )
 SECTIONS = (("Prepare", 0, 4), ("Build", 5, 6), ("Review", 7, 8), ("Finish", 9, 12))
 DIFFICULTIES = ("easy", "medium", "hard")
@@ -1216,15 +1265,17 @@ query($owner:String!){repositoryOwner(login:$owner){
   ... on ProjectV2Owner{projectsV2(first:50){nodes{id number title}}}}}
 """
 
-CANONICAL = {"todo": "todo", "in progress": "in_progress", "in_progress": "in_progress", "done": "done"}
-# The status names without a board (labels): label_status's answers, by canonical key.
-LABEL_STATUSES = {"todo": "Todo", "in_progress": "In Progress", "done": "Done"}
+CANONICAL = {"todo": "todo", "in progress": "in_progress", "in_progress": "in_progress",
+             "in review": "in_review", "in_review": "in_review", "done": "done"}
+# The status names without a board (labels): label_status's answers, by canonical key. There is no Done label:
+# without a board, the issue's closing (or labels.closing) is Done, and in_review stays until then.
+LABEL_STATUSES = {"todo": "Todo", "in_progress": "In Progress", "in_review": "In Review"}
 
 
 def canonical_status(s: str) -> str:
     key = CANONICAL.get(s.strip().lower())
     if key is None:
-        raise SystemExit(f"unknown status: {s} (use Todo, \"In Progress\" or Done)")
+        raise SystemExit(f"unknown status: {s} (use Todo, \"In Progress\", \"In Review\" or Done)")
     return key
 
 
@@ -1247,7 +1298,7 @@ def label_names(issue: dict) -> set[str]:
 def label_status(labels: set[str]) -> str:
     lab = cfg()["labels"]
     if lab["in_review"] in labels:
-        return LABEL_STATUSES["done"]
+        return LABEL_STATUSES["in_review"]
     if lab["in_progress"] in labels:
         return LABEL_STATUSES["in_progress"]
     return LABEL_STATUSES["todo"]
@@ -1288,7 +1339,9 @@ def cmd_status(a) -> int:
 
 def set_label_status(repo: str, num: int, status: str) -> int:
     lab = cfg()["labels"]
-    want = {"todo": None, "in_progress": lab["in_progress"], "done": lab["in_review"]}[status]
+    # Done keeps the in_review label: without a board, the issue's closing is what marks it finished.
+    status = "in_review" if status == "done" else status
+    want = {"todo": None, "in_progress": lab["in_progress"], "in_review": lab["in_review"]}[status]
     existing = {x["name"] for x in json.loads(gh("label", "list", "--repo", repo, "--limit", "500", "--json", "name"))}
     if want:
         desc = "Being implemented (hga)" if status == "in_progress" else "Implemented, waiting for the maintainer (hga)"
@@ -1361,9 +1414,7 @@ def cmd_track(a) -> int:
         issue = issue_items(a.repo, a.num)
         if not any(n["project"]["title"] == project for n in issue["projectItems"]["nodes"]):
             owner, _name = split_repo(a.repo)
-            node = gql(PROJECTS_Q, owner=owner).get("repositoryOwner") or {}
-            projects = (node.get("projectsV2") or {}).get("nodes", [])
-            proj = next((p for p in projects if p["title"] == project), None)
+            proj = owner_project(owner, project)
             if proj is None:
                 print(f"no \"{project}\" project for {owner}", file=sys.stderr)
                 return 4
@@ -1407,7 +1458,8 @@ def parse_claims(comments: list[dict]) -> list[dict]:
 
 
 def status_key(status: str | None) -> str | None:
-    """The workflow key (todo / in_progress / done) of a board or label status, by the configured names."""
+    """The workflow key (todo / in_progress / in_review / done) of a board or label status, by the configured
+    names. When in_review and done share a name, either key comes back: callers treat the two alike."""
     if not status:
         return None
     s = status.strip().lower()
@@ -1457,8 +1509,8 @@ def claim_check(*, status: str | None, assignees: list[str], me: str | None, cla
     state = status_key(status)
     if state == "in_progress":
         reasons.append(f"Status {status}")
-    elif state == "done" and (verb or "").lower() not in VERIFY_VERBS:
-        reasons.append(f"Status {status} (implemented, waiting for the merge; only verify / re-verify take it)")
+    elif state in ("in_review", "done") and (verb or "").lower() not in VERIFY_VERBS:
+        reasons.append(f"Status {status} (implemented; only verify / re-verify take it)")
     other_accounts = [x for x in assignees if not me or x.lower() != me.lower()]
     if other_accounts:
         reasons.append(f"assigned to {', '.join(other_accounts)}")
@@ -1654,8 +1706,8 @@ def cmd_risk(a) -> int:
 EVIDENCE_SCHEMA = 1
 # The steps whose `done` the step tool accepts only with a passing, fresh record (hooks/issue-pane.tsx: VERIFIED).
 EVIDENCE_STEPS = (3, 5, 7, 8, 9)
-# The status step 9 sets, as a github.statuses key (without a board, `done` is the labels.in_review label).
-DONE_STATUS = "done"
+# The status step 9 sets, as a github.statuses key (without a board, the labels.in_review label).
+REVIEW_STATUS = "in_review"
 # A usage error of gate and evidence (sysexits' EX_USAGE): 1 is a failed fact, a gate passes its command's code.
 EX_USAGE = 64
 
@@ -1948,17 +2000,17 @@ def review_facts(repo: str, num: int, pr: int, data: dict, view: dict, closed_wi
     return facts
 
 
-def done_facts(repo: str, num: int) -> list[dict]:
+def in_review_facts(repo: str, num: int) -> list[dict]:
     issue = issue_items(repo, num)
     project = cfg()["github"].get("project")
     if project:
-        want = cfg()["github"]["statuses"][DONE_STATUS]
+        want = cfg()["github"]["statuses"][REVIEW_STATUS]
         item = board_item(issue, project)
         have = (item.get("fieldValueByName") or {}).get("name") if item else None
         ok = (have or "").lower() == want.lower()
         detail = f"{project}: Status {have or '— (not on the board)'}, step 9 sets {want}"
     else:
-        want = LABEL_STATUSES[DONE_STATUS]
+        want = LABEL_STATUSES[REVIEW_STATUS]
         have = label_status(label_names(issue))
         ok = have == want
         detail = f"labels: Status {have}, step 9 sets {want} (label {cfg()['labels']['in_review']})"
@@ -1993,7 +2045,7 @@ def cmd_evidence(a) -> int:
             facts = review_facts(a.repo, a.num, a.pr, data, view, a.closed_with)
             extra = {"pr": a.pr, "head": view.get("headRefOid"), **({"closed_with": a.closed_with} if a.closed_with else {})}
         else:
-            facts = done_facts(a.repo, a.num)
+            facts = in_review_facts(a.repo, a.num)
     except (RuntimeError, SystemExit, KeyError, ValueError) as e:
         # A read that failed proves nothing: the step is recorded as not ok, so an earlier ok record cannot stand.
         facts = [fact("read", False, str(e) or type(e).__name__)]
@@ -2483,8 +2535,8 @@ BUCKET_TITLES = {
 
 
 def bucket_issues(issues: list[dict], project: str | None) -> tuple[dict[str, list[dict]], int]:
-    """Groups open issues. With a board, only issues on it count (Todo / In Progress / Done); without one,
-    the status labels decide."""
+    """Groups open issues. With a board, only issues on it count (Todo / In Progress / In Review / Done; an open
+    issue on Done is still waiting for its closing, so it is In review too); without one, the status labels decide."""
     statuses = cfg()["github"]["statuses"]
     buckets: dict[str, list[dict]] = {k: [] for k in BUCKET_TITLES}
     off_board = 0
@@ -2506,7 +2558,7 @@ def bucket_issues(issues: list[dict], project: str | None) -> tuple[dict[str, li
         blockers = [b["number"] for b in i["blockedBy"]["nodes"] if not is_done(b)]
         if norm == "in_progress":
             key = "in_progress"
-        elif norm == "done":
+        elif norm in ("in_review", "done"):
             key = "in_review"
         elif norm != "todo":
             continue
@@ -2570,7 +2622,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("config")
-    sub.add_parser("doctor")
+    p = sub.add_parser("doctor")
+    p.add_argument("--repo", help="owner/repo whose owner has the board (default: the checkout's origin)")
     sub.add_parser("midnight")
     sub.add_parser("now")
     p = sub.add_parser("repo-check")

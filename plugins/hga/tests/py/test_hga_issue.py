@@ -57,12 +57,13 @@ def test_canonical_status(hga):
     assert hga.canonical_status("In Progress") == "in_progress"
     assert hga.canonical_status("todo") == "todo"
     assert hga.canonical_status("Done") == "done"
+    assert hga.canonical_status("In Review") == "in_review"
 
 
 def test_label_status(hga):
     assert hga.label_status(set()) == "Todo"
     assert hga.label_status({"in-progress"}) == "In Progress"
-    assert hga.label_status({"in-progress", "in-review"}) == "Done"
+    assert hga.label_status({"in-progress", "in-review"}) == "In Review"
     assert hga.label_status({"done"}) == "Todo"
 
 
@@ -151,6 +152,109 @@ def test_buckets_from_board(hga):
     assert [r["number"] for r in buckets["in_progress"]] == [2]
     assert [r["number"] for r in buckets["in_review"]] == [3]
     assert off == 1
+
+
+def test_buckets_in_review_and_done_both_wait_for_the_closing(hga, tmp_path):
+    # regression: the base dropped an issue on the In Review option from every group
+    buckets, _ = hga.bucket_issues([issue(1, board="In Review"), issue(2, board="Done")], "Eng")
+    assert [r["number"] for r in buckets["in_review"]] == [1, 2]
+    # the migration: both keys on one option
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"statuses": {"in_review": "Done"}}})
+    hga.CFG = {}
+    buckets, _ = hga.bucket_issues([issue(1, board="Done")], "Eng")
+    assert [r["number"] for r in buckets["in_review"]] == [1]
+
+
+class FakeBoard:
+    """gh / gql / issue_items for status-set: a board item, or the labels without a board."""
+
+    def __init__(self, hga, monkeypatch, options=("Todo", "In Progress", "In Review", "Done"), labels=()):
+        self.status, self.labels, self.calls = None, set(labels), []
+        self.options = [{"id": f"o{i}", "name": n} for i, n in enumerate(options)]
+        monkeypatch.setattr(hga, "issue_items", self.issue)
+        monkeypatch.setattr(hga, "gql", lambda q, **v: {"node": {"field": {"id": "F", "options": self.options}}})
+        monkeypatch.setattr(hga, "gh", self.gh)
+
+    def issue(self, repo, num):
+        item = {"id": "I", "project": {"id": "P", "title": "Eng"}, "fieldValueByName": {"name": self.status}}
+        return {"state": "OPEN", "labels": {"nodes": [{"name": x} for x in self.labels]},
+                "projectItems": {"nodes": [item]}}
+
+    def gh(self, *args):
+        self.calls.append(args)
+        if args[:2] == ("project", "item-edit"):
+            self.status = next(o["name"] for o in self.options if o["id"] == args[-1])
+        elif args[:2] == ("label", "list"):
+            return json.dumps([{"name": "in-progress"}, {"name": "in-review"}])
+        elif args[:2] == ("issue", "edit"):
+            for flag, name in zip(args, args[1:]):
+                if flag == "--add-label":
+                    self.labels.add(name)
+                elif flag == "--remove-label":
+                    self.labels.discard(name)
+        return ""
+
+
+def test_status_set_board_in_review_then_done(hga, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"project": "Eng"}})
+    board = FakeBoard(hga, monkeypatch)
+    assert hga.main(["status-set", "acme/web-app", "18", "In Review"]) == 0
+    assert board.status == "In Review"
+    assert hga.main(["status-set", "acme/web-app", "18", "Done"]) == 0
+    assert board.status == "Done"
+    assert "Status: Done · issue: OPEN" in capsys.readouterr().out
+
+
+def test_status_set_board_without_an_in_review_option(hga, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"project": "Eng"}})
+    FakeBoard(hga, monkeypatch, options=("Todo", "In Progress", "Done"))
+    assert hga.main(["status-set", "acme/web-app", "18", "In Review"]) == 4
+    assert "unknown status: In Review (available: Todo, In Progress, Done)" in capsys.readouterr().err
+    # the migration keeps today's behavior
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"project": "Eng", "statuses": {"in_review": "Done"}}})
+    hga.CFG = {}
+    board = FakeBoard(hga, monkeypatch, options=("Todo", "In Progress", "Done"))
+    assert hga.main(["status-set", "acme/web-app", "18", "In Review"]) == 0
+    assert board.status == "Done"
+
+
+def test_status_set_labels_in_review_and_done_keep_the_in_review_label(hga, monkeypatch, capsys):
+    board = FakeBoard(hga, monkeypatch, labels={"in-progress", "bug"})
+    assert hga.main(["status-set", "acme/web-app", "18", "In Review"]) == 0
+    assert board.labels == {"in-review", "bug"}
+    assert "Status: In Review (labels)" in capsys.readouterr().out
+    assert hga.main(["status-set", "acme/web-app", "18", "Done"]) == 0
+    assert board.labels == {"in-review", "bug"}
+
+
+def test_doctor_reports_a_board_without_the_in_review_option(hga, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "user.json", {"knowledge_dir": str(tmp_path / "kb")})
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"project": "Eng"}})
+    options = [{"id": "a", "name": "Todo"}, {"id": "b", "name": "In progress"}, {"id": "c", "name": "Done"}]
+    asked = []
+
+    def gql(q, **v):
+        asked.append(v)
+        if "owner" in v:
+            return {"repositoryOwner": {"projectsV2": {"nodes": [{"id": "P", "number": 1, "title": "Eng"}]}}}
+        return {"node": {"field": {"id": "F", "options": options}}}
+    monkeypatch.setattr(hga, "gql", gql)
+    monkeypatch.setattr(hga.shutil, "which", lambda name: "x" if name == "gh" else None)
+    monkeypatch.setattr(hga.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    hga.main(["doctor", "--repo", "acme/web-app"])
+    out = capsys.readouterr().out
+    assert asked[0] == {"owner": "acme"}
+    assert 'MISSING] board status options (acme: Eng) · no option for in_review "In Review"' in out
+    options.insert(2, {"id": "d", "name": "in review"})
+    hga.main(["doctor", "--repo", "acme/web-app"])
+    assert "ok] board status options (acme: Eng) · Todo, In progress, in review, Done" in capsys.readouterr().out
+    # the checkout's origin is only a guess: another owner's repository is not a failure; a bad --repo is one line
+    monkeypatch.setattr(hga, "gql", lambda q, **v: {"repositoryOwner": {"projectsV2": {"nodes": []}}})
+    monkeypatch.setattr(hga, "origin_repo", lambda path: "other/repo")
+    hga.main(["doctor"])
+    assert '--] board status options · not checked — no "Eng" project for other' in capsys.readouterr().out
+    hga.main(["doctor", "--repo", "web-app"])
+    assert "MISSING] board status options · expected --repo owner/repo, got: web-app" in capsys.readouterr().out
 
 
 def test_next_lists_assignees(hga, monkeypatch, capsys):
@@ -805,6 +909,7 @@ def test_claim_check_free(hga):
     ({"status": "In Progress"}, "Status In Progress"),
     ({"status": "in progress"}, "Status in progress"),
     ({"status": "Done"}, "only verify / re-verify"),
+    ({"status": "In Review"}, "only verify / re-verify"),
     ({"assignees": ["alice", "bot-account"]}, "assigned to alice"),
     ({"cl": "recent"}, "claimed by bot-account"),
 ])
@@ -1473,18 +1578,18 @@ def test_evidence_step9_reads_back_the_configured_status(hga, ev, tmp_path, monk
     assert facts_of(ev, 9) == {"status_read_back": True, "issue_open": True}
     issue["labels"]["nodes"] = [{"name": "in-progress"}]
     assert evidence(hga, 9) == 1
-    assert "FAILED status_read_back · labels: Status In Progress, step 9 sets Done" in capsys.readouterr().out
+    assert "FAILED status_read_back · labels: Status In Progress, step 9 sets In Review" in capsys.readouterr().out
     issue.update(state="CLOSED", labels={"nodes": [{"name": "in-review"}]})
     assert evidence(hga, 9) == 1
     assert facts_of(ev, 9)["issue_open"] is False
     # regression: a board whose step-9 option is configured differently from what reads back
-    write(tmp_path / "kb" / "hga.config.json", {"github": {"project": "Eng", "statuses": {"done": "Shipped"}}})
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"project": "Eng", "statuses": {"in_review": "Waiting"}}})
     hga.CFG = {}
     item = {"project": {"title": "Eng"}, "fieldValueByName": {"name": "Done"}}
     issue.update(state="OPEN", projectItems={"nodes": [item]})
     assert evidence(hga, 9) == 1
-    assert "FAILED status_read_back · Eng: Status Done, step 9 sets Shipped" in capsys.readouterr().out
-    item["fieldValueByName"] = {"name": "shipped"}
+    assert "FAILED status_read_back · Eng: Status Done, step 9 sets Waiting" in capsys.readouterr().out
+    item["fieldValueByName"] = {"name": "waiting"}
     assert evidence(hga, 9) == 0
 
 

@@ -4,7 +4,7 @@
   "github": {
     "project": null,
     "fields": { "status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort" },
-    "statuses": { "todo": "Todo", "in_progress": "In Progress", "done": "Done" }
+    "statuses": { "todo": "Todo", "in_progress": "In Progress", "in_review": "In Review", "done": "Done" }
   },
   "labels": { "in_progress": "in-progress", "in_review": "in-review", "closing": null },
   "slack": null,
