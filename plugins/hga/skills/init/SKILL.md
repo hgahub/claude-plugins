@@ -1,8 +1,8 @@
 ---
 name: init
-description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, closing, Slack channel, review provider, parallel limits, live-test browser, risk-class patterns), and write a short usage guide in the team's language (a knowledge base page, optionally a Docs copy). Also re-run it to check or repair a setup. Triggers include "set up hga", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
+description: Use to set up the hga plugin on a machine or for a team — check the prerequisites, create a new knowledge base (local folder, optionally a private GitHub repository) or join the team's existing one, and write the team and user configuration (language, time zone, GitHub project board, closing, Slack channel, review provider, parallel limits, live-test browser, risk-class patterns), and write a short usage guide in the team's language (a knowledge base page, optionally a Docs copy). `quick` sets up a local knowledge base with the defaults and at most two questions; a later run offers the choices it skipped. Also re-run it to check or repair a setup. Triggers include "set up hga", "quick setup", "hga init quick", "initialize the knowledge base", "hga init", "join our knowledge base", "configure the issue workflow", "change the review provider".
 user-invocable: true
-argument-hint: "[new | join <git URL> | check]"
+argument-hint: "[quick | new | join <git URL> | check]"
 ---
 
 # Setup
@@ -23,7 +23,8 @@ Configuration has two layers (`HGA config` prints the merged result, with the fi
 | Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (this user's Docs copy of the guide, step 7), `dashboard_url` (this user's metrics dashboard, written by `/hga:dashboard`), and any team field to override for this machine |
 
 Ask every choice with `AskUserQuestion`, after detecting what you can so the options are real values. With an
-argument, skip the matching question: `new`, `join <URL>`, or `check` (steps 1, 6, 7 and 8 only).
+argument, skip the matching question: `new`, `join <URL>`, or `check` (steps 1, 6, 7 and 8 only). `quick`
+follows its own section, "Quick setup", at the end.
 
 ## 1. Prerequisites
 
@@ -87,7 +88,8 @@ go here only if the user asks for them. Then `HGA config` must print `"knowledge
 ## 4. Team configuration
 
 Skip this step if `<dir>/hga.config.json` exists, unless the user asked to change it (then show the current
-values and ask only about the changes). Otherwise start from `$INIT/templates/hga.config.json` and ask:
+values and ask only about the changes); the questions whose key the file lacks are step 6's deferred choices.
+Otherwise start from `$INIT/templates/hga.config.json` and ask:
 
 1. **Language** of everything the plugin writes outward (commits, PRs, issues, Slack, notes): `en`
    (Recommended); the language of this conversation, if it is not English (its code, e.g. `de`); or another
@@ -192,10 +194,13 @@ yes — one question per item.
 - **`MISSING] configuration`** → show the field, the file it comes from (`HGA config` → `sources`; a machine
   override wins over the team file) and the problem; ask step 4's question for that field, write only that
   field, and check again.
-- **No `risk` in the team file** (written by an older plugin version) → the defaults apply, which is not an
-  error. Offer step 4's question 10 once; on a yes, write only the `risk` key.
-- **No `labels.closing` or `live_test` in the team file** (older plugin version) → the defaults apply (GitHub's
-  own closing, the built-in browser). Offer step 4's questions 4 and 9 once; on a yes, write only those keys.
+- **Deferred choices** — a key of step 4 missing from the team file (`quick` writes only `language` and
+  `timezone`; older plugin versions lack `risk`, `labels.closing`, `live_test` or `repos`) → its default applies,
+  which is not an error. Offer each missing one once, in step 4's order, with the default in effect; on a yes,
+  ask step 4's question and write only that key (inside its object, keeping the others). A key present in the
+  team file is not asked. The keys: 1 `language`, 2 `timezone`, 3 `github`, 4 `labels.closing` (its "repository
+  that differs" part: `repos`), 5 `slack`, 6 `review.provider`, 7 `review.ask_after_rounds`, 8 `parallel`,
+  9 `live_test`, 10 `risk`.
 - **`labels.closed`** → no longer used (versions before 0.4 wrote it). Ask whether the team closes issues with
   that label: on a yes, move its value to `labels.closing`; otherwise remove the key. Only that key, in the file
   that has it (read both layers).
@@ -256,3 +261,30 @@ limits, live-test browser, risk patterns and per-repository overrides),
 machine configuration, the guide (page, Docs link), what was repaired, what was skipped and why. End with the next step: "Try
 `/hga:triage <owner/repo>` or `/hga:issue <issue URL>`." Mention that `/hga:init` can be re-run to change any of
 this.
+
+## Quick setup (`quick`)
+
+A working setup with at most two questions. Everything else step 4 would ask is deferred: the team file holds
+only the keys `quick` asked, the defaults apply to the rest, and a later `/hga:init` (no argument, or `check`)
+offers each of them once (step 6, "Deferred choices").
+
+1. **Prerequisites:** step 1 — `HGA doctor` and the `code-review` check; a missing required item stops it, as
+   there.
+2. **Already set up** — `HGA config` shows a `sources.user` or a `sources.team` file: `quick` changes nothing.
+   Say so, and go on as `check` (which changes a file only on the user's yes).
+3. **Knowledge base:** `~/.hga/knowledge`, without asking. `python3 "$INIT/scripts/scaffold_kb.py" <dir>`, then
+   `git init` and `main` as in step 2 "New", point 2. No remote. Exit 3 (the folder is not empty): show what is
+   in it and stop — the full `/hga:init` can add the missing files or use another folder.
+4. **Machine configuration:** step 3.
+5. **One question** (`AskUserQuestion`): confirm the detected language — this conversation's code, else `en` —
+   and time zone — the system's, stored as `null` (name it in the question). Options: "Keep both
+   (Recommended)", "Change". Only on "Change", one more `AskUserQuestion` with step 4's questions 1 and 2.
+6. **Team file:** write `<dir>/hga.config.json` with only `{"language": …, "timezone": …}` — not the template:
+   a key missing from the file is how a later run knows the choice was deferred. Then step 4's read-back
+   (`HGA config`, `HGA doctor`), and commit the fresh knowledge base:
+   `python3 "$KB/kb_commit.py" -C <dir> -m "Set up the knowledge base (hga quick)" -- .` (no remote: no push).
+7. **Guide:** step 7's page, without the Docs copy question.
+8. **Check:** step 8. The summary lists the deferred choices with the defaults now in effect — no board (status
+   labels), GitHub's own closing, no Slack (GitHub comments), local review with 5 rounds, 2 implementations per
+   repository and 80% usage, the built-in browser, the default risk patterns — and says that `/hga:init` offers
+   each of them, and that the knowledge base is local only.
