@@ -109,6 +109,12 @@ values and ask only about the changes). Otherwise start from `$INIT/templates/hg
    counts as closed for prerequisites and hides the issue from `/hga:triage`'s groups; the agent never adds it
    and never closes the issue. Check that the label exists in the repositories the user names
    (`gh label list --repo <owner/repo>`); offer to create it in step 5.
+   **A repository that differs** (`repos`): ask whether any of the team's repositories has no board, another
+   board, or another closing than the answers to 3 and 4 — e.g. a tools repository under another owner that
+   closes with `Closes #n`. "None (Recommended)" leaves `repos` empty; for each one the user names, store only
+   what differs, e.g. `"repos": {"acme/tools": {"github": {"project": null}, "labels": {"closing": null}}}` —
+   its `github` and `labels` merge over the team's for every command naming that repository. Check it with
+   `HGA config --repo <owner/repo>`.
 5. **Slack:** "No Slack — claims and reports as GitHub comments (Recommended without a Slack connector)", or a
    channel. For a channel, find it with the Slack tools (`slack_search_channels`), confirm the name, and store
    `{"channel": "#name", "channel_id": "C…"}`. Read one message from it (`slack_read_channel`, limit 1) to prove
@@ -147,7 +153,8 @@ Write the file with `Write`, then read it back through the plugin:
 
 - `HGA config` must show `sources.team` = `<dir>/hga.config.json` and the values just chosen — if it shows the
   defaults, step 3's machine configuration is missing or points elsewhere: fix that first;
-- `HGA doctor` must show no "configuration" problem.
+- `HGA doctor` must show no "configuration" problem (with a `repos` entry, also `HGA doctor --repo <owner/repo>`
+  for it: its board's status options).
 
 Then commit it with the skeleton:
 

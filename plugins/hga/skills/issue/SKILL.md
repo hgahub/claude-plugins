@@ -19,7 +19,8 @@ did not ask for more" is the classic failure.)
 
 ## Settings
 
-Run `HGA config` once at the start and keep the values for the whole run:
+Run `HGA config --repo <owner/repo>` once at the start and keep the values for the whole run — the repository's
+view: its `repos.<owner/repo>` entry may give it its own board and closing:
 
 - `language` — everything written outward (commits, PR and issue texts, comments, Slack, knowledge base notes).
   Code, code comments and UI strings follow the repository.
@@ -150,7 +151,7 @@ A ➖ step goes to the pane as `not_applicable` with its `Risk:` line, and the P
 ## 0. Start
 
 1. `HGA now` — note it: time and tokens are measured from it. Pane: step 0 `in_progress` with this `started_at`.
-2. `HGA config`. Check that the `code-review` skill is in the session's skill list (step 8 needs it); if not,
+2. `HGA config --repo <owner/repo>`. Check that the `code-review` skill is in the session's skill list (step 8 needs it); if not,
    stop before the claim and tell the user (`claude update`, new session). Do not substitute another review.
 3. `HGA repo-check <owner/repo>`. Starting in a worktree is fine. On a mismatch (exit 4), do not claim: tell the
    user to restart from the checkout the script names.

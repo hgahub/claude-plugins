@@ -1140,6 +1140,50 @@ def test_risk_patterns_per_repository(hga, tmp_path):
     assert "*.md" in low and high == ["**/auth/**"]  # the team's list replaced the default high ones
 
 
+REPOS_TEAM = {
+    "github": {"project": "Eng"},
+    "labels": {"closing": "done"},
+    "repos": {"Acme/Plugins": {"github": {"project": None}, "labels": {"closing": None}}},
+}
+
+
+def test_repo_overrides_board_and_closing(hga, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "kb" / "hga.config.json", REPOS_TEAM)
+    assert hga.main(["config", "--repo", "ACME/plugins"]) == 0
+    c = json.loads(capsys.readouterr().out)
+    assert c["github"]["project"] is None and c["labels"]["closing"] is None
+    assert c["github"]["statuses"]["done"] == "Done" and c["labels"]["in_review"] == "in-review"  # deep merge
+    assert hga.closing_label() is None  # evidence --step 7 then expects `Closes #n`
+    assert hga.main(["config", "--repo", "acme/web-app"]) == 0
+    c = json.loads(capsys.readouterr().out)
+    assert c["github"]["project"] == "Eng" and c["labels"]["closing"] == "done"
+    # a command naming the repository reads its view: label mode, not the team's board
+    board = FakeBoard(hga, monkeypatch, labels={"bug"})
+    assert hga.main(["status-set", "acme/plugins", "18", "In Progress"]) == 0
+    assert board.labels == {"in-progress", "bug"}
+    assert "Status: In Progress (labels)" in capsys.readouterr().out
+    assert hga.main(["status-set", "acme/web-app", "18", "In Progress"]) == 0
+    assert any(c[:2] == ("project", "item-edit") for c in board.calls)
+
+
+def test_config_problems_catch_bad_repo_overrides(hga, tmp_path, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"repos": {
+        "a/b": {"labels": {"closing": ""}, "github": {"statuses": {"done": None}}},
+        "c/d": {"risk": {}},
+        "e/f": {"github": None},
+    }})
+    problems = hga.config_problems(hga.load_config())
+    text = "\n".join(problems)
+    assert "repos.a/b: labels.closing must be a label name" in text
+    assert "repos.a/b: github.statuses.done" in text
+    assert "repos.c/d must be an object with github / labels sections" in text
+    assert "repos.e/f must be an object" in text
+    assert len(problems) == 4  # the team's own fields are not reported again
+    assert hga.config_problems(hga._merge(hga.DEFAULTS, {"repos": []}))[0].startswith("repos must be an object")
+    assert hga.main(["doctor", "--repo", "a/b"]) == 1
+    assert "MISSING] configuration · labels.closing must be" in capsys.readouterr().out  # the repository's view
+
+
 def test_config_problems_catch_bad_risk(hga):
     c = hga._merge(hga.DEFAULTS, {"risk": {"low_paths": "docs/**", "high_label": "",
                                           "repos": {"a/b": {"high_paths": [1]}}}})

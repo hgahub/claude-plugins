@@ -3,14 +3,17 @@ measurement, bot review requests and waiting, dependencies and triage.
 
 Subcommands (GitHub calls go through the `gh` CLI; standard library only):
 
-  config
+  config [--repo <owner/repo>]
       The merged configuration as JSON: defaults < team (`<knowledge_dir>/hga.config.json`) < user
       (`~/.claude/hga/config.json`). Skills and panels read their settings from here. Shape problems go to
-      stderr as warnings (doctor counts them as missing items).
+      stderr as warnings (doctor counts them as missing items). With --repo, the repository's view: its
+      `repos.<owner/repo>` entry's `github` and `labels` merged over the rest, as every command that names a
+      repository reads them.
   doctor [--repo <owner/repo>]
       Checks the prerequisites (Python, git, gh login and scopes, uv, knowledge base, configuration), and
       with a board, that its Status field has an option for every github.statuses name (the board's owner
-      from --repo, else from the checkout's origin). Exit code 1 if a required item is missing.
+      from --repo, else from the checkout's origin). With --repo, the repository's view (see config). Exit
+      code 1 if a required item is missing.
   midnight
       Today's local midnight as a Unix timestamp (the `oldest` parameter for reading today's Slack
       messages), in the configured time zone.
@@ -184,6 +187,10 @@ DEFAULTS: dict = {
         "high_label": "risk:high",
         "repos": {},
     },
+    # Per repository (`owner/repo`, any case): its `github` and `labels` merged over the team's, for every command
+    # that names the repository — e.g. one without the team's board and closing label:
+    # {"acme/tools": {"github": {"project": null}, "labels": {"closing": null}}}
+    "repos": {},
 }
 
 REVIEW_PROVIDERS = ("local", "codex", "copilot", "greptile")
@@ -236,6 +243,18 @@ def load_config() -> dict:
 
 
 CFG: dict = {}
+REPO_SECTIONS = ("github", "labels")
+
+
+def repo_entry(entries: object, repo: str) -> object:
+    """The entry of owner/repo in a per-repository mapping, any case; None if there is none."""
+    return next((v for k, v in _obj(entries).items() if k.lower() == repo.lower()), None)
+
+
+def repo_config(c: dict, repo: str) -> dict:
+    """The configuration as a repository sees it: its `repos` entry's sections merged over the team's."""
+    over = _obj(repo_entry(c.get("repos"), repo))
+    return _merge(c, {k: over[k] for k in REPO_SECTIONS if isinstance(over.get(k), dict)})
 
 
 def _text(v: object) -> bool:
@@ -316,6 +335,17 @@ def config_problems(c: dict) -> list[str]:
         for repo, over in repos.items():
             if not isinstance(over, dict) or not all(_patterns(over[k]) for k in ("low_paths", "high_paths") if k in over):
                 out.append(f"risk.repos.{repo} must be an object with low_paths / high_paths lists of file patterns")
+    repos = c.get("repos")
+    if not isinstance(repos, dict):
+        out.append("repos must be an object: {\"owner/repo\": {\"github\": {…}, \"labels\": {…}}}")
+        return out
+    team = list(out)
+    for repo, over in repos.items():
+        if not isinstance(over, dict) or not all(k in REPO_SECTIONS and isinstance(v, dict) for k, v in over.items()):
+            out.append(f"repos.{repo} must be an object with github / labels sections")
+        else:
+            # the repository's view, without the team's own problems again
+            out += [f"repos.{repo}: {p}" for p in config_problems({**repo_config(c, repo), "repos": {}}) if p not in team]
     return out
 
 
@@ -1609,7 +1639,7 @@ def path_matches(path: str, pattern: str) -> bool:
 def risk_patterns(repo: str) -> tuple[list[str], list[str], str]:
     """(low, high, high label) for the repository: its own low patterns replace the team's, its high ones add."""
     risk = cfg()["risk"]
-    over = next((v for k, v in (risk.get("repos") or {}).items() if k.lower() == repo.lower()), None) or {}
+    over = repo_entry(risk.get("repos"), repo) or {}
     low = list(over["low_paths"]) if "low_paths" in over else list(risk["low_paths"])
     high = list(risk["high_paths"]) + [p for p in over.get("high_paths") or [] if p not in risk["high_paths"]]
     return low, high, risk["high_label"]
@@ -2621,7 +2651,8 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("config")
+    p = sub.add_parser("config")
+    p.add_argument("--repo", help="owner/repo: its view, with its repos.<owner/repo> overrides")
     p = sub.add_parser("doctor")
     p.add_argument("--repo", help="owner/repo whose owner has the board (default: the checkout's origin)")
     sub.add_parser("midnight")
@@ -2750,6 +2781,10 @@ def main(argv: list[str] | None = None) -> int:
         raise
     if command is not None:
         a.command = command
+    repo = getattr(a, "repo", None)
+    if repo and "/" in repo:  # doctor reports a malformed --repo itself
+        global CFG
+        CFG = repo_config(load_config(), repo)
     try:
         if a.cmd == "config":
             print(json.dumps(cfg(), ensure_ascii=False, indent=2))
