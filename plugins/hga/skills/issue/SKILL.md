@@ -43,7 +43,7 @@ the user instead.
 
 **Helper script:** `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (`python` on
 Windows), written `HGA` below; spell it out in every Bash call — a shell variable does not split in zsh.
-Subcommands: `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`,
+Subcommands: `config`, `doctor [--repo <owner/repo>]`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`,
 `tokens --since <iso-start>`, `claim-check <owner/repo> <n>`, `risk <owner/repo> --worktree <dir> | --pr <n>
 [--issue <n>]`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n> [--risk <class>]`,
 `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,
@@ -449,7 +449,8 @@ Finally show the whole checklist with item 12.
    (each issue of the PR; without a board it keeps `labels.in_review`) and `HGA status …`: issue
    `CLOSED (COMPLETED)` + Done. Still open although the PR covered it whole: `gh issue close <n> --reason
    completed --comment "Done in #<pr> (<merge-sha>)"` and read back. `Ref #<n>` leaves it open. **With
-   `labels.closing`:** expected `OPEN` + Done; leave it to the maintainer.
+   `labels.closing`:** expected `OPEN` + Done (without a board: `In Review`, the label stays); leave it to the
+   maintainer.
 2. Delete the remote branch if GitHub did not (`git push origin --delete <branch>`).
 3. A dated line in the knowledge note: merge SHA, follow-up issues, the report's link (still no deployment proof).
 4. Follow-ups not yet filed: file them now as in 7a, checked on the merged default branch.

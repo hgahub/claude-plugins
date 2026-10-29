@@ -437,15 +437,21 @@ def cmd_doctor(a) -> int:
     line(None, "project board", project or "not configured (status labels)")
     if project and has_gh and not config_problems(c):
         repo = a.repo or origin_repo(".")
-        if not repo:
-            line(None, "board status options", "not checked — run doctor in a checkout or with --repo owner/repo")
+        if not repo or "/" not in repo:
+            line(None if not a.repo else False, "board status options",
+                 f"expected --repo owner/repo, got: {a.repo}" if a.repo
+                 else "not checked — run doctor in a checkout or with --repo owner/repo")
         else:
             try:
                 missing, available = board_missing_statuses(repo, project)
                 line(not missing, f"board status options ({split_repo(repo)[0]}: {project})",
                      f"no option for {', '.join(missing)} — available: {', '.join(available)}" if missing
                      else ", ".join(available))
-            except (RuntimeError, LookupError) as e:
+            except LookupError as e:
+                # The checkout's origin may simply belong to another owner than the board's: only --repo is a claim.
+                line(False if a.repo else None, "board status options",
+                     str(e) if a.repo else f"not checked — {e}; pass --repo with a repository of the board's owner")
+            except RuntimeError as e:
                 line(False, "board status options", str(e))
     return 1 if problems else 0
 

@@ -232,7 +232,7 @@ A short page on how the team uses hga, with its own settings filled in: `<dir>/w
 ```bash
 python3 "$KB/validate_kb.py" "<dir>"
 HGA config
-HGA doctor
+HGA doctor --repo <owner/repo>   # with a board: a repository of the board's owner, so its status options are checked
 ```
 
 All must succeed (warnings allowed). If step 5 or 7 wrote pages, commit them (only those files; the helper

@@ -248,6 +248,13 @@ def test_doctor_reports_a_board_without_the_in_review_option(hga, tmp_path, monk
     options.insert(2, {"id": "d", "name": "in review"})
     hga.main(["doctor", "--repo", "acme/web-app"])
     assert "ok] board status options (acme: Eng) · Todo, In progress, in review, Done" in capsys.readouterr().out
+    # the checkout's origin is only a guess: another owner's repository is not a failure; a bad --repo is one line
+    monkeypatch.setattr(hga, "gql", lambda q, **v: {"repositoryOwner": {"projectsV2": {"nodes": []}}})
+    monkeypatch.setattr(hga, "origin_repo", lambda path: "other/repo")
+    hga.main(["doctor"])
+    assert '--] board status options · not checked — no "Eng" project for other' in capsys.readouterr().out
+    hga.main(["doctor", "--repo", "web-app"])
+    assert "MISSING] board status options · expected --repo owner/repo, got: web-app" in capsys.readouterr().out
 
 
 def test_next_lists_assignees(hga, monkeypatch, capsys):
