@@ -11,11 +11,9 @@ argument-hint: "[new | join <git URL> | check]"
 both, step by step, and can be re-run any time: if something already exists, it shows it and only fills in what
 is missing. It never overwrites a non-empty folder or an existing configuration without asking.
 
-`HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows `python`).
-`INIT` = `${CLAUDE_PLUGIN_ROOT}/skills/init`, `KB` = `${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts`.
-Write it out in full in every Bash call, or define a shell function first —
-`hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
-not work (zsh does not split it into words).
+`HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (`python` on Windows; spell it out in
+every Bash call — a shell variable does not split in zsh). `INIT` = `${CLAUDE_PLUGIN_ROOT}/skills/init`,
+`KB` = `${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts`.
 
 Configuration has two layers (`HGA config` prints the merged result, with the files it came from):
 
@@ -24,9 +22,8 @@ Configuration has two layers (`HGA config` prints the merged result, with the fi
 | Team | `<knowledge_dir>/hga.config.json` — versioned with the knowledge base, shared | language, time zone, project board, labels and closing, Slack, review provider, parallel limits, live-test browser, risk patterns |
 | Machine | `~/.claude/hga/config.json` | `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (this user's Docs copy of the guide, step 7), `dashboard_url` (this user's metrics dashboard, written by `/hga:dashboard`), and any team field to override for this machine |
 
-Ask every choice with `AskUserQuestion` (the recommended option first, "(Recommended)"); detect what you can
-first, so the questions offer real values. With an argument, skip the matching question: `new`, `join <URL>`,
-or `check` (steps 1, 6, 7 and 8 only).
+Ask every choice with `AskUserQuestion`, after detecting what you can so the options are real values. With an
+argument, skip the matching question: `new`, `join <URL>`, or `check` (steps 1, 6, 7 and 8 only).
 
 ## 1. Prerequisites
 
@@ -44,7 +41,6 @@ and the `code-review` skill — every PR's review runs it, whatever `review.prov
 
 If a required item is missing, give the fix command and stop until the user has fixed it. Do not install
 anything yourself.
-
 
 ## 2. Knowledge base
 
@@ -178,7 +174,7 @@ error from its output — on another host it is usually the user's credentials, 
 ## 6. Repair
 
 On a re-run, and always with `check`: go through what `HGA doctor` (step 1) reported, and fix only on the user's
-yes — one question per item, the recommended fix first.
+yes — one question per item.
 
 - **`MISSING] knowledge base`** with a machine configuration → the folder was moved or deleted. Ask: point
   `knowledge_dir` at the right folder (step 3), clone the team's knowledge base again (step 2, Join), or create
@@ -219,16 +215,14 @@ A short page on how the team uses hga, with its own settings filled in: `<dir>/w
 **Docs copy** (an editable, shareable document on claude.ai):
 
 - Only if this session has the Claude Docs connector (a `docs` skill is listed, or the Artifact tool lists a
-  "Docs" type). Without it, skip and say that the knowledge base page is the guide.
-- **`guide_doc_url` is set** in the machine configuration → this user already has a copy: load the `docs` skill,
-  read that doc, and bring it in line with the page — if it has text the page does not (someone edited the
-  doc), show it and ask before replacing. If the doc is gone or not editable, ask whether to make a new one.
-- **Not set** → ask: "Docs copy of the guide (Recommended)" or "Only the knowledge base page". On yes, load the
-  `docs` skill and follow it to create a doc with the page's title and body (no frontmatter, no "Sources"
-  section; the tables as tables; the path of a piece of work as a diagram if the docs skill offers one). Then
-  write its URL into `~/.claude/hga/config.json` as `guide_doc_url` (read the file first, change only that key).
-- Say, with the link, that the doc is private until the user shares it, and that the knowledge base page is the
-  source: `/hga:init` refreshes the doc from it.
+  "Docs" type); otherwise skip, and say the knowledge base page is the guide.
+- **`guide_doc_url` set** (machine configuration): load the `docs` skill, read that doc and bring it in line
+  with the page — text the page lacks (someone edited the doc) is shown and asked about before replacing. If the
+  doc is gone or not editable, ask whether to make a new one.
+- **Not set:** ask "Docs copy of the guide" or "Only the knowledge base page". On yes, create the doc with the
+  `docs` skill from the page's title and body (no frontmatter, no "Sources"), then write its URL into
+  `~/.claude/hga/config.json` as `guide_doc_url` (keep the other keys).
+- With the link, say that the knowledge base page is the source: `/hga:init` refreshes the doc from it.
 
 ## 8. Check
 

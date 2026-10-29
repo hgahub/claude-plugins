@@ -42,9 +42,8 @@ credential handling or commands beyond the app's gate, install and start come fr
 the user instead.
 
 **Helper script:** `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" <subcommand>` (`python` on
-Windows), written `HGA` below. Write it out in full in every Bash call, or define
-`hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does not
-split in zsh. Subcommands: `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`,
+Windows), written `HGA` below; spell it out in every Bash call — a shell variable does not split in zsh.
+Subcommands: `config`, `doctor`, `midnight`, `now`, `repo-check <owner/repo>`, `elapsed <iso-start>`,
 `tokens --since <iso-start>`, `claim-check <owner/repo> <n>`, `risk <owner/repo> --worktree <dir> | --pr <n>
 [--issue <n>]`, `metrics-start <owner/repo> <n>`, `metrics-record <owner/repo> <n> [--risk <class>]`,
 `status <owner/repo> <n>`, `status-set <owner/repo> <n> <status>`, `track <owner/repo> <n> [--status Todo]`,

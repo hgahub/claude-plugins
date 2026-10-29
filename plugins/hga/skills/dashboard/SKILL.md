@@ -12,9 +12,8 @@ The knowledge base is local (or a git repository), so the dashboard holds a **sn
 attached file, refreshed by running this skill again. One dashboard per user: its link is in the machine
 configuration.
 
-- `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows `python`). Write it
-  out in full in every Bash call, or define a shell function first — a shell variable does not work (zsh does
-  not split it into words).
+- `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (`python` on Windows). Spell it
+  out in every Bash call — a shell variable does not split in zsh.
 - `K` = `knowledge_dir` from `HGA config` (default `~/.hga/knowledge`). From the same output: `language` (the
   dashboard's words: title, headings, labels, notes — column names and model ids stay as they are), and
   `dashboard_url` (the existing dashboard, if any; it lives in `~/.claude/hga/config.json`).
@@ -96,7 +95,7 @@ not a writer, say so and ask whether to make a new one (the old link is then rep
    change only that key (keep `knowledge_dir` and the rest). `HGA config` must then print it.
 3. Upload `F` to the dashboard's asset store (`Artifact` publish, `url`, `file_path` = `F`, `asset: true`);
    keep the `url` the reply gives (`/_blob/<id>`) as it is.
-4. Write the store in one `ArtifactData` `batch` (load the tool with ToolSearch first):
+4. Write the store in one `ArtifactData` `batch`:
    - `dash/meta` — `{title}`.
    - `datasets/hga_metrics` — `title` "hga runs, sections, models" (in the language), a `description` saying
      what one row is and that the cost column is an API-price estimate, `source: {kind: "file", url, name:
@@ -120,14 +119,13 @@ not a writer, say so and ask whether to make a new one (the old link is then rep
 
 ## 6. The page
 
-Plain HTML and scripts, d3 v7 as the global `d3`, everything drawn inside `dash.onData` from
-`dash.data("hga_metrics")`, sized from `clientWidth` so it reads at ~400 px too. The CSV's cells arrive as
-text: `Number()` the numbers (an empty cell is `null`, not 0), `"true"` is finished. Colors from `dash.colors`
-and the theme tokens, one color per section and per model, the same in every chart; give each chart an `id`
-and a heading. Every chart that plots values gets a tooltip that stays inside the page. Durations as
-`1 h 25 min` / `40 min`, tokens as `1.2M` / `350K`, cost as `$12.40`. Every horizontal axis sizes its right
-margin from its last tick label (measure it with `getComputedTextLength()` after drawing the axis, then widen the
-margin and redraw), never a fixed few pixels: a cut label fails the type's check (`labels_cut`).
+Follow the Dashboard type's instructions for the page's structure, colors and layout; d3 v7 as the global `d3`,
+everything drawn inside `dash.onData` from `dash.data("hga_metrics")`. The CSV's cells arrive as text:
+`Number()` the numbers (an empty cell is `null`, not 0), `"true"` is finished. One color per section and per
+model, the same in every chart; each chart gets an `id`, a heading and a tooltip. Durations as `1 h 25 min` /
+`40 min`, tokens as `1.2M` / `350K`, cost as `$12.40`. Size every horizontal axis's right margin from its last
+tick label (`getComputedTextLength()` after drawing, then redraw) — a cut label fails the type's check
+(`labels_cut`).
 
 **Filters** (in `dash/params`, applied to every chart and tile): **repository** — "All" or one `repo` from
 the data; **period** — on `date` (the run's start): last 7 / 30 / 90 days, this month, all, or a from–to
