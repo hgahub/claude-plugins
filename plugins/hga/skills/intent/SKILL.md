@@ -16,10 +16,8 @@ done*. The intent goes into the knowledge base, an issue is made from it, and th
  intent         issue              preparation      implementation
 ```
 
-Patterns: the intent.md of Anthropic's AI-native SDLC playbook (a template, analyst questions, the author
-corrects, a versioned home) and a clarification-log intent model (a clarification log, a deterministic readiness
-gate, a normal and an edge-case scenario). The measure taken from both: **ask only a question whose answer
-changes the outcome**, and a non-blocking uncertainty goes under "Open questions" instead of holding up the work.
+**Ask only a question whose answer changes the outcome**; a non-blocking uncertainty goes under "Open
+questions" instead of holding up the work.
 
 ## Common frame
 
@@ -34,20 +32,16 @@ changes the outcome**, and a non-blocking uncertainty goes under "Open questions
 - **Settings:** `HGA config` once at the start — `language` (the intent's text; the `##` headings and the
   scenario keywords stay English, the gate looks for them), `knowledge_dir`, `github.project`.
 - **Helper scripts:** `ICHK` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/intent/scripts/intent_check.py"`;
-  `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows `python`). Write them
-  out in full in every Bash call, or define shell functions first — a shell variable does not work (zsh does not
-  split it into words).
+  `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (`python` on Windows). Spell them
+  out in every Bash call — a shell variable does not split in zsh.
 - **Pane (the hga plugin's intent pane and the band above the prompt).** If the session has the
   `mcp__hga__intent` tool, call it **at every station change** (`step` + `state`: `in_progress` / `done` /
-  `skipped`, `evidence`: one short line), and after every `ICHK --json` with the `sections`, `questions` and
-  `verdict` fields; `file` at station 4, `issue` at station 7. The `intent` is the file name stem
-  (`<app>-intent-<topic>`), the same throughout. Give only the changed fields. If the tool is missing, skip it —
-  not an error.
-  - **A station change is two reports:** the station left gets `done` (or `skipped`, with the reason), the next
-    one `in_progress`. Every station gets both, even one done in passing — research folded into an interview
-    round is still station 3, and the knowledge base commit is still station 6.
-  - **The tool's answer is the check:** if it says "Not closed on the pane: …", close those stations right
-    away, each with its own evidence, before going on.
+  `skipped`, `evidence`: one short line), and after every `ICHK --json` with `sections`, `questions` and
+  `verdict`; `file` at station 4, `issue` at station 7. `intent` is the file name stem (`<app>-intent-<topic>`)
+  throughout. Give only changed fields; without the tool, skip it.
+  - **Every station gets both reports** — `done` (or `skipped`, with the reason) when left, `in_progress` when
+    entered — even one done in passing (research inside an interview round is still station 3).
+  - If the tool answers "Not closed on the pane: …", close those stations with their evidence before going on.
 
 ## Stations
 
@@ -88,8 +82,7 @@ Stations 2 and 3 alternate in rounds until `ICHK` is PASS, or a justified WARN.
 
 ### 2. Interview
 
-Analyst questions, **1–3 per round**, with `AskUserQuestion`, the recommended answer first, marked
-"(Recommended)". In this order, until the layer is clear:
+Analyst questions, **1–3 per round**, with `AskUserQuestion`, in this order until each layer is clear:
 
 1. **Problem and who is affected** — what can't be done today, and who does it hurt (an end user role, an
    admin, another system)?
@@ -214,18 +207,14 @@ complete — that is, whether a triager could decide from the issue, without ask
 By the write rules of `hga:knowledge`:
 
 1. The file goes to `<knowledge_dir>/notes/<intent>.md` (the map takes the app from the `<app>-` prefix).
-2. Commit it with the knowledge skill's helper, which rebuilds the map, validates, commits only the note and
-   its `map/<app>.md`, and pushes, under the knowledge base's lock:
-   `python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/kb_commit.py" -C "<knowledge_dir>" -m "<app>: intent
-   — <topic>" -- notes/<intent>.md`. Exit `0` is green (also without a remote or git); `1` is a validation
-   error, nothing committed: fix it and run it again; `5` means it is committed only on this machine: say so.
+2. Commit it: `python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/kb_commit.py" -C "<knowledge_dir>" -m
+   "<app>: intent — <topic>" -- notes/<intent>.md` (exit codes as in `hga:knowledge`).
 
 ### 7. Issue
 
-The `hga:new-issue` skill (Skill tool) with the intent file's path. It creates and reads back the issue, puts it
-on the board, sets its type, and writes the issue number back into the intent (`issue`,
-`intent_status: issue`, `(#n)` at the end of the title). If at station 1 you decided to extend an existing
-issue, it runs in comment mode. With the "Knowledge base only" answer this station is `skipped`.
+Load `hga:new-issue` with the intent file's path; it creates the issue, tracks it and writes the number back
+into the intent. If station 1 chose to extend an existing issue, it runs in comment mode. With "Knowledge base
+only", this station is `skipped`.
 
 ### 8. Handoff
 

@@ -64,19 +64,15 @@ or when you stop it.
   under db/migrations/`). It is an expectation, not the class: it changes no gate and no label. **A high-risk
   issue launches like any other** — no extra approval; the `hga:issue` run asks the maintainer where its high
   gates need them.
-- **Outgoing calls with finished text, in a separate call.** Write the body with the `Write` tool to the
-  scratchpad, and send it with `--body-file`.
-- **Helper script:** `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (on Windows
-  `python`) — `config`, `repo-check`, `status`, `track`, `deps`, `block`, `triage-state`, `meta`, `next`,
-  `midnight`. Write it out in full in every Bash call, or define a shell function first —
-  `hga() { python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py" "$@"; }` — a shell variable does
-  not work (zsh does not split it into words).
-- **Dashboard (the hga plugin's triage panel).** If the session has the `mcp__hga__phase` tool, call it **at
-  every branch change** (`branch`: A / B / C / D, `issue`: `owner/repo#n`, `step`: what you are doing now, in one
-  short line), at **every verdict** of branch A (`verdicts`: `current` 2, `complete` 3, `feasible` 4, `problem`
-  5, `preceded` 6 — `yes` / `partly` / `no`), at the proposed or applied state (`proposed`), and when the number
-  of open decisions waiting for the user changes (`decisions`). Give only the changed fields. The panel is a live
-  view; write your answer regardless. If the tool is missing, skip it — not an error.
+- **Bodies and comments** go through a scratchpad file and `--body-file` (a heredoc breaks on apostrophes).
+- **Helper script:** `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (`python` on
+  Windows) — `config`, `repo-check`, `status`, `track`, `deps`, `block`, `triage-state`, `meta`, `next`,
+  `midnight`. Spell it out in every Bash call — a shell variable does not split in zsh.
+- **Triage panel.** With the `mcp__hga__phase` tool, call it at **every branch change** (`branch` A–D, `issue`
+  `owner/repo#n`, `step`: one short line), at **every verdict** of branch A (`verdicts`: `current` 2,
+  `complete` 3, `feasible` 4, `problem` 5, `preceded` 6 — `yes` / `partly` / `no`), at the proposed or applied
+  state (`proposed`), and when the number of open user decisions changes (`decisions`). Only changed fields;
+  without the tool, skip it.
 
 ## States
 
@@ -131,8 +127,8 @@ validated, and the worktree is gone.
 ## B. Finalize
 
 1. If branch A has not run for this issue in this session, run it first.
-2. **Decisions:** ask the open questions with `AskUserQuestion` (the recommended option first,
-   "(Recommended)"), and record the answers with the date. A decision skill (e.g. TypeSafe) only on request.
+2. **Decisions:** ask the open questions with `AskUserQuestion` and record the answers with the date. A
+   decision skill (e.g. TypeSafe) only on request.
 3. **The body** is the implementer's contract (GitHub's edit history keeps the old one). `Write` it to the
    scratchpad, in this structure:
    ```
@@ -190,10 +186,9 @@ the collision check.
 
 ## D. Launch — a parallel implementation session
 
-A `ready-for-agent` issue is taken end to end by a new session with `hga:issue`. The triage starts it as a
-**subtask** (`mcp__ccd_session__start_session`): it shows nested under the triage session in the sidebar, the
-triage can list its family and message it, and it gets a notification when the subtask ends a turn. The
-session starts in its own worktree, with the triage session's permission mode — run the triage in auto mode.
+A `ready-for-agent` issue is taken end to end by a new `hga:issue` session, started as this session's
+**subtask** (`mcp__ccd_session__start_session`) in its own worktree, with the triage's permission mode — run the
+triage in auto mode.
 
 1. **Conditions** — all must hold, otherwise the issue waits, and the report says for what:
    - the label is `ready-for-agent`, and `HGA deps` shows no open prerequisite;
@@ -227,16 +222,12 @@ session starts in its own worktree, with the triage session's permission mode �
      and a new one if justified — you propose, apart from the state labels (`ready-for-*`, `needs-info`) and
      `labels.closing`. In
      the report: "Label proposal: `x`, `y` (new: `z`)" — the maintainer adds and sets them.
-3. **Launch**, if the session has the session tools (Claude Desktop): `mcp__ccd_session__start_session`,
-   preceded by a bold title line and one sentence about it:
+3. **Launch**, if the session has the session tools (Claude Desktop): `mcp__ccd_session__start_session` with
    - `initiation`: `user_asked` (continuous mode and branch D are the maintainer's request), `context`: `fresh`,
      `title`: `hga:issue <repo>#<n>`, `name`: `<repo>-<n>`;
-   - `use_worktree`: **true**, **without `cwd`** — the session starts in its own, app-made worktree (from the
-     triage's base branch). It does not do the work there: `hga:issue`'s step 3 opens a `../<repo>-<n>` worktree
-     from the main checkout, and it does not switch branches in the session's folder. **Do not pass `cwd`**:
-     `start_session` honors it only for a folder that is not this project — the main checkout is the same
-     repository, so the app drops it, and `use_worktree: false` then means the triage session's folder (with a
-     triage running in a worktree, its branch too). So never `false`;
+   - `use_worktree`: **true**, **no `cwd`** — never `false`: the app drops a `cwd` inside this repository, and
+     `false` would put the session in the triage's own folder. `hga:issue`'s step 3 then works in a
+     `../<repo>-<n>` worktree from the main checkout;
    - `prompt` (self-contained, because the session does not see this conversation): "Load the `hga:issue` skill
      with the Skill tool, and take this issue end to end: <issue URL>. The issue is finalized with `hga:triage`
      (`ready-for-agent`); the body's "Implementation" and "Acceptance criteria" sections are the contract. The
@@ -251,16 +242,14 @@ session starts in its own worktree, with the triage session's permission mode �
    **Without those tools** (CLI, web), launch nothing: give the user the same prompt in a code block, and the
    command to start it in the repository's main checkout (`claude "<prompt>"`), then continue with branch C.
 4. **Check:** `mcp__ccd_session_mgmt__get_session` on the returned id: it runs, and its `parentSessionId` is
-   this session. Its `cwd` is its own worktree, not the main checkout — that is fine, **do not stop it**. Even if
-   it started in the triage session's folder, do not: `hga:issue`'s step 3 does not switch branches in a folder
-   that is not the main checkout, and works in a worktree opened from it. The report says where it started.
+   this session. Wherever its `cwd` is, **do not stop it** — `hga:issue` never switches branches outside the main
+   checkout. The report says where it started.
 5. **Report:** the issue and the session's link (`[hga:issue <repo>#<n>](#<session_id>)`), the `HGA meta` line,
    the **expected risk class** with its reason (Common frame), and if any, the label proposal and the differing
    field proposals. Then back to branch C.
-6. **Feedback:** when the subtask ends a turn, the triage gets a notification with the start of its report.
-   After `hga:issue`'s report the slot is free, and the next ready issue can go; if it stopped with a question
-   or an error, tell the maintainer. The maintainer writes about the merge directly to the implementation
-   session (or the triage forwards it: `mcp__ccd_session_mgmt__send_message`).
+6. **Feedback:** after the subtask's `hga:issue` report, its slot is free for the next ready issue; if it
+   stopped with a question or an error, tell the maintainer. The maintainer writes about the merge to the
+   implementation session directly (or the triage forwards it with `mcp__ccd_session_mgmt__send_message`).
 7. **Cleanup (branch C, point 1):** archive the subtask (`mcp__ccd_session_mgmt__archive_session`) when the
    issue is Done, the PR is `MERGED`, and the session has finished the post-merge steps too (according to
    `list_events`). **Archiving the triage archives its subtasks too**: if the triage has to be closed while an
