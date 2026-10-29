@@ -341,7 +341,9 @@ def config_problems(c: dict) -> list[str]:
         return out
     team = list(out)
     for repo, over in repos.items():
-        if not isinstance(over, dict) or not all(k in REPO_SECTIONS and isinstance(v, dict) for k, v in over.items()):
+        if "/" not in repo.strip("/"):
+            out.append(f"repos.{repo} must be named owner/repo")
+        elif not isinstance(over, dict) or not all(k in REPO_SECTIONS and isinstance(v, dict) for k, v in over.items()):
             out.append(f"repos.{repo} must be an object with github / labels sections")
         else:
             # the repository's view, without the team's own problems again
@@ -456,7 +458,7 @@ def cmd_doctor(a) -> int:
          str(user_config_path()) if set_up else "not set up yet — run /hga:init")
     provider = _obj(c.get("review")).get("provider")
     line(provider in REVIEW_PROVIDERS, "review provider", str(provider))
-    for problem in config_problems(c):
+    for problem in config_problems(load_config()):  # the files' problems, named where they are (not the --repo view)
         line(False, "configuration", problem)
     if "closed" in _obj(c.get("labels")):
         line(None, "labels.closed", "no longer used — remove it; a closing label is labels.closing")
@@ -2781,14 +2783,14 @@ def main(argv: list[str] | None = None) -> int:
         raise
     if command is not None:
         a.command = command
+    # A command naming a repository reads its view; any other the team's (doctor reports a malformed --repo itself).
     repo = getattr(a, "repo", None)
-    if repo and "/" in repo:  # doctor reports a malformed --repo itself
-        global CFG
-        CFG = repo_config(load_config(), repo)
+    global CFG
+    CFG = repo_config(load_config(), repo) if repo and "/" in repo else {}
     try:
         if a.cmd == "config":
             print(json.dumps(cfg(), ensure_ascii=False, indent=2))
-            for problem in config_problems(cfg()):
+            for problem in config_problems(load_config()):  # the files' problems, named where they are
                 print(f"warning: configuration: {problem}", file=sys.stderr)
             return 0
         if a.cmd == "midnight":
