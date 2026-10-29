@@ -23,7 +23,7 @@ Entry points for setting up the plugin, starting work and inspecting results. Tr
 | [`/hga:init [new \| join <URL> \| check]`](skills/init/SKILL.md) | Checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration and a short usage guide in the team's language (`workflow/hga-guide.md`, optionally a Docs copy), and on a re-run repairs what the check found |
 | [`/hga:intent [intent]`](skills/intent/SKILL.md) | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
 | [`/hga:triage [issue]`](skills/triage/SKILL.md) | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
-| [`/hga:issue <issue>`](skills/issue/SKILL.md) | Claim (Slack or GitHub, read back: the earliest claim wins) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → Done → cleanup → knowledge base → report, on a verified checklist |
+| [`/hga:issue <issue>`](skills/issue/SKILL.md) | Claim (Slack or GitHub, read back: the earliest claim wins) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → In review → cleanup → knowledge base → report, on a verified checklist |
 | [`/hga:dashboard [refresh]`](skills/dashboard/SKILL.md) | A claude.ai Dashboard over the metrics records: lead time, elapsed per section, tokens and an API-price cost estimate per section and model, review rounds, the account's five-hour usage — filterable by repository and period; creates it on first use, refreshes it afterwards |
 
 ### Model-invoked
@@ -73,7 +73,7 @@ Then run [`/hga:init`](skills/init/SKILL.md) once per machine. Update with `clau
 - Optional: a Slack MCP connector (claims and reports in a channel), Claude in Chrome or the built-in browser of
   the desktop app (live tests), a review bot on your repositories (Codex, Copilot or Greptile).
 
-[`/hga:init check`](skills/init/SKILL.md) (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor`) shows what is missing; the
+[`/hga:init check`](skills/init/SKILL.md) (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor [--repo owner/repo]`) shows what is missing — with a board, also a status name it has no option for; the
 check also offers to repair it — a moved knowledge base, an invalid configuration field, a leftover
 `labels.closed` (moved to `labels.closing` or removed), template files a newer plugin version added.
 
@@ -90,7 +90,7 @@ Two layers, merged (`hga_issue.py config` prints the result):
     "github": {
       "project": null,
       "fields": { "status": "Status", "iteration": "Iteration", "priority": "Priority", "effort": "Effort" },
-      "statuses": { "todo": "Todo", "in_progress": "In Progress", "done": "Done" }
+      "statuses": { "todo": "Todo", "in_progress": "In Progress", "in_review": "In Review", "done": "Done" }
     },
     "labels": { "in_progress": "in-progress", "in_review": "in-review", "closing": null },
     "slack": null,
@@ -114,8 +114,8 @@ Two layers, merged (`hga_issue.py config` prints the result):
 |---|---|
 | `language` | Language of everything written outward: commits, PRs, issues, comments, Slack, notes. Code follows the repository's own conventions. |
 | `timezone` | `null` = the machine's; an IANA name makes "today" (Slack claims, iterations) the same for the whole team. |
-| `github.project` | `null` = no board: the status is kept with labels. Otherwise the project's title; its status field and option names map through `fields.status` and `statuses`. Iteration, Priority and Effort are used only if they exist. |
-| `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer). `closing`: `null` (default) = issues close with GitHub's own closing — the PR's `Closes #n` at merge, or `gh issue close`; a label name (e.g. `done`) = the maintainer closes an issue with that label after the merge: the PR says only `Ref #n`, the issue may stay open, the label counts as closed for prerequisites and in triage, and the agent never adds it. |
+| `github.project` | `null` = no board: the status is kept with labels. Otherwise the project's title; its status field and option names map through `fields.status` and `statuses`: `in_review` is set by step 9 (implemented, waiting for the maintainer), `done` after the merge — map both to the same option to keep one status for both. `doctor` reports a status name the board has no option for. Turn on the board's built-in "Item closed" workflow (→ Done) so a merge that closes the issue moves it even without the agent. Iteration, Priority and Effort are used only if they exist. |
+| `labels` | Without a board: `in_progress` while an agent works, `in_review` after step 9 (implemented, waiting for the maintainer) until the issue closes — there is no Done label. `closing`: `null` (default) = issues close with GitHub's own closing — the PR's `Closes #n` at merge, or `gh issue close`; a label name (e.g. `done`) = the maintainer closes an issue with that label after the merge: the PR says only `Ref #n`, the issue may stay open, the label counts as closed for prerequisites and in triage, and the agent never adds it. |
 | `slack` | `null` = claims and reports are GitHub comments on the issue. Otherwise `{"channel": "#dev", "channel_id": "C…"}`. |
 | `review.provider` | `local` (the `code-review` skill), `codex`, `copilot` or `greptile` (a bot on GitHub, in addition to the local review). `ask_after_rounds`: from this round on, the maintainer decides whether to close the review. |
 | `live_test.browser` | `builtin` (the desktop app's browser) or `chrome` (Claude in Chrome): which one [`/hga:issue`](skills/issue/SKILL.md)'s live test tries first; the other one is the fallback. |
@@ -227,7 +227,7 @@ section's name opens or closes it.
   color — everything else dim; colors are theme keys.
 - The model reports the state with the `mcp__hga__step` tool (`issue`, `step` 0–12, `state`, `evidence`,
   `verb`, `started_at`, `checks`); [`/hga:issue`](skills/issue/SKILL.md)'s checklist section requires a call at every state change.
-- **Machine-checked steps** — 3 Worktree, 5 Build + tests, 7 PR, 8 Review, 9 Done: their ✓ means a script
+- **Machine-checked steps** — 3 Worktree, 5 Build + tests, 7 PR, 8 Review, 9 In review: their ✓ means a script
   checked the facts, not only that the model typed evidence. `HGA evidence <owner/repo> <n> --step N` checks them
   (the worktree and its base; the gate's exit code on the current HEAD and files, recorded by `HGA gate`; the
   PR's state, head and closing reference (or `Ref #n` where the skill uses it); an unchanged head, finished CI
@@ -272,7 +272,7 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
 - **Activation:** loading [`/hga:triage`](skills/triage/SKILL.md) (or the Skill tool), [`/triage-pane`](#triage-panel), a `next` run, or a `phase` call. The
   repository comes from the session's git remote; [`/triage-pane owner/repo`](#triage-panel) switches.
 - **Running:** from the issue pane's state files, every minute. An unfinished issue silent for 60 minutes is
-  marked stalled and frees its slot; past Done (step 9) it no longer takes a slot. Finished issues stay for a day,
+  marked stalled and frees its slot; past In review (step 9) it no longer takes a slot. Finished issues stay for a day,
   unfinished ones for a week; ✕ hides one until it reports again. In the desktop app, an issue's name jumps to
   its session.
 - **Issues:** `hga_issue.py next <repo> --json` every five minutes, and right away after a session changes a

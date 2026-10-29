@@ -45,7 +45,7 @@ idea → /hga:intent → /hga:new-issue → /hga:triage → /hga:issue → revie
 | [remote] Shared copy | `{{REMOTE}}` | The team shares it with git; the skills pull before they read and push what they write. |
 | [local only] Shared copy | none | Only this machine has it; `/hga:init` can add a remote later. |
 | Language | `{{LANGUAGE}}` | Commits, PRs, issues, comments and notes are written in this language. |
-| [board] Status | project board "{{PROJECT}}" | Issues move Todo → In Progress → Done on the board. |
+| [board] Status | project board "{{PROJECT}}" | Issues move Todo → In Progress → In Review → Done on the board: In Review when Claude has finished and the PR waits for you, Done after the merge. Turn on the board's "Item closed" workflow so a merge moves the issue to Done by itself. |
 | [no board] Status | labels `{{LABEL_IN_PROGRESS}}`, `{{LABEL_IN_REVIEW}}` | No board: the status is a label on the issue. |
 | [github closing] Closing | GitHub's own | The PR says `Closes #n`: merging it closes the issue. |
 | [closing label] Closing | label `{{CLOSING_LABEL}}` | The PR only says `Ref #n`. After the merge, you add `{{CLOSING_LABEL}}` — that closes the issue for us (prerequisites, triage); Claude never adds it. |

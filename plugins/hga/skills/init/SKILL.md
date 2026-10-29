@@ -98,7 +98,10 @@ values and ask only about the changes). Otherwise start from `$INIT/templates/hg
    (`gh project list --owner <owner> --format json`). Options: "No board — status labels (Recommended for a
    start)", or one of the boards. For a board, read its fields
    (`gh project field-list <number> --owner <owner> --format json`): it needs a single-select status field with
-   options for to-do, in progress and done; map their names into `github.fields.status` and `github.statuses`.
+   options for to-do, in progress, in review and done; map their names into `github.fields.status` and
+   `github.statuses`. No in-review option: offer to add one on the board (Recommended), or map `in_review` to the
+   done option (one status for both, the behavior before 1.0). Recommend the board's built-in "Item closed"
+   workflow (→ Done).
    Iteration, Priority and Effort are used only if they exist.
 4. **Closing** (`labels.closing`): "GitHub's own — the PR's `Closes #n` closes the issue at merge
    (Recommended)" (`null`), or "The maintainer's label": the PR only says `Ref #n`, the merge leaves the issue

@@ -32,7 +32,7 @@ const DAY = 24 * 3600_000
 // The issue skill's checklist (skills/issue/SKILL.md), in the same order as on the issue pane.
 const STEPS = [
   'Start', 'Claim', 'In Progress', 'Worktree', 'Decisions', 'Build + tests',
-  'Live test', 'PR', 'Review', 'Done', 'Cleanup', 'Knowledge', 'Report',
+  'Live test', 'PR', 'Review', 'In review', 'Cleanup', 'Knowledge', 'Report',
 ]
 // As on the issue pane: one accent color (running), green for done, yellow for warnings, red only for errors
 // and overruns; everything else dim, the symbol tells the state.
@@ -106,7 +106,7 @@ const finished = (f: Running) => f.steps[12]?.state === 'done'
 const stalled = (f: Running, t: number) => !finished(f) && t - f.updatedAt > STALLED_MIN * 60_000
 // Whether the session is still alive (marked `◐ running` in the issue lists).
 const alive = (f: Running, t: number) => !finished(f) && !stalled(f, t)
-// After Done (step 9) only cleanup, knowledge and the report follow: it no longer takes a slot (closer to D.1's count).
+// After In review (step 9) only cleanup, knowledge and the report follow: it no longer takes a slot (closer to D.1's count).
 const closed = (f: Running) => f.steps[9]?.state === 'done'
 const occupies = (f: Running, t: number) => alive(f, t) && !closed(f)
 const numberOf = (f: Running) => Number(f.issue.split('#').pop())

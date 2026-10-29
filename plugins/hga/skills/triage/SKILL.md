@@ -77,7 +77,7 @@ or when you stop it.
 ## States
 
 The triage result is a label on the issue (the board's Status, or the status labels, stay Todo / In Progress /
-Done):
+In Review / Done):
 
 | Label | Meaning |
 |---|---|
