@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -1148,3 +1149,399 @@ def test_metrics_rows_of_older_records_and_markers_have_no_risk(hga):
     marker = {"schema": 1, "stage": "started", "repo": "a/b", "issue": 1}
     row = hga.metrics_rows(marker, "a/b/1-y", False, set())[0]
     assert (row["risk"], row["na_steps"]) == (None, None)
+
+
+# --- step evidence: gate, evidence, review-wait's entry -------------------------------------------
+
+
+@pytest.fixture
+def gitenv(tmp_path, monkeypatch):
+    """git without the user's configuration, with a fixed author."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "nogit"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for k in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{k}_NAME", "T")
+        monkeypatch.setenv(f"GIT_{k}_EMAIL", "t@example.test")
+
+
+@pytest.fixture
+def ev(hga, tmp_path, monkeypatch):
+    """The evidence record of acme/web-app#18, in a temporary issue folder."""
+    monkeypatch.setattr(hga, "ISSUE_DIR", tmp_path / "issue")
+    return lambda: json.loads(hga.evidence_file("acme/web-app", 18).read_text(encoding="utf-8"))
+
+
+def plain_repo(tmp_path):
+    wt = tmp_path / "repo"
+    gitrun(tmp_path, "init", "-q", "-b", "main", str(wt))
+    (wt / "app.py").write_text("x = 1\n", encoding="utf-8")
+    gitrun(wt, "add", "app.py")
+    gitrun(wt, "commit", "-q", "-m", "base")
+    return wt
+
+
+def head_of(wt):
+    return gitrun(wt, "rev-parse", "HEAD").strip()
+
+
+def gate(hga, wt, *command):
+    return hga.main(["gate", "acme/web-app", "18", "--worktree", str(wt), "--", *command])
+
+
+PY_EXIT = (sys.executable, "-c", "import sys; print('gate output'); sys.exit(int(sys.argv[1]))")
+
+
+def test_gate_passes_output_and_exit_code_and_records_the_head(hga, ev, gitenv, tmp_path, capfd):
+    wt = plain_repo(tmp_path)
+    assert gate(hga, wt, *PY_EXIT, "3") == 3
+    assert "gate output" in capfd.readouterr().out
+    assert gate(hga, wt, *PY_EXIT, "0") == 0
+    gates = ev()["gates"]
+    assert [g["exit"] for g in gates] == [3, 0]
+    assert {g["head"] for g in gates} == {head_of(wt)}
+    assert " -c " in gates[0]["command"] and gates[0]["command"].endswith(" 3")
+    assert all(g["started"] <= g["ended"] and g["tree"] for g in gates)
+    assert ev()["issue"] == "acme/web-app#18" and ev()["schema"] == 1
+    # the gate's own options stay its own: `--worktree` after `--` belongs to the command
+    assert gate(hga, wt, sys.executable, "-c", "import sys; sys.exit(0)", "--worktree") == 0
+    # a gate is not interactive: a command reading stdin gets end-of-file instead of waiting
+    assert gate(hga, wt, sys.executable, "-c", "import sys; sys.exit(len(sys.stdin.read()))") == 0
+
+
+def test_gate_and_evidence_usage_errors_exit_64(hga, ev, gitenv, tmp_path, capsys):
+    wt = plain_repo(tmp_path)
+    assert hga.main(["gate", "acme/web-app", "18", "--worktree", str(wt)]) == 64
+    assert gate(hga, tmp_path / "nowhere", sys.executable) == 64
+    assert hga.main(["gate", "acme/web-app", "18", "--", sys.executable]) == 64
+    assert hga.main(["evidence", "acme/web-app", "18"]) == 64
+    assert hga.main(["evidence", "acme/web-app", "18", "--step", "4"]) == 64
+    assert hga.main(["evidence", "acme/web-app", "18", "--step", "7", "--worktree", str(wt)]) == 64
+    assert hga.main(["evidence", "acme/web-app", "18", "--step", "5"]) == 64
+    assert hga.main(["evidence", "acme-web-app", "18", "--step", "9"]) == 64
+    assert gate(hga, wt, sys.executable, "-c", "pass") == 0
+    assert hga.main(["gate", "web-app", "18", "--worktree", str(wt), "--", sys.executable, "-c", "pass"]) == 64
+    # only the one good gate was recorded; the usage errors wrote nothing (acme-web-app shares the file name)
+    data = json.loads(hga.evidence_file("acme/web-app", 18).read_text())
+    assert len(data["gates"]) == 1 and data["steps"] == {}
+
+
+def test_default_ref_without_origin_head(hga, gitenv, tmp_path):
+    main, wt = worktree_setup(tmp_path)
+    assert hga.default_ref(str(wt)) == "origin/main"
+    gitrun(main, "remote", "set-head", "origin", "--delete")
+    gitrun(main, "branch", "-q", "-m", "main", "master")
+    gitrun(main, "update-ref", "refs/remotes/origin/master", "refs/remotes/origin/main")
+    gitrun(main, "update-ref", "-d", "refs/remotes/origin/main")
+    assert hga.default_ref(str(wt)) == "origin/master"
+
+
+def evidence(hga, step, *args):
+    return hga.main(["evidence", "acme/web-app", "18", "--step", str(step), *args])
+
+
+def test_evidence_step5_needs_a_passing_gate_on_the_current_head_and_files(hga, ev, gitenv, tmp_path, capfd):
+    wt = plain_repo(tmp_path)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    assert "FAILED gate_passed_on_head · no gate run" in capfd.readouterr().out
+    gate(hga, wt, *PY_EXIT, "0")
+    assert evidence(hga, 5, "--worktree", str(wt)) == 0
+    assert "\nok     gate_passed_on_head" in capfd.readouterr().out
+    step = ev()["steps"]["5"]
+    assert step["ok"] is True and step["facts"][0]["name"] == "gate_passed_on_head" and "T" in step["at"]
+    # regression: the last gate exited non-zero
+    code = tmp_path / "exit-code"  # outside the repository: the same command, with the result set from here
+    flaky = (sys.executable, "-c", "import sys; sys.exit(int(open(sys.argv[1]).read()))", str(code))
+    code.write_text("1", encoding="utf-8")
+    gate(hga, wt, *flaky)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    out = capfd.readouterr().out
+    assert "FAILED gate_passed_on_head" in out and "exit 1 on HEAD" in out and ev()["steps"]["5"]["ok"] is False
+    # a gate of several commands: each one's latest run counts, so the failed one must pass again
+    gate(hga, wt, sys.executable, "-c", "pass")
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    code.write_text("0", encoding="utf-8")
+    gate(hga, wt, *flaky)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 0
+    # a file changed after the gate (before the commit, HEAD is still the base)
+    (wt / "app.py").write_text("x = 2\n", encoding="utf-8")
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    assert "the files changed since the last one" in capfd.readouterr().out
+    gate(hga, wt, sys.executable, "-c", "pass")
+    assert evidence(hga, 5, "--worktree", str(wt)) == 0
+    # regression: a gate on an older HEAD
+    gitrun(wt, "commit", "-q", "-am", "work")
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    assert "the last one ran on HEAD" in capfd.readouterr().out
+
+
+def worktree_setup(tmp_path):
+    """A main checkout of acme/web-app (origin is a local bare repository, renamed afterwards) and its worktree."""
+    origin = tmp_path / "origin.git"
+    gitrun(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    main = tmp_path / "web-app"
+    gitrun(tmp_path, "clone", "-q", str(origin), str(main))
+    gitrun(main, "commit", "-q", "--allow-empty", "-m", "base")
+    gitrun(main, "push", "-q", "origin", "main")
+    gitrun(main, "remote", "set-head", "origin", "main")
+    gitrun(main, "remote", "set-url", "origin", "https://github.com/acme/web-app.git")
+    wt = tmp_path / "web-app-18"
+    gitrun(main, "worktree", "add", "-q", "-b", "fix/18-x", str(wt), "origin/main")
+    gitrun(wt, "branch", "--unset-upstream")
+    return main, wt
+
+
+def facts_of(ev, step):
+    return {f["name"]: f["ok"] for f in ev()["steps"][str(step)]["facts"]}
+
+
+def test_evidence_step3_worktree(hga, ev, gitenv, tmp_path, capsys):
+    main, wt = worktree_setup(tmp_path)
+    assert evidence(hga, 3, "--worktree", str(wt)) == 0
+    assert facts_of(ev, 3) == {"is_worktree": True, "branch_exists": True, "base_on_default": True, "no_upstream": True}
+    assert "base " in capsys.readouterr().out
+    # the main checkout is not a worktree
+    assert evidence(hga, 3, "--worktree", str(main)) == 1
+    assert facts_of(ev, 3)["is_worktree"] is False
+    # an upstream set (a plain push would go there)
+    gitrun(wt, "branch", "--set-upstream-to", "origin/main")
+    assert evidence(hga, 3, "--worktree", str(wt)) == 1
+    assert facts_of(ev, 3) == {"is_worktree": True, "branch_exists": True, "base_on_default": True, "no_upstream": False}
+    # a branch started from a local commit that origin's default branch does not have
+    gitrun(main, "commit", "-q", "--allow-empty", "-m", "local only")
+    other = tmp_path / "web-app-19"
+    gitrun(main, "worktree", "add", "-q", "-b", "fix/19-y", str(other), "main")
+    assert evidence(hga, 3, "--worktree", str(other)) == 1
+    assert facts_of(ev, 3)["base_on_default"] is False
+    # another repository's worktree
+    assert hga.main(["evidence", "acme/api", "18", "--step", "3", "--worktree", str(wt)]) == 1
+
+
+def fake_gh(hga, monkeypatch, view, runs="", statuses="", files="app.py\n", pr_labels=(), labels=(), follow_up=None):
+    def gh(*args):
+        if args[:2] == ("pr", "view"):
+            return json.dumps(list(pr_labels)) if "labels" in args else json.dumps(view)
+        if args[:2] == ("repo", "view"):
+            return "main\n"
+        if args[:2] == ("issue", "view"):
+            return json.dumps(follow_up) if "state,body" in args else json.dumps(list(labels))
+        path = next(x for x in args if x.startswith("repos/"))
+        if path.endswith("/check-runs"):
+            return runs
+        if path.endswith("/status"):
+            return statuses
+        if path.endswith("/files"):
+            return files
+        raise AssertionError(args)
+    monkeypatch.setattr(hga, "gh", gh)
+
+
+def closes(*nums, repo=("acme", "web-app")):
+    return [{"number": n, "repository": {"name": repo[1], "owner": {"login": repo[0]}}} for n in nums]
+
+
+def pr(head, refs=None, state="OPEN", base="main", body="Closes #18"):
+    return {"number": 7, "state": state, "headRefOid": head, "baseRefName": base, "body": body,
+            "closingIssuesReferences": closes(18) if refs is None else refs}
+
+
+def test_evidence_step7_pr(hga, ev, gitenv, tmp_path, monkeypatch, capsys):
+    wt = plain_repo(tmp_path)
+    head = head_of(wt)
+    fake_gh(hga, monkeypatch, pr(head))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 0
+    rec = ev()["steps"]["7"]
+    assert rec["ok"] and rec["head"] == head and rec["pr"] == 7
+    assert facts_of(ev, 7) == {"pr_open": True, "pr_head_matches": True, "pr_references_issue": True}
+    # regression: the PR's head differs from the worktree's HEAD
+    fake_gh(hga, monkeypatch, pr("f" * 40))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
+    assert "FAILED pr_head_matches · PR head fffffff" in capsys.readouterr().out
+    # regression: the PR does not reference the issue (only another one, or one in another repository)
+    fake_gh(hga, monkeypatch, pr(head, closes(17) + closes(18, repo=("acme", "api"))))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
+    assert "FAILED pr_references_issue · closingIssuesReferences: #17" in capsys.readouterr().out
+    fake_gh(hga, monkeypatch, pr(head, state="MERGED"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
+    assert facts_of(ev, 7)["pr_open"] is False
+
+
+def test_evidence_step7_with_the_closing_label_the_pr_closes_nothing(hga, ev, gitenv, tmp_path, monkeypatch):
+    write(tmp_path / "kb" / "hga.config.json", {"labels": {"closing": "done"}})
+    wt = plain_repo(tmp_path)
+    fake_gh(hga, monkeypatch, pr(head_of(wt)))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
+    assert facts_of(ev, 7)["pr_references_issue"] is False
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], body="Closes nothing"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], body="Ref #18"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 0
+
+
+def test_evidence_step7_ref_cases_of_the_skill(hga, ev, gitenv, tmp_path, monkeypatch, capsys):
+    """Step 7.1's `Ref #n` PRs: one into another base (GitHub's closing keyword does not work there), and a
+    deliberately partial one."""
+    wt = plain_repo(tmp_path)
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], base="release/1.x", body="Ref #18 — the 1.x backport"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 0
+    assert "base release/1.x, not the default branch: the description says `Ref #18`" in capsys.readouterr().out
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], base="release/1.x", body="Ref #180"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
+    # partial: Ref #n and not closing it
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], body="Ref #18; the export is left for #19"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7") == 1
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 0
+    assert ev()["steps"]["7"]["partial"] is True
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], body="**Ref:** #18 · the rest in #19"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 0
+    fake_gh(hga, monkeypatch, pr(head_of(wt), [], body="Prefs #18"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 1
+    fake_gh(hga, monkeypatch, pr(head_of(wt), body="Closes #18, Ref #18"))
+    assert evidence(hga, 7, "--worktree", str(wt), "--pr", "7", "--partial") == 1
+
+
+A = "a" * 40
+B = "b" * 40
+
+
+def test_evidence_step8_review_local_provider(hga, ev, monkeypatch, capsys):
+    hga.save_evidence("acme/web-app", 18, {**hga.load_evidence("acme/web-app", 18),
+                                           "steps": {"7": {"ok": True, "at": "x", "facts": [], "pr": 7, "head": A}}})
+    ok_runs = "lint\tcompleted\tsuccess\ndocs\tcompleted\tskipped\n"
+    fake_gh(hga, monkeypatch, pr(A), runs=ok_runs, statuses="ci/legacy\tsuccess\n")
+    assert evidence(hga, 8, "--pr", "7") == 0
+    assert facts_of(ev, 8) == {"head_unchanged": True, "ci_finished": True, "bot_review_clean": True}
+    assert "3 check(s) passed" in capsys.readouterr().out
+    fake_gh(hga, monkeypatch, pr(A), runs="lint\tcompleted\tneutral\n")
+    assert evidence(hga, 8, "--pr", "7") == 0
+    fake_gh(hga, monkeypatch, pr(A), runs="lint\tin_progress\t\ntest\tcompleted\tfailure\n")
+    assert evidence(hga, 8, "--pr", "7") == 1
+    assert "FAILED ci_finished · failed: test (failure); pending: lint" in capsys.readouterr().out
+    fake_gh(hga, monkeypatch, pr(A), statuses="ci/legacy\tpending\n")
+    assert evidence(hga, 8, "--pr", "7") == 1
+    # no CI at all: nothing to wait for
+    fake_gh(hga, monkeypatch, pr(A))
+    assert evidence(hga, 8, "--pr", "7") == 0
+    # a review fix pushed after step 7's record
+    fake_gh(hga, monkeypatch, pr(B), runs=ok_runs)
+    assert evidence(hga, 8, "--pr", "7") == 1
+    assert "changed since the step-7 record (aaaaaaa)" in capsys.readouterr().out
+
+
+def test_evidence_step8_bot_provider_needs_a_clean_review_of_the_head(hga, ev, tmp_path, monkeypatch, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"review": {"provider": "copilot"}})
+    hga.save_evidence("acme/web-app", 18, {**hga.load_evidence("acme/web-app", 18),
+                                           "steps": {"7": {"ok": True, "at": "x", "facts": [], "pr": 7, "head": A}}})
+    fake_gh(hga, monkeypatch, pr(A), files="app.py\n")
+    assert evidence(hga, 8, "--pr", "7") == 1
+    assert "FAILED bot_review_clean · standard class: no clean copilot review of aaaaaaa" in capsys.readouterr().out
+    # a low class has no bot round
+    fake_gh(hga, monkeypatch, pr(A), files="README.md\n")
+    assert evidence(hga, 8, "--pr", "7") == 0
+    # the issue's high label makes it high
+    fake_gh(hga, monkeypatch, pr(A), files="README.md\n", labels=["risk:high"])
+    assert evidence(hga, 8, "--pr", "7") == 1
+    # review-wait's clean result for the head, then a fix (new head B) reviewed clean too
+    data = hga.load_evidence("acme/web-app", 18)
+    data["reviews"] += [{"provider": "copilot", "head": A, "result": "clean", "at": "x"},
+                        {"provider": "copilot", "head": B, "result": "clean", "at": "y"}]
+    hga.save_evidence("acme/web-app", 18, data)
+    fake_gh(hga, monkeypatch, pr(B), files="app.py\n")
+    assert evidence(hga, 8, "--pr", "7") == 0
+    assert "head_unchanged · PR head bbbbbbb = the latest review" in capsys.readouterr().out
+
+
+def test_evidence_step8_review_closed_by_the_maintainer(hga, ev, tmp_path, monkeypatch, capsys):
+    """Step 8.6: the maintainer closed the bot review; the follow-up issue stands for the clean review."""
+    write(tmp_path / "kb" / "hga.config.json", {"review": {"provider": "codex"}})
+    hga.save_evidence("acme/web-app", 18, {**hga.load_evidence("acme/web-app", 18),
+                                           "steps": {"7": {"ok": True, "at": "x", "facts": [], "pr": 7, "head": A}}})
+    fake_gh(hga, monkeypatch, pr(A), follow_up={"state": "OPEN", "body": "**Ref:** #18 / PR #7"})
+    assert evidence(hga, 8, "--pr", "7") == 1
+    assert evidence(hga, 8, "--pr", "7", "--closed-with", "21") == 0
+    assert "ok     bot_review_closed · follow-up #21 is OPEN and names PR #7" in capsys.readouterr().out
+    assert ev()["steps"]["8"]["closed_with"] == 21
+    fake_gh(hga, monkeypatch, pr(A), follow_up={"state": "OPEN", "body": "Ref: PR #70"})
+    assert evidence(hga, 8, "--pr", "7", "--closed-with", "21") == 1
+    fake_gh(hga, monkeypatch, pr(A), follow_up={"state": "CLOSED", "body": "https://github.com/acme/web-app/pull/7"})
+    assert evidence(hga, 8, "--pr", "7", "--closed-with", "21") == 1
+
+
+def test_evidence_step9_reads_back_the_configured_status(hga, ev, tmp_path, monkeypatch, capsys):
+    issue = {"state": "OPEN", "labels": {"nodes": [{"name": "in-review"}]}, "projectItems": {"nodes": []}}
+    monkeypatch.setattr(hga, "issue_items", lambda repo, num: issue)
+    assert evidence(hga, 9) == 0
+    assert facts_of(ev, 9) == {"status_read_back": True, "issue_open": True}
+    issue["labels"]["nodes"] = [{"name": "in-progress"}]
+    assert evidence(hga, 9) == 1
+    assert "FAILED status_read_back · labels: Status In Progress, step 9 sets Done" in capsys.readouterr().out
+    issue.update(state="CLOSED", labels={"nodes": [{"name": "in-review"}]})
+    assert evidence(hga, 9) == 1
+    assert facts_of(ev, 9)["issue_open"] is False
+    # regression: a board whose step-9 option is configured differently from what reads back
+    write(tmp_path / "kb" / "hga.config.json", {"github": {"project": "Eng", "statuses": {"done": "Shipped"}}})
+    hga.CFG = {}
+    item = {"project": {"title": "Eng"}, "fieldValueByName": {"name": "Done"}}
+    issue.update(state="OPEN", projectItems={"nodes": [item]})
+    assert evidence(hga, 9) == 1
+    assert "FAILED status_read_back · Eng: Status Done, step 9 sets Shipped" in capsys.readouterr().out
+    item["fieldValueByName"] = {"name": "shipped"}
+    assert evidence(hga, 9) == 0
+
+
+def test_evidence_failed_read_overwrites_an_earlier_ok(hga, ev, monkeypatch, capsys):
+    monkeypatch.setattr(hga, "issue_items", lambda repo, num: {"state": "OPEN", "labels": {"nodes": [{"name": "in-review"}]}})
+    assert evidence(hga, 9) == 0
+
+    def broken(repo, num):
+        raise RuntimeError("gh api graphql…: HTTP 502")
+    monkeypatch.setattr(hga, "issue_items", broken)
+    assert evidence(hga, 9) == 1
+    assert ev()["steps"]["9"]["ok"] is False
+    assert "FAILED read · gh api graphql…: HTTP 502" in capsys.readouterr().out
+
+
+def test_review_wait_clean_result_records_the_head(hga, ev, monkeypatch, capsys):
+    view = {"headRefOid": HEAD, "closingIssuesReferences": closes(18)}
+
+    def gh(*args):
+        if args[:2] == ("pr", "view"):
+            return json.dumps(view)
+        if args[1].endswith("/reviews"):
+            return json.dumps([review("COMMENTED")])
+        return "[]"
+    monkeypatch.setattr(hga, "gh", gh)
+    monkeypatch.setattr(hga.time, "sleep", lambda s: None)
+    # without --issue: the issues the PR closes
+    assert hga.main(["review-wait", "acme/web-app", "7", "--provider", "copilot", "--interval", "0"]) == 0
+    entry = ev()["reviews"][-1]
+    assert (entry["provider"], entry["head"], entry["result"]) == ("copilot", HEAD, "clean") and entry["at"]
+    assert "Recorded: the clean copilot review of abc1234" in capsys.readouterr().out
+    # with --issue, for that issue
+    assert hga.main(["review-wait", "acme/web-app", "7", "--provider", "copilot", "--interval", "0", "--issue", "20"]) == 0
+    assert json.loads(hga.evidence_file("acme/web-app", 20).read_text())["reviews"][0]["head"] == HEAD
+    # findings: no entry
+    view["closingIssuesReferences"] = []
+    assert hga.main(["review-wait", "acme/web-app", "7", "--provider", "copilot", "--interval", "0"]) == 0
+    assert "pass --issue" in capsys.readouterr().err
+    assert len(ev()["reviews"]) == 1
+
+
+def test_evidence_record_is_next_to_the_state_file(hga, ev, tmp_path):
+    assert hga.evidence_file("acme/web-app", 18) == tmp_path / "issue" / "acme-web-app-18.evidence.json"
+    assert hga.state_file("acme/web-app", 18) == tmp_path / "issue" / "acme-web-app-18.json"
+
+
+def test_evidence_digest_matches_the_pane(hga):
+    # the same vector as the pane test ('the digest is the one HGA evidence writes')
+    e = {"ok": True, "at": "2026-10-22T10:00:00.000+02:00",
+         "facts": [{"name": "pr_open", "ok": True, "detail": "PR #7 is OPEN · ő \"q\"\n"}], "pr": 7, "head": "abc"}
+    assert hga.evidence_digest("acme/web-app#18", 7, e) == "fnv1a32:edb2961e"
+    assert hga.evidence_digest("acme/web-app#18", 3, e) == "fnv1a32:eda99bc2"
+    assert hga.evidence_digest("acme/web-app#18", 7, {**e, "digest": "ignored"}) == "fnv1a32:edb2961e"
+
+
+def test_evidence_writes_the_entry_digest(hga, ev, monkeypatch):
+    monkeypatch.setattr(hga, "issue_items", lambda repo, num: {"state": "OPEN", "labels": {"nodes": [{"name": "in-review"}]}})
+    assert evidence(hga, 9) == 0
+    entry = ev()["steps"]["9"]
+    assert entry["digest"] == hga.evidence_digest("acme/web-app#18", 9, entry)
