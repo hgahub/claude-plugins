@@ -1136,6 +1136,10 @@ def test_risk_patterns_per_repository(hga, tmp_path):
     assert low == ["docs/**"]  # the repository's low list replaces the team's
     assert high == ["**/auth/**", "**/SKILL.md"]  # its high list adds to the team's
     assert label == "risk:high"
+    write(tmp_path / "user.json", {"risk": {"repos": {"acme/plugins": {"low_paths": ["notes/**"]}}}})
+    hga.CFG = {}
+    low, high, _ = hga.risk_patterns("ACME/plugins")
+    assert low == ["notes/**"] and "**/SKILL.md" in high  # another case in the user's layer: merged, the user's wins
     low, high, _ = hga.risk_patterns("acme/web-app")
     assert "*.md" in low and high == ["**/auth/**"]  # the team's list replaced the default high ones
 
@@ -1161,6 +1165,11 @@ def test_repo_overrides_board_and_closing(hga, tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     assert hga.main(["config"]) == 0
     assert json.loads(capsys.readouterr().out)["github"]["project"] == "Eng"  # no leftover view
+    # the user's layer names the repository in another case: merged with the team's entry, the user's wins
+    write(tmp_path / "user.json", {"repos": {"acme/plugins": {"labels": {"closing": "shipped"}}}})
+    assert hga.main(["config", "--repo", "acme/plugins"]) == 0
+    c = json.loads(capsys.readouterr().out)
+    assert c["github"]["project"] is None and c["labels"]["closing"] == "shipped"
     # a command naming the repository reads its view: label mode, not the team's board
     board = FakeBoard(hga, monkeypatch, labels={"bug"})
     assert hga.main(["status-set", "acme/plugins", "18", "In Progress"]) == 0

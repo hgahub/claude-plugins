@@ -246,14 +246,19 @@ CFG: dict = {}
 REPO_SECTIONS = ("github", "labels")
 
 
-def repo_entry(entries: object, repo: str) -> object:
-    """The entry of owner/repo in a per-repository mapping, any case; None if there is none."""
-    return next((v for k, v in _obj(entries).items() if k.lower() == repo.lower()), None)
+def repo_entry(entries: object, repo: str) -> dict:
+    """The entry of owner/repo in a per-repository mapping, any case. Keys that differ only in case (the team's
+    `Acme/Tools`, the user's `acme/tools`) are merged in order, so the later layer wins; {} if there is none."""
+    out: dict = {}
+    for k, v in _obj(entries).items():
+        if k.lower() == repo.lower() and isinstance(v, dict):
+            out = _merge(out, v)
+    return out
 
 
 def repo_config(c: dict, repo: str) -> dict:
     """The configuration as a repository sees it: its `repos` entry's sections merged over the team's."""
-    over = _obj(repo_entry(c.get("repos"), repo))
+    over = repo_entry(c.get("repos"), repo)
     return _merge(c, {k: over[k] for k in REPO_SECTIONS if isinstance(over.get(k), dict)})
 
 
@@ -1641,7 +1646,7 @@ def path_matches(path: str, pattern: str) -> bool:
 def risk_patterns(repo: str) -> tuple[list[str], list[str], str]:
     """(low, high, high label) for the repository: its own low patterns replace the team's, its high ones add."""
     risk = cfg()["risk"]
-    over = repo_entry(risk.get("repos"), repo) or {}
+    over = repo_entry(risk.get("repos"), repo)
     low = list(over["low_paths"]) if "low_paths" in over else list(risk["low_paths"])
     high = list(risk["high_paths"]) + [p for p in over.get("high_paths") or [] if p not in risk["high_paths"]]
     return low, high, risk["high_label"]
