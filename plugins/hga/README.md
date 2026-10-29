@@ -20,7 +20,7 @@ Entry points for setting up the plugin, starting work and inspecting results. Tr
 
 | Command | What it does |
 |---|---|
-| [`/hga:init [new \| join <URL> \| check]`](skills/init/SKILL.md) | Checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration and a short usage guide in the team's language (`workflow/hga-guide.md`, optionally a Docs copy), and on a re-run repairs what the check found |
+| [`/hga:init [quick \| new \| join <URL> \| check]`](skills/init/SKILL.md) | `quick`: a local setup with the defaults and at most two questions; otherwise checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration and a short usage guide in the team's language (`workflow/hga-guide.md`, optionally a Docs copy), and on a re-run repairs what the check found |
 | [`/hga:intent [intent]`](skills/intent/SKILL.md) | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
 | [`/hga:triage [issue]`](skills/triage/SKILL.md) | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
 | [`/hga:issue <issue>`](skills/issue/SKILL.md) | Claim (Slack or GitHub, read back: the earliest claim wins) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → In review → cleanup → knowledge base → report, on a verified checklist |
@@ -59,7 +59,10 @@ claude plugin marketplace add hgahub/claude-plugins
 claude plugin install hga@hga-plugins
 ```
 
-Then run [`/hga:init`](skills/init/SKILL.md) once per machine. Update with `claude plugin update hga@hga-plugins`, then
+Then run [`/hga:init quick`](skills/init/SKILL.md) once per machine: a local knowledge base with the defaults
+(status labels, GitHub's own closing, GitHub comments instead of Slack, local review), after at most two
+questions. `/hga:init` changes any of it later and offers the choices `quick` skipped; to join a team's knowledge
+base, run `/hga:init join <git URL>` instead. Update with `claude plugin update hga@hga-plugins`, then
 `/reload-plugins` (or a new session).
 
 **Prerequisites** — without them the skills stop, they do not break anything:
@@ -74,7 +77,8 @@ Then run [`/hga:init`](skills/init/SKILL.md) once per machine. Update with `clau
   the desktop app (live tests), a review bot on your repositories (Codex, Copilot or Greptile).
 
 [`/hga:init check`](skills/init/SKILL.md) (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor [--repo owner/repo]`) shows what is missing — with a board, also a status name it has no option for; the
-check also offers to repair it — a moved knowledge base, an invalid configuration field, a leftover
+check also offers to repair it, and asks the choices the team configuration lacks (deferred by `quick` or an
+older version) — a moved knowledge base, an invalid configuration field, a leftover
 `labels.closed` (moved to `labels.closing` or removed), template files a newer plugin version added.
 
 ## Configuration

@@ -12,8 +12,10 @@ claude plugin marketplace add hgahub/claude-plugins
 claude plugin install hga@hga-plugins
 ```
 
-Then run [`/hga:init`](plugins/hga/skills/init/SKILL.md) in Claude Code. Update with `claude plugin update hga@hga-plugins`, then `/reload-plugins`
-(or a new session).
+Then run [`/hga:init quick`](plugins/hga/skills/init/SKILL.md) in Claude Code: a local knowledge base with the
+defaults (status labels, GitHub comments, local review), after at most two questions. `/hga:init` changes any of
+it later and offers the choices `quick` skipped. Update with `claude plugin update hga@hga-plugins`, then
+`/reload-plugins` (or a new session).
 
 ## Plugins
 
