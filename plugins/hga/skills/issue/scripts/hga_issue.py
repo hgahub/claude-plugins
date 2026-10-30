@@ -2457,9 +2457,17 @@ def wait_review(a, provider: str, head: str) -> tuple[int | None, dict | None]:
 
 def record_review(a, provider: str, head: str) -> None:
     """A clean bot review of the head, in the issue's evidence record (step 8's check reads it): --issue, else the
-    issues the PR closes."""
+    issues the PR closes. The head is recorded in full (review_facts compares full SHAs): a short --sha is resolved
+    from the PR's headRefOid."""
     try:
-        issues = [a.issue] if a.issue else closing_refs(a.repo, pr_view(a.repo, a.pr))
+        view = pr_view(a.repo, a.pr)
+        full = view.get("headRefOid") or ""
+        if not full.startswith(head):
+            print(f"warning: the review is not recorded: the PR head {full[:7]} does not start with {head[:7]}",
+                  file=sys.stderr)
+            return
+        head = full
+        issues = [a.issue] if a.issue else closing_refs(a.repo, view)
     except RuntimeError as e:
         print(f"warning: the review is not recorded: {e}", file=sys.stderr)
         return

@@ -415,6 +415,17 @@ def test_review_wait_lists_inline_findings(hga, monkeypatch, capsys):
     assert "1 inline finding(s)" in capsys.readouterr().out
 
 
+def test_review_wait_short_sha_records_the_full_head(hga, monkeypatch, capsys):
+    fake_review_api(hga, monkeypatch, [review("COMMENTED")])
+    saved = {}
+    monkeypatch.setattr(hga, "load_evidence", lambda repo, n: saved.get(n, {"steps": {}, "reviews": []}))
+    monkeypatch.setattr(hga, "save_evidence", lambda repo, n, data: saved.__setitem__(n, data))
+    code = hga.main(["review-wait", "a/b", "1", "--provider", "copilot", "--sha", HEAD[:7], "--issue", "5",
+                     "--timeout-min", "1", "--interval", "0"])
+    assert code == 0
+    assert [(r["provider"], r["head"], r["result"]) for r in saved[5]["reviews"]] == [("copilot", HEAD, "clean")]
+
+
 def test_triage_labels_dropped_only_when_work_starts(hga):
     labels = {"bug", "ready-for-agent", "in-progress"}
     assert hga.triage_labels_to_drop("in_progress", labels) == ["ready-for-agent"]
