@@ -50,7 +50,7 @@ Makes a GitHub issue from an accepted intent.md. It goes on the board untriaged 
    `` `notes/<intent>.md` ``. "Clarification log" and "Sources" stay in the knowledge base. Leave out empty
    sections. If you find secret or personal data, stop and say so.
 7. **Create and read back:** `gh issue create --repo <owner/repo> --title "<title>" --body-file <file>`, then
-   `gh issue view <n> --json title,body` must match. `--comment` mode: `gh issue comment <n> --body-file <file>`
+   `gh issue view <n> --repo <owner/repo> --json title,body` must match. `--comment` mode: `gh issue comment <n> --repo <owner/repo> --body-file <file>`
    with the body starting "Addition from the intent:", read back with `--json comments`.
 8. **Board and type** (new issue): `HGA track <owner/repo> <n>` (Todo; without a board, Todo is no status
    label), then `HGA meta <owner/repo> <n> --type <T>` — `Bug` if "Current state" describes a measured deviation,

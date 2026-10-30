@@ -50,7 +50,7 @@ or when you stop it.
   it. Otherwise, only on the user's yes: the comment first
   (`gh issue comment <n> --repo <owner/repo> --body-file …`), then
   `gh issue close <n> --repo <owner/repo> --reason completed` (implemented), `--reason "not planned"`
-  (unnecessary) or `--duplicate-of <m>`; read back `gh issue view <n> --json state,stateReason`.
+  (unnecessary) or `--duplicate-of <m>`; read back `gh issue view <n> --repo <owner/repo> --json state,stateReason`.
 - **Expected risk class.** `/hga:issue` sets the class (low / standard / high) from the changed files with
   `HGA risk`, and it decides which gates the run needs (its "Risk class" section). Before there is a diff, the
   triage can only expect one, and says so in branch C's proposal and branch D's report:
@@ -138,7 +138,7 @@ validated, and the worktree is gone.
    pays in smaller reviews and in parallel runs, not in total time, so parts that must land together stay one
    issue. On a split, the maintainer's answer is the decision (with the date, under "Decisions"):
    - each part becomes a new issue with the body of point 3, `**Ref:** #<parent> (split, <date>)`, created and
-     read back (`gh issue create … --body-file`, then `gh issue view <m> --json body`), and `HGA track`;
+     read back (`gh issue create --repo <owner/repo> … --body-file`, then `gh issue view <m> --repo <owner/repo> --json body`), and `HGA track`;
    - where one part needs another first, `HGA block <owner/repo> <m> --by <k>`;
    - the parent's body (point 3) keeps the goal and lists the parts under "Not part of it"; it gets no state
      label and stays open for the maintainer to close;
