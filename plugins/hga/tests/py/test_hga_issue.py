@@ -1209,6 +1209,23 @@ def test_config_problems_catch_bad_risk(hga):
     assert hga.config_problems(hga.DEFAULTS) == []
 
 
+def test_config_problems_catch_bad_size(hga):
+    c = hga._merge(hga.DEFAULTS, {"size": {"small": {"files": 0}, "large": "big"}})
+    problems = "\n".join(hga.config_problems(c))
+    assert "size.small must be" in problems and "size.large must be" in problems
+
+
+def test_classify_size_counts_only_files_outside_the_low_patterns(hga):
+    limits = hga.DEFAULTS["size"]
+    rows = [{"file": "app.py", "kind": "other"}, {"file": "tests/test_app.py", "kind": "low"}]
+    assert hga.classify_size(rows, {"app.py": 60, "tests/test_app.py": 900}, limits) == ("small", 1, 60)
+    assert hga.classify_size(rows, {"app.py": 61}, limits) == ("medium", 1, 61)
+    assert hga.classify_size(rows, {"app.py": 501}, limits) == ("large", 1, 501)
+    many = [{"file": f"m{i}.py", "kind": "other"} for i in range(16)]
+    assert hga.classify_size(many, {}, limits) == ("large", 16, 0)
+    assert hga.classify_size(many[:4], {}, limits) == ("medium", 4, 0)
+
+
 def gitrun(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout
 
@@ -1236,10 +1253,13 @@ def test_risk_from_a_worktree(hga, tmp_path, monkeypatch, capsys):
     assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("Risk: low · every file matches a low pattern · 4 file(s)")
+    assert "Size: small · 0 file(s), 0 changed line(s) outside the low patterns" in out
     assert "Gates: 4 Decisions: not_applicable" in out
-    (wt / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (wt / "app.py").write_text("x = 1\n" * 70, encoding="utf-8")  # untracked: its lines count
+    assert hga.worktree_changes(str(wt), "main")["README.md"] == 2  # one line deleted, one added
     assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["risk"] == "standard"
+    got = json.loads(capsys.readouterr().out)
+    assert (got["risk"], got["size"], got["size_files"], got["size_lines"]) == ("standard", "medium", 1, 70)
     # nothing changed: exit 4
     gitrun(wt, "switch", "-q", "--discard-changes", "main")
     (wt / "app.py").unlink()
@@ -1273,15 +1293,16 @@ def test_risk_from_a_worktree_reads_non_ascii_names_literally(hga, tmp_path, mon
 def test_risk_from_a_pr_with_its_labels(hga, monkeypatch, capsys):
     def gh(*args):
         if args[0] == "api":
-            return "src/auth/login.py\nREADME.md\nsrc/old_name.py\n"
+            return "12\tsrc/auth/login.py\n400\tREADME.md\n3\tsrc/new_name.py\n0\tsrc/old_name.py\n"
         if args[:2] == ("pr", "view"):
             return json.dumps(["bug"])
         return json.dumps(["risk:high"])  # the issue's labels
     monkeypatch.setattr(hga, "gh", gh)
     assert hga.main(["risk", "acme/web-app", "--pr", "7"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("Risk: high · 1 file(s) match a high pattern · 3 file(s), PR #7")
+    assert out.startswith("Risk: high · 1 file(s) match a high pattern · 4 file(s), PR #7")
     assert "high  src/auth/login.py  (**/auth/**)" in out
+    assert "Size: small · 3 file(s), 15 changed line(s) outside the low patterns" in out  # README.md: low
     assert hga.main(["risk", "acme/web-app", "--pr", "7", "--issue", "6", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["reasons"] == ["label risk:high", "1 file(s) match a high pattern"]
     with pytest.raises(SystemExit):
@@ -1296,12 +1317,12 @@ def test_metrics_record_keeps_the_risk_and_counts_not_applicable_steps(hga, tmp_
     data["steps"][11] = step("not_applicable", 90, 91, "Risk: low")
     write(tmp_path / "issue" / "acme-web-app-18.json", data)
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
-    _, rec = record(hga, capsys, "--risk", "low")
-    assert rec["risk"] == "low"
+    _, rec = record(hga, capsys, "--risk", "low", "--size", "small", "--effort", "Low")
+    assert (rec["risk"], rec["size"], rec["effort"]) == ("low", "small", "low")
     assert [s["state"] for s in rec["steps"]].count("not_applicable") == 2
     rows, _ = metrics_out(hga, capsys, "--repo", "acme/web-app")
     run = next(r for r in rows if r["kind"] == "run")
-    assert (run["risk"], run["na_steps"]) == ("low", 2)
+    assert (run["risk"], run["size"], run["effort"], run["na_steps"]) == ("low", "small", "low", 2)
     with pytest.raises(SystemExit):
         hga.main(["metrics-record", "acme/web-app", "18", "--risk", "medium"])
 
@@ -1480,7 +1501,7 @@ def test_evidence_step3_worktree(hga, ev, gitenv, tmp_path, capsys):
     assert hga.main(["evidence", "acme/api", "18", "--step", "3", "--worktree", str(wt)]) == 1
 
 
-def fake_gh(hga, monkeypatch, view, runs="", statuses="", files="app.py\n", pr_labels=(), labels=(), follow_up=None):
+def fake_gh(hga, monkeypatch, view, runs="", statuses="", files="1\tapp.py\n", pr_labels=(), labels=(), follow_up=None):
     def gh(*args):
         if args[:2] == ("pr", "view"):
             return json.dumps(list(pr_labels)) if "labels" in args else json.dumps(view)
@@ -1595,21 +1616,21 @@ def test_evidence_step8_bot_provider_needs_a_clean_review_of_the_head(hga, ev, t
     write(tmp_path / "kb" / "hga.config.json", {"review": {"provider": "copilot"}})
     hga.save_evidence("acme/web-app", 18, {**hga.load_evidence("acme/web-app", 18),
                                            "steps": {"7": {"ok": True, "at": "x", "facts": [], "pr": 7, "head": A}}})
-    fake_gh(hga, monkeypatch, pr(A), files="app.py\n")
+    fake_gh(hga, monkeypatch, pr(A), files="1\tapp.py\n")
     assert evidence(hga, 8, "--pr", "7") == 1
     assert "FAILED bot_review_clean · standard class: no clean copilot review of aaaaaaa" in capsys.readouterr().out
     # a low class has no bot round
-    fake_gh(hga, monkeypatch, pr(A), files="README.md\n")
+    fake_gh(hga, monkeypatch, pr(A), files="1\tREADME.md\n")
     assert evidence(hga, 8, "--pr", "7") == 0
     # the issue's high label makes it high
-    fake_gh(hga, monkeypatch, pr(A), files="README.md\n", labels=["risk:high"])
+    fake_gh(hga, monkeypatch, pr(A), files="1\tREADME.md\n", labels=["risk:high"])
     assert evidence(hga, 8, "--pr", "7") == 1
     # review-wait's clean result for the head, then a fix (new head B) reviewed clean too
     data = hga.load_evidence("acme/web-app", 18)
     data["reviews"] += [{"provider": "copilot", "head": A, "result": "clean", "at": "x"},
                         {"provider": "copilot", "head": B, "result": "clean", "at": "y"}]
     hga.save_evidence("acme/web-app", 18, data)
-    fake_gh(hga, monkeypatch, pr(B), files="app.py\n")
+    fake_gh(hga, monkeypatch, pr(B), files="1\tapp.py\n")
     assert evidence(hga, 8, "--pr", "7") == 0
     assert "head_unchanged · PR head bbbbbbb = the latest review" in capsys.readouterr().out
 

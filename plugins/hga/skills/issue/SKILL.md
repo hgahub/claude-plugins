@@ -116,7 +116,8 @@ It runs three times:
    `Risk (provisional): high · label risk:high`, or `no high label — the class comes at the end of step 5`. A
    provisional `high` applies to step 4 at once.
 2. **End of step 5** (decides step 6): `HGA risk <owner/repo> --worktree ../<repo>-<n> --issue <n>`. Exit 4 (no
-   changed file): stop and look.
+   changed file): stop and look. Its `Size:` line (small / medium / large, from the files outside the low
+   patterns) changes no gate yet: it goes into the report and the metrics record, from its last run.
 3. **End of step 8** (review fixes can grow the diff): `HGA risk <owner/repo> --pr <pr> --issue <n>`. If the class
    rose, do the higher class's missing gates before step 9; on the pane the step goes back to `in_progress`.
 
@@ -159,7 +160,8 @@ A ➖ step goes to the pane as `not_applicable` with its `Risk:` line, and the P
    (not `--comments`: outside a terminal it prints only the comments) and `HGA status <owner/repo> <n>`. Search
    for a same-titled duplicate (`gh issue list --search "<title>" --state all`). `HGA deps <owner/repo> <n>`: an
    open prerequisite (exit 3) means do not claim — tell the user. In an issue finalized by `hga:triage`, the
-   "Implementation" and "Acceptance criteria" are the contract. Provisional risk class from the labels.
+   "Implementation" and "Acceptance criteria" are the contract. Provisional risk class from the labels. The
+   Effort field: `HGA meta <owner/repo> <n>` (without options it only reads; `n/a` = none) — for step 12's record.
 5. Load `hga:knowledge`; read the app's page, `map/<app>.md`, related notes (mind their dates), and
    `workflow/<app>.md`.
 
@@ -417,7 +419,7 @@ the full report on the main one, a short pointer on each other. In the configure
 - **Fix** in 1–2 lines; **Tests**: new cases, base failure, the gate's numbers; **Live test verdict** with the
   browser and fix rounds
 - **Risk:** the run's class (highest since step 5) and the reason from the `Risk:` line that set it; if it rose,
-  from what to what and why
+  from what to what and why; the last `Size:` line, and the issue's Effort if set
 - **Checklist:** `0–11 ✅`, ➖ items named (`0–11 ✅, 6 and 11 n/a (low)`), skipped items with the reason
 - **Time:** the "Report line" of `HGA elapsed <start>`; name pauses you know the reason for
 - **Difficulty:** *easy* (one file, clear cause, no decision) / *medium* (crosses modules, a decision or two, a
@@ -430,11 +432,12 @@ the full report on the main one, a short pointer on each other. In the configure
 **Metrics record** (schema: the knowledge base's `metrics/README.md`), after step 12's first `done`:
 
 ```bash
-HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2 --risk standard
+HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2 --risk standard --size small --effort low
 ```
 
 `--review-rounds`: the bot rounds, or the local rounds without a bot (1 for low); `--risk`: the run's class (omit
-if `HGA risk` never ran); `--session` per extra session. It overwrites step 1's run marker. Commit only that file:
+if `HGA risk` never ran); `--size`: the last `Size:` line's class (omit likewise); `--effort`: step 0's Effort
+(omit if `n/a` or empty); `--session` per extra session. It overwrites step 1's run marker. Commit only that file:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/knowledge/scripts/kb_commit.py" -C "<knowledge_dir>" -m "<repo>: metrics record (#<n>)" -- "<the record's path>"
