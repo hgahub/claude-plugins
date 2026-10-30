@@ -2455,14 +2455,11 @@ def wait_review(a, provider: str, head: str) -> tuple[int | None, dict | None]:
     return 2, None
 
 
-def record_review(a, provider: str, head: str) -> None:
-    """A clean bot review of the head, in the issue's evidence record (step 8's check reads it): --issue, else the
-    issues the PR closes."""
-    try:
-        issues = [a.issue] if a.issue else closing_refs(a.repo, pr_view(a.repo, a.pr))
-    except RuntimeError as e:
-        print(f"warning: the review is not recorded: {e}", file=sys.stderr)
-        return
+def record_review(a, provider: str, view: dict) -> None:
+    """A clean bot review of the PR's head, in the issue's evidence record (step 8's check reads it): --issue, else
+    the issues the PR closes. The head is the full SHA (review_facts compares full SHAs)."""
+    head = view["headRefOid"]
+    issues = [a.issue] if a.issue else closing_refs(a.repo, view)
     if not issues:
         print("note: the review is not recorded: the PR closes no issue of this repository (pass --issue <n>)",
               file=sys.stderr)
@@ -2477,7 +2474,11 @@ def cmd_review_wait(a) -> int:
     if provider == "local":
         print("review provider is local: the review is the code-review skill's rounds, there is nothing to wait for")
         return 4
-    head = a.sha or json.loads(gh("pr", "view", str(a.pr), "--repo", a.repo, "--json", "headRefOid"))["headRefOid"]
+    view = pr_view(a.repo, a.pr)
+    head = view["headRefOid"]  # full: a prefix shared with another commit must not match its review
+    if a.sha and not head.startswith(a.sha):
+        print(f"review-wait: --sha {a.sha} is not the PR's head ({head[:7]}): nothing to wait for")
+        return 6
     comments = review = None
     changes_requested = False
     if provider == "codex":
@@ -2509,7 +2510,7 @@ def cmd_review_wait(a) -> int:
     rounds = count_rounds(provider, bot_reviews(a.repo, a.pr, provider), comments)
     if clean_result:
         print(f"Round: {rounds} · Result: no significant findings (👍)")
-        record_review(a, provider, head)
+        record_review(a, provider, view)
         return 0
     if changes_requested and not inline:
         print(f"Round: {rounds} · Result: changes requested in the review's body, no inline findings"
