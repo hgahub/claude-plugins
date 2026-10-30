@@ -432,14 +432,23 @@ def test_review_wait_short_sha_records_the_full_head_and_step_8_passes(hga, tmp_
     assert "ok     bot_review_clean" in capsys.readouterr().out
 
 
-def test_review_wait_refused_record_is_not_a_success(hga, tmp_path, monkeypatch, capsys):
-    other = "abc1234" + "f" * 33  # a review of another commit, sharing the 8-character prefix sent as --sha
-    fake_review_api(hga, monkeypatch, [review("COMMENTED", commit=other)])
+def test_review_wait_refuses_a_sha_that_is_not_the_head(hga, tmp_path, monkeypatch, capsys):
+    fake_review_api(hga, monkeypatch, [review("COMMENTED")])
     monkeypatch.setattr(hga, "ISSUE_DIR", tmp_path / "issue")
     code = hga.main(["review-wait", "a/b", "1", "--provider", "copilot", "--sha", "abc1234f", "--issue", "5",
                      "--timeout-min", "1", "--interval", "0"])
     assert code == 6
-    assert "NOT recorded" in capsys.readouterr().out
+    assert "is not the PR's head" in capsys.readouterr().out
+    assert hga.load_evidence("a/b", 5)["reviews"] == []
+
+
+def test_review_wait_does_not_take_another_commit_sharing_the_prefix(hga, tmp_path, monkeypatch, capsys):
+    other = "abc1234" + "f" * 33  # a clean review of another commit with the same 7-character prefix as the head
+    fake_review_api(hga, monkeypatch, [review("COMMENTED", commit=other)])
+    monkeypatch.setattr(hga, "ISSUE_DIR", tmp_path / "issue")
+    code = hga.main(["review-wait", "a/b", "1", "--provider", "copilot", "--sha", "abc1234", "--issue", "5",
+                     "--timeout-min", "0.001", "--interval", "0"])
+    assert code == 2 and "timeout" in capsys.readouterr().out
     assert hga.load_evidence("a/b", 5)["reviews"] == []
 
 
