@@ -81,7 +81,7 @@ should live if there is no machine configuration yet (default `~/.hga/knowledge`
 Do this before the team configuration: `HGA config` and `HGA doctor` find the knowledge base through this file,
 so without it step 4 would check the default folder instead of `<dir>`.
 
-Write `~/.claude/hga/config.json` with `{"knowledge_dir": "<dir>"}` if the folder is not the default or the file
+Write `~/.claude/hga/config.json` with `{"schema": 1, "knowledge_dir": "<dir>"}` if the folder is not the default or the file
 does not exist yet. Keep any existing keys: read it first, change only `knowledge_dir`. Overrides of team fields
 go here only if the user asks for them. Then `HGA config` must print `"knowledge_dir": "<dir>"`.
 
@@ -279,7 +279,7 @@ offers each of them once (step 6, "Deferred choices").
 5. **One question** (`AskUserQuestion`): confirm the detected language — this conversation's code, else `en` —
    and time zone — the system's, stored as `null` (name it in the question). Options: "Keep both
    (Recommended)", "Change". Only on "Change", one more `AskUserQuestion` with step 4's questions 1 and 2.
-6. **Team file:** write `<dir>/hga.config.json` with only `{"language": …, "timezone": …}` — not the template:
+6. **Team file:** write `<dir>/hga.config.json` with only `{"schema": 1, "language": …, "timezone": …}` — not the template:
    a key missing from the file is how a later run knows the choice was deferred. Then step 4's read-back
    (`HGA config`, `HGA doctor`), and commit the fresh knowledge base:
    `python3 "$KB/kb_commit.py" -C <dir> -m "Set up the knowledge base (hga quick)" -- .` (no remote: no push).

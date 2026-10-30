@@ -127,6 +127,7 @@ Two layers, merged (`hga_issue.py config` prints the result; `config --repo <own
 
   ```json
   {
+    "schema": 1,
     "language": "en",
     "timezone": null,
     "github": {
@@ -153,6 +154,9 @@ Two layers, merged (`hga_issue.py config` prints the result; `config --repo <own
 - **Machine** — `~/.claude/hga/config.json`: `knowledge_dir` (default `~/.hga/knowledge`), `guide_doc_url` (the
   user's Docs copy of the guide, if any), `dashboard_url` (the user's metrics dashboard, written by
   [`/hga:dashboard`](skills/dashboard/SKILL.md)), and any team field to override on this machine.
+
+Both files carry `"schema": 1`, the version of their format; a file without it is version 1. `/hga:init` writes
+it, and `doctor` reports a file whose schema is newer than the installed plugin knows (update the plugin).
 
 | Key | Meaning |
 |---|---|
