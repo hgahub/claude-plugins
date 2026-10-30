@@ -64,10 +64,14 @@ claude plugin marketplace add hgahub/claude-plugins#stable
 claude plugin install hga@hga-plugins
 ```
 
+A marketplace declared for a project (`--scope project`, in a committed `.claude/settings.json`) is moved with
+`--scope project` on all three commands, once, by one person, who commits the changed settings file.
+
 ## Retry and corrections
 
 For a transient runner or publication failure, rerun the failed jobs in the same Actions run. An existing
 release is left unchanged, and a tag moved or removed while CI ran prevents publication. Never force-move
 a published version tag. For a code, manifest or workflow defect, fix it in a PR, choose a higher version,
-merge and push a new tag. If the `stable` step failed after the release was created, rerunning the job moves it;
-never push to `stable` by hand.
+merge and push a new tag. If the `stable` step failed after the release was created, rerunning the job moves it.
+If it fails because the token may not update workflow files, fast-forward it yourself, never with `--force`:
+`git push origin refs/tags/vX.Y.Z^{commit}:refs/heads/stable`. Do not push anything else to `stable`.
