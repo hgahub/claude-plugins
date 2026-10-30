@@ -165,8 +165,9 @@ and report say "not applicable (low)" or "(quick)". Step 4 precedes the class: i
 4. The issue: `gh issue view <n> --repo <owner/repo> --json title,body,state,labels,assignees,updatedAt,comments`
    (not `--comments`: outside a terminal it prints only the comments) and `HGA status <owner/repo> <n>`. Search
    for a same-titled duplicate (`gh issue list --search "<title>" --state all`). `HGA deps <owner/repo> <n>`: an
-   open prerequisite (exit 3) means do not claim — tell the user. In an issue finalized by `hga:triage`, the
-   "Implementation" and "Acceptance criteria" are the contract. Provisional risk class from the labels. The
+   open prerequisite (exit 3) means do not claim — tell the user. In an issue finalized by `hga:triage` — or
+   written by `hga:intent`'s fast lane (`**Ref:** fast lane of /hga:intent`) — the "Implementation" and
+   "Acceptance criteria" are the contract. Provisional risk class from the labels. The
    Effort field: `HGA meta <owner/repo> <n>` (without options it only reads; `n/a` = none) — for step 12's record.
 5. Load `hga:knowledge`; read the app's page, `map/<app>.md`, related notes (mind their dates), and
    `workflow/<app>.md`.
