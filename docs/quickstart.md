@@ -6,11 +6,11 @@ will do it on a small sample repository, so nothing in your own projects changes
 ## You need
 
 - Claude Code (`claude --version`).
-- GitHub CLI, logged in (`gh auth status`).
+- GitHub CLI, logged in (`gh auth status`), with any GitHub account: the work happens in your own fork (step 2).
+- Python 3.9 or newer, and git. hga's scripts need both; `/hga:init` stops if either is missing.
 - `uv`, which the sample repository uses to install, test and run its app.
 - A browser for the live test: the desktop app's built-in browser, or Claude in Chrome. Without one, the run's live
   test ends `NOT VERIFIED`.
-- A GitHub account that can open pull requests on the sample repository (see step 2).
 
 ## 1. Install the plugin
 
@@ -34,7 +34,7 @@ gh repo fork hgahub/hga-demo --clone
 cd hga-demo
 gh repo set-default <you>/hga-demo
 gh repo edit --enable-issues
-gh issue create --title "Whitespace-only titles are accepted" --body "$(gh issue view 2 --repo hgahub/hga-demo --json body -q .body)"
+gh issue view 2 --repo hgahub/hga-demo --json body -q .body | gh issue create --title "Whitespace-only titles are accepted" --body-file -
 ```
 
 `gh repo set-default` makes your fork the repository `gh` uses in this folder, because `gh repo fork --clone` also
@@ -60,10 +60,11 @@ may also ask a question if a decision is open; answer it or pick the default it 
 
 ## 4. What to check
 
-- **The issue pane.** Run `/issue-pane` to see the 13 steps (0 to 12). Each step shows `✅` with its evidence.
-  Look at step 5 (the tests, with their numbers) and step 6 (the live test verdict). A step that is skipped
-  says why.
-- **The pull request.** It closes the issue, and its description has the sections Tests, Live user test and Review.
+- **The issue pane.** Run `/issue-pane` to see the 13 steps (0 to 12). Each step has a mark and its evidence: `✅`
+  done, `➖` not applicable to this change (a small fix usually has two, e.g. step 4 when nothing was decided), `⚠️`
+  skipped, with the reason. Look at step 5 (the tests, with their numbers) and step 6 (the live test verdict).
+- **The pull request.** It closes the issue, and its description has the sections Tests, Live user test and Review
+  (in the language `/hga:init` set).
 - **The report.** The run ends with a report comment on the issue: the time, the difficulty, the token use and
   the checklist.
 - **The knowledge base.** The run writes a metrics record under `metrics/` in your knowledge base, with the time
@@ -71,10 +72,11 @@ may also ask a question if a decision is open; answer it or pick the default it 
 
 ## Expected time and tokens
 
-Measured on five runs of this plugin's own issues, not on the sample: 7 to 28 minutes of active work per issue, plus
+As of 2026-10-30, measured on five runs of this plugin's own issues, not on the sample: 7 to 28 minutes of active work per issue, plus
 under 2 minutes of waiting for the review. Output tokens were 32,000 to 50,000 per run. Cache-read tokens, which make
 up most of the total, were 6 to 15 million. The sample run adds an app start and a browser check, which these
-figures do not include, so its time and tokens are not measured yet. These numbers are an estimate, not a promise.
+figures do not include, so its time and tokens are not measured yet. These numbers are an estimate, not a promise; `/hga:dashboard` shows
+the current figures from your own runs.
 
 ## Next
 
