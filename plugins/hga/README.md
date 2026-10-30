@@ -107,6 +107,7 @@ Two layers, merged (`hga_issue.py config` prints the result; `config --repo <own
       "high_label": "risk:high",
       "repos": {}
     },
+    "size": { "small": { "files": 3, "lines": 60 }, "large": { "files": 15, "lines": 500 } },
     "repos": {}
   }
   ```
@@ -127,6 +128,7 @@ Two layers, merged (`hga_issue.py config` prints the result; `config --repo <own
 | `live_test.browser` | `builtin` (the desktop app's browser) or `chrome` (Claude in Chrome): which one [`/hga:issue`](skills/issue/SKILL.md)'s live test tries first; the other one is the fallback. |
 | `parallel` | [`/hga:triage`](skills/triage/SKILL.md) launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |
 | `risk` | The risk classes of `hga_issue.py risk`: `high` if a changed file matches `high_paths` or the issue / PR has `high_label`; `low` if every file matches `low_paths`; `standard` otherwise. A pattern without `/` matches the file name anywhere; with `/`, the path from the repository root (`**` spans folders). A team's list replaces the default one. Per repository, `repos.<owner/repo>.low_paths` replaces the team's list and `high_paths` adds to it — e.g. a repository whose `*.md` files are runtime prompts sets its own `low_paths`. The class decides which steps of [`/hga:issue`](skills/issue/SKILL.md) may be `not_applicable`. |
+| `size` | The size class `hga_issue.py risk` prints next to the risk class, counted over the changed files that match no low pattern (tests and docs do not count): `small` up to `small.files` files and `small.lines` changed lines, `large` above `large.files` or `large.lines`, `medium` between. It changes no gate yet: it goes into the report and the metrics record, next to the issue's Effort, so the limits can be calibrated against the measured runs. |
 
 `hga_issue.py config` prints a malformed field as a warning on stderr (the JSON still comes out); `doctor` counts
 it as a missing item.
@@ -176,7 +178,7 @@ per run, so parallel sessions never conflict and a re-run of the issue gets a ne
 - the elapsed breakdown — wall clock, active time, review wait, pauses — for the run and for each section
   (Prepare, Build, Review, Finish);
 - tokens from the session transcripts (subagents included), in total, per section and per model;
-- the difficulty and the review rounds as reported;
+- the difficulty and the review rounds as reported, the risk and size classes, and the issue's Effort;
 - the account's five-hour usage at the start and the end. This is account-wide (every session moves it), so it
   is context, never the issue's cost.
 

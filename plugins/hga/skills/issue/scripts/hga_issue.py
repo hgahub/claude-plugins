@@ -35,7 +35,7 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       run's record will have (below), and prints it. The record replaces it at step 12; a marker never
       replaced is an aborted run. An existing record of the run is left alone.
   metrics-record <owner/repo> <n> [--difficulty easy|medium|hard] [--review-rounds N] [--risk low|standard|high]
-                 [--until <iso>] [--session <id>]... [--pause-min 15]
+                 [--size small|medium|large] [--effort low|medium|high] [--until <iso>] [--session <id>]... [--pause-min 15]
       Writes the issue's durable metrics record into the knowledge base and prints its path:
       `<knowledge_dir>/metrics/<owner>/<repo>/<n>-<start, UTC>.json`, one file per run of the issue (a later
       run starts later), so parallel sessions never touch the same file. It reads the issue pane's state
@@ -53,7 +53,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       start date (both inclusive). `lead_s` on run and section rows: `wall_s` − `pause_s` (no pause_s = 0), the
       lead time without pauses. `outcome` on every row: `finished` / `unfinished` (a record), `aborted`
       (only the start marker, older than --stale-hours), `open` (a younger marker), empty for records from
-      before the markers; `risk` and `na_steps` (steps reported not_applicable) on every row of a record.
+      before the markers; `risk`, `size`, `effort` and `na_steps` (steps reported not_applicable) on every row
+      of a record.
       stderr gets the counts and the abort rate. --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
       list prices (a table in this script), an estimate, not what a Claude subscription costs.
   status <owner/repo> <n>
@@ -97,7 +98,9 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       low patterns and adds high ones. --worktree: the worktree's changes since its merge base with --base
       (default: origin's default branch), committed or not, untracked files included; --pr: the PR's
       files. Prints the class, each file's match and the gates the class changes: the evidence of a
-      not_applicable step. Exit 4 if there is no changed file.
+      not_applicable step. Also the size class (`size.*`), over the files that match no low pattern: `small`
+      up to size.small's files and changed lines, `large` above size.large's files or lines, `medium`
+      between. Exit 4 if there is no changed file.
   gate <owner/repo> <n> --worktree <dir> -- <command…>
       Runs the gate's command in the worktree, its output passed through, and exits with its exit code. It
       appends a `gates` entry (command, exit code, start, end, the worktree's HEAD) to the issue's evidence
@@ -187,6 +190,11 @@ DEFAULTS: dict = {
         "high_label": "risk:high",
         "repos": {},
     },
+    # The size classes (HGA risk), counted over the changed files that match no low pattern (tests and docs do
+    # not make a change bigger): small = at most small.files files and small.lines changed lines; large = more
+    # than large.files or large.lines; medium in between.
+    # ponytail: first guesses, calibrate them against the metrics records' size and difficulty
+    "size": {"small": {"files": 3, "lines": 60}, "large": {"files": 15, "lines": 500}},
     # Per repository (`owner/repo`, any case): its `github` and `labels` merged over the team's, for every command
     # that names the repository — e.g. one without the team's board and closing label:
     # {"acme/tools": {"github": {"project": null}, "labels": {"closing": null}}}
@@ -340,6 +348,12 @@ def config_problems(c: dict) -> list[str]:
         for repo, over in repos.items():
             if not isinstance(over, dict) or not all(_patterns(over[k]) for k in ("low_paths", "high_paths") if k in over):
                 out.append(f"risk.repos.{repo} must be an object with low_paths / high_paths lists of file patterns")
+    size = _section(c, "size", out)
+    for key in ("small", "large"):
+        limit = size.get(key)
+        if not (isinstance(limit, dict) and all(_positive_int(limit.get(k)) for k in ("files", "lines"))):
+            out.append(f"size.{key} must be {{\"files\": n, \"lines\": n}} with positive whole numbers, "
+                       f"e.g. {json.dumps(DEFAULTS['size'][key])}")
     repos = c.get("repos")
     if not isinstance(repos, dict):
         out.append("repos must be an object: {\"owner/repo\": {\"github\": {…}, \"labels\": {…}}}")
@@ -830,6 +844,7 @@ STEP_NAMES = (
 )
 SECTIONS = (("Prepare", 0, 4), ("Build", 5, 6), ("Review", 7, 8), ("Finish", 9, 12))
 DIFFICULTIES = ("easy", "medium", "hard")
+EFFORTS = ("low", "medium", "high")  # the Effort issue field's options, lower-cased
 
 
 def state_file(repo: str, num: int) -> Path:
@@ -895,7 +910,7 @@ def _elapsed_fields(b: dict) -> dict:
 
 def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: datetime,
                    difficulty: str | None, review_rounds: int | None, pause_min: float,
-                   risk: str | None = None) -> dict:
+                   risk: str | None = None, size: str | None = None, effort: str | None = None) -> dict:
     """The record of one run of the issue (schema 1; see the knowledge base's metrics/README.md)."""
     start = _ms(state.get("startedAt"))
     if start is None:
@@ -943,6 +958,8 @@ def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: d
         "difficulty": difficulty,
         "review_rounds": review_rounds,
         "risk": risk,
+        "size": size,
+        "effort": effort,
         "elapsed": elapsed(start, end),
         "tokens": total,
         "models": models,
@@ -1034,7 +1051,8 @@ def cmd_metrics_record(a) -> int:
     steps = state.get("steps") or []
     report = steps[12] if len(steps) > 12 and isinstance(steps[12], dict) else {}
     end = parse_ts(a.until) if a.until else _ms(report.get("endedAt")) or datetime.now(local_tz())
-    rec = metrics_record(state, a.repo, a.num, sessions, end, a.difficulty, a.review_rounds, a.pause_min, a.risk)
+    rec = metrics_record(state, a.repo, a.num, sessions, end, a.difficulty, a.review_rounds, a.pause_min, a.risk,
+                         a.size, a.effort)
     if not rec["transcripts"]["main"]:
         print(f"warning: no transcript for {', '.join(sessions) or 'this session'}: only wall-clock times",
               file=sys.stderr)
@@ -1073,7 +1091,7 @@ COST_NOTE = (f"{COST_COLUMN}: an estimate at Anthropic API list prices ({API_PRI
              "not what a Claude subscription costs")
 METRICS_COLUMNS = (
     "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "outcome", "difficulty",
-    "review_rounds", "risk", "na_steps", "section", "section_index", "model",
+    "review_rounds", "risk", "size", "effort", "na_steps", "section", "section_index", "model",
     "wall_s", "active_s", "review_wait_s", "pause_s", "lead_s",
     "calls", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
     "total_tokens",
@@ -1136,6 +1154,8 @@ def metrics_rows(rec: dict, run: str, cost: bool, unpriced: set[str], outcome: s
         "difficulty": rec.get("difficulty"),
         "review_rounds": rec.get("review_rounds"),
         "risk": rec.get("risk"),
+        "size": rec.get("size"),
+        "effort": rec.get("effort"),
         # None for a marker (no steps); a count for a record, 0 before the state existed
         "na_steps": None if not isinstance(rec.get("steps"), list) else
         sum(1 for st in rec["steps"] if isinstance(st, dict) and st.get("state") == "not_applicable"),
@@ -1673,6 +1693,21 @@ def classify_risk(files: list[str], low: list[str], high: list[str], labels: set
     return "standard", rows, [f"{len(other)} file(s) match no low pattern"]
 
 
+SIZE_CLASSES = ("small", "medium", "large")
+
+
+def classify_size(rows: list[dict], lines: dict[str, int], limits: dict) -> tuple[str, int, int]:
+    """(class, files, changed lines), over the files classify_risk did not match to a low pattern."""
+    files = [r["file"] for r in rows if r["kind"] != "low"]
+    n = sum(lines.get(f, 0) for f in files)
+    small, large = limits["small"], limits["large"]
+    if len(files) > large["files"] or n > large["lines"]:
+        return "large", len(files), n
+    if len(files) <= small["files"] and n <= small["lines"]:
+        return "small", len(files), n
+    return "medium", len(files), n
+
+
 def default_ref(wt: str) -> str:
     """origin's default branch as a ref (origin/main), from the checkout's origin/HEAD; a checkout without it (made
     with `remote add` + `fetch`) falls back on whichever of origin/main and origin/master exists."""
@@ -1682,7 +1717,8 @@ def default_ref(wt: str) -> str:
     return next((r for r in ("origin/main", "origin/master") if git(wt, "rev-parse", "--verify", "--quiet", r)), "origin/main")
 
 
-def worktree_files(wt: str, base: str | None) -> list[str]:
+def worktree_changes(wt: str, base: str | None) -> dict[str, int]:
+    """The changed files, each with its changed lines (added + deleted; a binary file 0)."""
     def run(*args: str) -> str:
         res = subprocess.run(["git", "-C", wt, *args], capture_output=True, text=True, encoding="utf-8")
         if res.returncode != 0:
@@ -1692,18 +1728,39 @@ def worktree_files(wt: str, base: str | None) -> list[str]:
     mb = run("merge-base", base or default_ref(wt), "HEAD").strip()
     # The working tree against the merge base: committed, staged and unstaged changes; both names of a rename.
     # -z: the literal paths, NUL-separated; without it git quotes a non-ASCII name ("auth/entr\303\251e.py").
-    changed = run("diff", "--name-only", "--no-renames", "-z", mb).split("\0")
-    untracked = run("ls-files", "--others", "--exclude-standard", "-z").split("\0")
-    return sorted({f for f in changed + untracked if f})
+    # Each --numstat entry is "added<TAB>deleted<TAB>path", with "-" for both counts of a binary file.
+    # ponytail: without renames a moved file counts all its lines twice; --find-renames if sizes come out too big
+    out = {}
+    for entry in run("diff", "--numstat", "--no-renames", "-z", mb).split("\0"):
+        if entry:
+            added, deleted, path = entry.split("\t", 2)
+            out[path] = sum(int(x) for x in (added, deleted) if x.isdigit())
+    for f in run("ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+        if f:
+            try:
+                out[f] = len((Path(wt) / f).read_text(encoding="utf-8").splitlines())
+            except (OSError, UnicodeDecodeError):  # binary, or gone since
+                out[f] = 0
+    return out
 
 
-def pr_files_labels(repo: str, pr: int) -> tuple[list[str], set[str]]:
-    """The PR's changed files (both names of a rename) and its labels."""
+def worktree_files(wt: str, base: str | None) -> list[str]:
+    return sorted(worktree_changes(wt, base))
+
+
+def pr_files_labels(repo: str, pr: int) -> tuple[dict[str, int], set[str]]:
+    """The PR's changed files (both names of a rename; the old name with 0 lines), each with its changed lines,
+    and its labels."""
     owner, name = split_repo(repo)
     raw = gh("api", "--paginate", f"repos/{owner}/{name}/pulls/{pr}/files", "--jq",
-             ".[] | .filename, (.previous_filename // empty)")
+             '.[] | "\\(.changes)\\t\\(.filename)", (.previous_filename // empty | "0\\t\\(.)")')
     labels = set(json.loads(gh("pr", "view", str(pr), "--repo", repo, "--json", "labels", "--jq", "[.labels[].name]")))
-    return sorted({f for f in raw.splitlines() if f}), labels
+    files: dict[str, int] = {}
+    for line in raw.splitlines():
+        if line:
+            n, path = line.split("\t", 1)
+            files[path] = files.get(path, 0) + int(n)
+    return dict(sorted(files.items())), labels
 
 
 def issue_labels(repo: str, num: int) -> set[str]:
@@ -1718,19 +1775,22 @@ def cmd_risk(a) -> int:
         files, labels = pr_files_labels(a.repo, a.pr)
         source = f"PR #{a.pr}"
     else:
-        files = worktree_files(a.worktree, a.base)
+        files = worktree_changes(a.worktree, a.base)
         source = f"worktree {a.worktree} since its merge base with {a.base or 'the default branch'}"
     if a.issue:
         labels |= issue_labels(a.repo, a.issue)
     low, high, high_label = risk_patterns(a.repo)
-    cls, rows, reasons = classify_risk(files, low, high, labels, high_label)
+    cls, rows, reasons = classify_risk(sorted(files), low, high, labels, high_label)
+    size, size_files, size_lines = classify_size(rows, files, cfg()["size"])
     if a.json:
         print(json.dumps({"repo": a.repo, "risk": cls, "reasons": reasons, "source": source, "files": rows,
-                          "gates": RISK_GATES[cls]}, ensure_ascii=False))
+                          "gates": RISK_GATES[cls], "size": size, "size_files": size_files,
+                          "size_lines": size_lines}, ensure_ascii=False))
     else:
         print(f"Risk: {cls} · {'; '.join(reasons)} · {len(files)} file(s), {source}")
         for r in rows:
             print(f"  {r['kind']:<5} {r['file']}" + (f"  ({r['pattern']})" if r["pattern"] else ""))
+        print(f"Size: {size} · {size_files} file(s), {size_lines} changed line(s) outside the low patterns")
         print("Gates: " + " · ".join(RISK_GATES[cls]))
     if not files:
         print("no changed file: nothing to classify", file=sys.stderr)
@@ -2682,6 +2742,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--difficulty", choices=DIFFICULTIES)
     p.add_argument("--review-rounds", type=int)
     p.add_argument("--risk", choices=RISK_CLASSES, help="the class `HGA risk` gave (its last run)")
+    p.add_argument("--size", choices=SIZE_CLASSES, help="the size `HGA risk` gave (its last run)")
+    p.add_argument("--effort", type=str.lower, choices=EFFORTS, help="the issue's Effort field (`HGA meta`)")
     p.add_argument("--until")
     p.add_argument("--session", action="append")
     p.add_argument("--pause-min", type=float, default=15)
