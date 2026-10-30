@@ -61,8 +61,9 @@ may also ask a question if a decision is open; answer it or pick the default it 
 ## 4. What to check
 
 - **The issue pane.** Run `/issue-pane` to see the 13 steps (0 to 12). Each step has a mark and its evidence: `✅`
-  done, `➖` not applicable to this change (a small fix usually has two, e.g. step 4 when nothing was decided), `⚠️`
-  skipped, with the reason. Look at step 5 (the tests, with their numbers) and step 6 (the live test verdict).
+  done, `➖` not applicable to this change (a small fix usually has steps 4 and 11 so: nothing to decide, nothing new
+  for the knowledge base), `⚠️` skipped, with the reason. Look at step 5 (the tests, with their numbers) and step 6
+  (the live test verdict).
 - **The pull request.** It closes the issue, and its description has the sections Tests, Live user test and Review
   (in the language `/hga:init` set).
 - **The report.** The run ends with a report comment on the issue: the time, the difficulty, the token use and
@@ -72,11 +73,11 @@ may also ask a question if a decision is open; answer it or pick the default it 
 
 ## Expected time and tokens
 
-As of 2026-10-30, measured on five runs of this plugin's own issues, not on the sample: 7 to 28 minutes of active work per issue, plus
-under 2 minutes of waiting for the review. Output tokens were 32,000 to 50,000 per run. Cache-read tokens, which make
-up most of the total, were 6 to 15 million. The sample run adds an app start and a browser check, which these
-figures do not include, so its time and tokens are not measured yet. These numbers are an estimate, not a promise; `/hga:dashboard` shows
-the current figures from your own runs.
+As of 2026-10-30, measured on five runs of this plugin's own issues, not on the sample: 7 to 28 minutes of active
+work per issue, plus under 2 minutes of waiting for the review. Output tokens were 32,000 to 50,000 per run.
+Cache-read tokens, which make up most of the total, were 6 to 15 million. The sample run adds an app start and a
+browser check, which these figures do not include, so its time and tokens are not measured yet. These numbers are
+an estimate, not a promise; `/hga:dashboard` shows the current figures from your own runs.
 
 ## Next
 
