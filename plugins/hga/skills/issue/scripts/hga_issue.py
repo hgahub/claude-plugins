@@ -204,6 +204,9 @@ DEFAULTS: dict = {
 
 REVIEW_PROVIDERS = ("local", "codex", "copilot", "greptile")
 BROWSERS = ("builtin", "chrome")
+# The team and user configuration files' "schema"; a file without it is 1. A breaking change to a field raises it,
+# and doctor tells a newer file (update the plugin) from an older one (migrate).
+CONFIG_SCHEMA = 1
 
 
 def user_config_path() -> Path:
@@ -476,6 +479,13 @@ def cmd_doctor(a) -> int:
         line((kdir / "hga.config.json").exists(), "team configuration", str(kdir / "hga.config.json"))
     line(c["sources"]["user"] is not None or None, "user configuration",
          str(user_config_path()) if set_up else "not set up yet — run /hga:init")
+    for label, path in (("team configuration", kdir / "hga.config.json"), ("user configuration", user_config_path())):
+        schema = _read_json(path).get("schema", 1)  # per file: the merged view would hide the team's behind the user's
+        if not _positive_int(schema):
+            line(False, f"{label} schema", f"schema must be a positive whole number, not {json.dumps(schema)} ({path})")
+        elif schema > CONFIG_SCHEMA:
+            line(False, f"{label} schema", f"{path} has schema {schema}, this plugin knows {CONFIG_SCHEMA} — "
+                 "update the plugin: claude plugin update hga@hga-plugins")
     provider = _obj(c.get("review")).get("provider")
     line(provider in REVIEW_PROVIDERS, "review provider", str(provider))
     for problem in config_problems(load_config()):  # the files' problems, named where they are (not the --repo view)

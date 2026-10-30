@@ -4,7 +4,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from conftest import load
+from conftest import SCRIPTS, load
 
 
 def write(path, data):
@@ -471,6 +471,34 @@ def test_doctor_after_init_requires_the_knowledge_base(hga, tmp_path, capsys):
     write(tmp_path / "user.json", {"knowledge_dir": str(tmp_path / "kb")})
     hga.main(["doctor"])
     assert "MISSING] knowledge base" in capsys.readouterr().out
+
+
+def test_doctor_reports_a_configuration_newer_than_the_plugin(hga, tmp_path, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"schema": hga.CONFIG_SCHEMA + 1, "language": "en"})
+    write(tmp_path / "user.json", {"schema": "1"})
+    assert hga.main(["doctor"]) == 1
+    out = capsys.readouterr().out
+    assert f"MISSING] team configuration schema · {tmp_path / 'kb' / 'hga.config.json'} has schema 2" in out
+    assert "update the plugin: claude plugin update hga@hga-plugins" in out
+    assert 'MISSING] user configuration schema · schema must be a positive whole number, not "1"' in out
+
+
+@pytest.mark.parametrize("schema", [{}, {"schema": 1}])
+def test_configuration_without_or_with_schema_1_is_clean(hga, tmp_path, capsys, schema):
+    # every file written before the field existed is schema 1: it loads as before, doctor adds no problem
+    write(tmp_path / "kb" / "hga.config.json", {**schema, "language": "en"})
+    write(tmp_path / "user.json", {**schema, "knowledge_dir": str(tmp_path / "kb")})
+    assert hga.config_problems(hga.load_config()) == []
+    hga.main(["doctor"])
+    assert "schema" not in capsys.readouterr().out
+
+
+def test_init_templates_write_the_configuration_schema(hga):
+    init = SCRIPTS / "init"
+    assert json.loads((init / "templates" / "hga.config.json").read_text(encoding="utf-8"))["schema"] == hga.CONFIG_SCHEMA
+    skill = (init / "SKILL.md").read_text(encoding="utf-8")
+    assert '`{"schema": 1, "knowledge_dir": "<dir>"}`' in skill  # the user configuration
+    assert '`{"schema": 1, "language": …, "timezone": …}`' in skill  # quick's team file
 
 
 def test_config_problems_defaults_are_clean(hga):
