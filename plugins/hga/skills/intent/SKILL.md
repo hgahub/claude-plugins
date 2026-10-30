@@ -130,7 +130,7 @@ out bigger gets the standard gates.
 ```
 
 **Station 7:** `gh issue create --repo <owner/repo> --title "<title>" --body-file <file>`, then
-`gh issue view <n> --json title,body` must match. Then `HGA track <owner/repo> <n>`,
+`gh issue view <n> --repo <owner/repo> --json title,body` must match. Then `HGA track <owner/repo> <n>`,
 `HGA meta <owner/repo> <n> --type <Bug|Feature|Task> --effort Low` (skip `n/a` fields), and
 `HGA triage-state <owner/repo> <n> ready-for-agent` — the fast lane is its triage. Report `issue` to the pane.
 

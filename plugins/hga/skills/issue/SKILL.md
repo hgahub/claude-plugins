@@ -164,7 +164,7 @@ and report say "not applicable (low)" or "(quick)". Step 4 precedes the class: i
    user to restart from the checkout the script names.
 4. The issue: `gh issue view <n> --repo <owner/repo> --json title,body,state,labels,assignees,updatedAt,comments`
    (not `--comments`: outside a terminal it prints only the comments) and `HGA status <owner/repo> <n>`. Search
-   for a same-titled duplicate (`gh issue list --search "<title>" --state all`). `HGA deps <owner/repo> <n>`: an
+   for a same-titled duplicate (`gh issue list --repo <owner/repo> --search "<title>" --state all`). `HGA deps <owner/repo> <n>`: an
    open prerequisite (exit 3) means do not claim — tell the user. In an issue finalized by `hga:triage` — or
    written by `hga:intent`'s fast lane (`**Ref:** fast lane of /hga:intent`) — the "Implementation" and
    "Acceptance criteria" are the contract. Provisional risk class from the labels. The
@@ -307,8 +307,11 @@ decides (see "Risk class").
 
 - Commit: `fix(#<n>): <summary in the configured language>`; the body explains the mechanism, ends with
   `Ref #<n>`. The closing keyword goes only into the PR description.
-- `git push -u origin <branch>`. Write the body to the scratchpad and pass it with `--body-file` (a heredoc
-  breaks on the first apostrophe). Sections:
+- `git push -u origin <branch>`, then
+  `gh pr create --repo <owner/repo> --head <branch> --base <default-branch> --title "<title>" --body-file <file>`.
+  Every `gh pr` / `gh issue` call names `--repo`: in a fork clone gh's default repository can be the parent, and
+  the PR — with its `Closes #<n>` — would open there. Write the body to the scratchpad and pass it with
+  `--body-file` (a heredoc breaks on the first apostrophe). Sections:
   1. `Closes #<n>` (one per issue). For a non-default base or a deliberately partial PR, `Ref #<n>` (and say
      what is left). **With `labels.closing`:** always `Ref #<n>`, never a closing keyword.
   2. **The bug** (or **The need**) — the mechanism, at file:line level
@@ -321,7 +324,7 @@ decides (see "Risk class").
   8. **Not part of this PR (follow-up)** — the follow-up issues' links (7a)
   9. **Risk** — step 5's `Risk:` line; for **high** also **Rollback**: how to undo it after the merge, and what a
      revert alone does not undo
-- **Read the link back:** `gh pr view <pr> --json closingIssuesReferences` lists the issue (with
+- **Read the link back:** `gh pr view <pr> --repo <owner/repo> --json closingIssuesReferences` lists the issue (with
   `labels.closing`: nothing). Fix the body and re-read if wrong.
 - **Machine check:** `HGA evidence <owner/repo> <n> --step 7 --worktree ../<repo>-<n> --pr <pr>`, with `--partial`
   for a deliberately partial PR (then, as with `labels.closing` or a non-default base, it checks for `Ref #<n>`
@@ -356,7 +359,7 @@ decides (see "Risk class").
 | high | `high`, every round | as below |
 
 1. **Local review first, on every PR:** the `code-review` skill, without `--comment`, at the class's level
-   (`gh pr view <pr> --json additions,deletions` for the size). Fix real findings (test, gate, commit, push).
+   (`gh pr view <pr> --repo <owner/repo> --json additions,deletions` for the size). Fix real findings (test, gate, commit, push).
    With `local` as provider this **is** the review: repeat after each fix round until nothing significant, with
    the round limit of point 4. A low class's or the quick track's single round is the whole review
    (`--review-rounds 1`).
@@ -459,9 +462,9 @@ Finally show the whole checklist with item 12.
 
 ## After the merge (when the user says so)
 
-1. `gh pr view <pr> --json state,mergedAt,mergeCommit`: expected `MERGED`. Then `HGA status-set <owner/repo> <n> Done`
+1. `gh pr view <pr> --repo <owner/repo> --json state,mergedAt,mergeCommit`: expected `MERGED`. Then `HGA status-set <owner/repo> <n> Done`
    (each issue of the PR; without a board it keeps `labels.in_review`) and `HGA status …`: issue
-   `CLOSED (COMPLETED)` + Done. Still open although the PR covered it whole: `gh issue close <n> --reason
+   `CLOSED (COMPLETED)` + Done. Still open although the PR covered it whole: `gh issue close <n> --repo <owner/repo> --reason
    completed --comment "Done in #<pr> (<merge-sha>)"` and read back. `Ref #<n>` leaves it open. **With
    `labels.closing`:** expected `OPEN` + Done (without a board: `In Review`, the label stays); leave it to the
    maintainer.
