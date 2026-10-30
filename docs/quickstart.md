@@ -7,6 +7,9 @@ will do it on a small sample repository, so nothing in your own projects changes
 
 - Claude Code (`claude --version`).
 - GitHub CLI, logged in (`gh auth status`).
+- `uv`, which the sample repository uses to install, test and run its app.
+- A browser for the live test: the desktop app's built-in browser, or Claude in Chrome. Without one, the run's live
+  test ends `NOT VERIFIED`.
 - A GitHub account that can open pull requests on the sample repository (see step 2).
 
 ## 1. Install the plugin
@@ -23,21 +26,23 @@ GitHub comments, local review) after at most two questions. Run `/hga:init` late
 
 ## 2. Get the sample repository
 
-The sample is [hgahub/hga-demo](https://github.com/hgahub/hga-demo), a small todo app. Fork it to your account and
-clone your fork:
+The sample is [hgahub/hga-demo](https://github.com/hgahub/hga-demo), a small todo app. Fork it to your account,
+clone your fork, and file the issue you will work on in your fork:
 
 ```
 gh repo fork hgahub/hga-demo --clone
 cd hga-demo
+gh repo set-default <you>/hga-demo
+gh repo edit --enable-issues
+gh issue create --title "Whitespace-only titles are accepted" --body "$(gh issue view 2 --repo hgahub/hga-demo --json body -q .body)"
 ```
 
-Its issues are the work. We use **issue #2**, "Whitespace-only titles are accepted": `POST /api/todos` with a title
-of spaces returns 201 and adds an empty row. The fix is to refuse it, the same way as an empty title, and to add a
-test for it.
+`gh repo set-default` makes your fork the repository `gh` uses in this folder, because `gh repo fork --clone` also
+adds an `upstream` remote, and `gh` may otherwise pick the parent. `gh repo edit --enable-issues` turns Issues on,
+since forks have them off by default. The last command prints the URL of the new issue; you use it in step 3.
 
-> Issue #1 already has an open pull request in the sample repository, so it is not the one to take here.
-
-File the same issue in your fork (or copy its text from `hgahub/hga-demo`), then note its URL.
+The issue is a bug: `POST /api/todos` with a title of spaces returns 201 and adds an empty row. The fix is to refuse
+it, the same way as an empty title, and to add a test for it.
 
 ## 3. Run `/hga:issue` on it
 
@@ -49,8 +54,9 @@ From the `hga-demo` folder, in Claude Code:
 
 The run goes through its steps on its own: it claims the issue (a GitHub comment and an assignment, unless Slack is
 set up), sets it to In Progress, works in a separate git worktree, runs the tests, starts the app and checks the
-fix in your browser, opens a pull request, has it reviewed, and sets the issue to In review. Let it finish. It
-may ask you a question if a decision is open; answer it or pick the default it offers.
+fix in your browser, opens a pull request, has it reviewed, and sets the issue to In review. Let it finish. The run
+may ask your permission to start the app server and to open the browser; allow both, the live test needs them. It
+may also ask a question if a decision is open; answer it or pick the default it offers.
 
 ## 4. What to check
 
@@ -65,10 +71,10 @@ may ask you a question if a decision is open; answer it or pick the default it o
 
 ## Expected time and tokens
 
-Measured on four runs of this plugin's own issues: 7 to 28 minutes of active work per issue, plus under 2 minutes
-of waiting for the review. Output tokens were 32,000 to 50,000 per run. Most of the total is the context re-read
-on every call: 6 to 15 million cache-read tokens. The sample issue is smaller than those, so expect the lower end.
-These numbers are an estimate from a few runs, not a promise.
+Measured on five runs of this plugin's own issues, not on the sample: 7 to 28 minutes of active work per issue, plus
+under 2 minutes of waiting for the review. Output tokens were 32,000 to 50,000 per run. Cache-read tokens, which make
+up most of the total, were 5.5 to 15 million. The sample run adds an app start and a browser check, which these
+figures do not include, so its time and tokens are not measured yet. These numbers are an estimate, not a promise.
 
 ## Next
 
