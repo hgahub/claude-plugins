@@ -12,7 +12,10 @@ Its version must agree in `plugins/hga/.claude-plugin/plugin.json` and the `hga`
 3. Run `python3 scripts/version.py --set X.Y.Z` with the chosen version. This updates both manifests;
    it does not commit, tag or push. Review both changes and describe the release's user-visible changes
    and any migration steps in the PR.
-4. Commit, push and open a PR. Wait for CI, then merge. Do not tag the feature branch: squash and rebase
+4. Re-check the [compatibility table](../plugins/hga/README.md#compatibility) with the current Claude Code:
+   update the cells you measured, its "Checked on" line, and the Claude Code version in both mod-API notes
+   (`README.md`, `plugins/hga/README.md`). A cell nobody measured stays "not tested".
+5. Commit, push and open a PR. Wait for CI, then merge. Do not tag the feature branch: squash and rebase
    merges can change its commit SHA.
 
 Use `python3 scripts/version.py` to check consistency without modifying files. CI runs this check alongside

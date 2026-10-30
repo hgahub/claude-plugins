@@ -60,8 +60,9 @@ while an intent is running.
 | [`/triage-pane [refresh \| owner/repo]`](#triage-panel) | Toggles the triage dashboard |
 | [`/intent-pane`](#intent-pane-and-progress-band) | Toggles the intent pane (the band above the prompt comes by itself) |
 
-> The panes are built on Claude Code's mod API (early access, it may change from release to release). Written
-> and tested with Claude Code 2.1.289. The skills work without the panes.
+> The panes are built on Claude Code's mod API (early access, it may change from release to release). Checked
+> with Claude Code 2.1.309 (desktop app) and 2.1.314 (CLI), see [Compatibility](#compatibility). The skills work
+> without the panes.
 
 ## Install
 
@@ -91,6 +92,31 @@ base, run `/hga:init join <git URL>` instead. Update with `claude plugin update 
 check also offers to repair it, and asks the choices the team configuration lacks (deferred by `quick` or an
 older version) — a moved knowledge base, an invalid configuration field, a leftover
 `labels.closed` (moved to `labels.closing` or removed), template files a newer plugin version added.
+
+### Compatibility
+
+What works in which Claude Code environment. **works**: the feature ran in the desktop app, or its skill and
+the tools it needs were in the session (in the CLI: `claude -p`'s tool list). **degraded**: what happens
+instead. **not tested**: nobody has checked it yet.
+
+| Feature | Claude Code CLI | Desktop app | Cloud session |
+|---|---|---|---|
+| [`/hga:init`](skills/init/SKILL.md) | works | works | not tested |
+| [`/hga:intent`](skills/intent/SKILL.md) | works | works | not tested |
+| [`/hga:new-issue`](skills/new-issue/SKILL.md) | works | works | not tested |
+| [`/hga:triage`](skills/triage/SKILL.md) branches A–C | works | works | not tested |
+| [`/hga:issue`](skills/issue/SKILL.md) | works | works | not tested |
+| [`/hga:knowledge`](skills/knowledge/SKILL.md) | works | works | not tested |
+| [Panes and progress band](#the-panes) | not tested — the `mcp__hga__*` tools load, the display was not checked | works | not tested |
+| `/hga:triage` parallel launch (branch D) | degraded — no session tools: prints the prompt to start the implementation by hand | works | not tested |
+| Live test, built-in browser | not available — the live test uses Claude in Chrome if the session has it | works | not tested |
+| Live test, Claude in Chrome | not tested — `claude -p` loads no Chrome tools (`claude --chrome` enables them) | works | not tested |
+| [`/hga:dashboard`](skills/dashboard/SKILL.md) | works | works | not tested |
+| Slack claims and reports (with a Slack MCP connector) | works | works | not tested |
+
+Checked on Windows 11, Claude Code 2.1.314 (CLI) and 2.1.309 (desktop app), 2026-10-30. On Windows the skills
+run `python` instead of `python3`, and a named time zone (`timezone`) needs `pip install tzdata`. macOS and
+Linux: not tested.
 
 ## Configuration
 
