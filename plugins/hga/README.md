@@ -239,7 +239,7 @@ issue, the counter and the elapsed time, below it a progress bar per section; ea
 (`5/5 ›`, `1/2 · 1 skipped ›`), and only the running section is open, with its steps and evidence. Clicking a
 section's name opens or closes it.
 
-![The issue pane mid-run: four sections, the running Review section open with its evidence](docs/issue-panel.png)
+![The issue pane near the end of a run: four sections, Finish open with one skipped step, three manual review points](docs/issue-panel.png)
 
 - Steps: ✓ done (green) · ◐ in progress · ! skipped, with the reason · ○ not yet. Section icons: ☰ Prepare,
   ✎ Build, ⌕ Review, ⚑ Finish. One accent color (the running step and the bar), green checks and a warning
@@ -280,7 +280,7 @@ In the same style: the running implementations of the repository (with a slot co
 `parallel.max_per_repo`), the finished ones, the current triage branch with the five verdicts, and the issue
 groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In progress, In review, Untriaged).
 
-![The triage panel: branch B with the five verdicts, one running implementation, the issue groups](docs/triage-panel.png)
+![The triage panel: the plan usage, four free implementation slots, the finished runs and the issue groups](docs/triage-panel.png)
 
 - **Launch:** the implementation starts as a **subtask** of the triage session (`start_session`,
   `use_worktree: true`, without `cwd` — the main checkout is the same project, so the app would drop a `cwd`;
