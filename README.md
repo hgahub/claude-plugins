@@ -5,6 +5,8 @@ Claude Code plugins by [hgahub](https://github.com/hgahub), in one plugin market
 > The panes use Claude Code's mod API, which is in early access and may change between releases. Written and
 > tested with Claude Code 2.1.289.
 
+<img src="plugins/hga/docs/issue-run.gif" width="640" alt="A real /hga:issue run on a small demo app: the live test in the browser pane on the left, the issue pane with its 13 steps on the right">
+
 ## Install
 
 ```
