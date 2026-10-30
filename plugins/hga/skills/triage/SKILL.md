@@ -130,6 +130,21 @@ validated, and the worktree is gone.
 1. If branch A has not run for this issue in this session, run it first.
 2. **Decisions:** ask the open questions with `AskUserQuestion` and record the answers with the date. A
    decision skill (e.g. TypeSafe) only on request.
+
+2a. **Split — a large issue of independent parts.** Only if both hold: the Effort is `High` (`HGA meta`, or
+   branch A's size estimate on D.2's scale), **and** the implementation falls into parts that do not share a
+   change (separate modules or data formats; each with its own acceptance criteria and regression test). Ask
+   (`AskUserQuestion`): "Split into N issues (Recommended)" — one line per part — / "Keep it as one". A split
+   pays in smaller reviews and in parallel runs, not in total time, so parts that must land together stay one
+   issue. On a split, the maintainer's answer is the decision (with the date, under "Decisions"):
+   - each part becomes a new issue with the body of point 3, `**Ref:** #<parent> (split, <date>)`, created and
+     read back (`gh issue create … --body-file`, then `gh issue view <m> --json body`), and `HGA track`;
+   - where one part needs another first, `HGA block <owner/repo> <m> --by <k>`;
+   - the parent's body (point 3) keeps the goal and lists the parts under "Not part of it"; it gets no state
+     label and stays open for the maintainer to close;
+   - points 3–9 then run for each part; branch D launches the ones without an open prerequisite, within
+     `parallel.max_per_repo`.
+
 3. **The body** is the implementer's contract (GitHub's edit history keeps the old one). `Write` it to the
    scratchpad, in this structure:
    ```
@@ -158,8 +173,8 @@ validated, and the worktree is gone.
    asking. Otherwise ask (`AskUserQuestion`): "Launch a parallel implementation now (Recommended)", "Not now" —
    the user may want to implement it in this session, or only prepare issues.
 
-**Done** when the body, the edges and the label are read back, the note is validated, and (outside continuous
-mode) the user answered the launch question.
+**Done** when the body, the edges and the label are read back (after a split: for each part, and the parent's
+body), the note is validated, and (outside continuous mode) the user answered the launch question.
 
 ## C. Next issue
 

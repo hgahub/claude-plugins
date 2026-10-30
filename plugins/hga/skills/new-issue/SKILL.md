@@ -67,6 +67,6 @@ the issue number is committed (and pushed, with a remote).
 
 ## Boundaries
 
-- One call, one issue. If the intent is too big for one, propose splitting it in `/hga:intent` — do not split it
-  yourself.
+- One call, one issue. If the intent looks too big for one, say so in the report: splitting is the triage's
+  (`/hga:triage`, branch B, point 2a) — do not split it yourself.
 - No Slack message, label, milestone or assignee.
