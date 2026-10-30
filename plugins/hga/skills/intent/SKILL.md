@@ -1,6 +1,6 @@
 ---
 name: intent
-description: Use when someone describes, in a few sentences, something they want built, changed or fixed in one of the team's applications and it is not yet a GitHub issue — the step before /hga:triage. Interviews and researches (knowledge base, the default branch's code, existing issues, primary docs) until the picture is complete, writes an intent.md into the knowledge base, gates it with intent_check.py (PASS / WARN / BLOCK), then turns it into an issue with /hga:new-issue and hands it to /hga:triage. Triggers include "I have an idea", "I want the app to…", "let's write down the intent", "draft an intent", "intent.md", "capture what we want", "write a spec for this request". Works for any GitHub repository.
+description: Use when someone describes, in a few sentences, something they want built, changed or fixed in one of the team's applications and it is not yet a GitHub issue — the step before /hga:triage. Interviews and researches (knowledge base, the default branch's code, existing issues, primary docs) until the picture is complete, writes an intent.md into the knowledge base, gates it with intent_check.py (PASS / WARN / BLOCK), then turns it into an issue with /hga:new-issue and hands it to /hga:triage. A small, clear development request ("fix the date format on the export", "make this field required") takes its fast lane instead — a ready-for-agent issue with one approval, then /hga:issue in the same session. Triggers include "I have an idea", "I want the app to…", "let's write down the intent", "draft an intent", "intent.md", "capture what we want", "write a spec for this request", "make this small change", "fix this, there is no issue yet". Works for any GitHub repository.
 user-invocable: true
 argument-hint: "[the intent in a few sentences] — empty: it asks"
 ---
@@ -14,6 +14,9 @@ done*. The intent goes into the knowledge base, an issue is made from it, and th
 ```
 /hga:intent  →  /hga:new-issue  →  /hga:triage  →  /hga:issue
  intent         issue              preparation      implementation
+
+/hga:intent (fast lane: small and clear)  →  /hga:issue
+ a ready-for-agent issue, one approval        implementation, in the same session
 ```
 
 **Ask only a question whose answer changes the outcome**; a non-blocking uncertainty goes under "Open
@@ -57,7 +60,8 @@ questions" instead of holding up the work.
 | 7 | Issue | `/hga:new-issue` created it, read back |
 | 8 | Handoff | the triage started, or the report says where to start it |
 
-Stations 2 and 3 alternate in rounds until `ICHK` is PASS, or a justified WARN.
+Stations 2 and 3 alternate in rounds until `ICHK` is PASS, or a justified WARN. A small, clear request takes the
+**fast lane** after station 1 (1a): no intent.md, a `ready-for-agent` issue, then `/hga:issue`.
 
 ### 0. Intent
 
@@ -79,6 +83,59 @@ Stations 2 and 3 alternate in rounds until `ICHK` is PASS, or a justified WARN.
   needed after all. Related issues go under "Current state".
 - **Code:** search the scratch worktree by the concept (function, field, endpoint, screen), and say where you
   searched.
+
+### 1a. Fast lane — a small, clear request
+
+A request whose *what* is already known does not need the interview and the intent.md: it goes straight to a
+`ready-for-agent` issue and into `/hga:issue`. Decide after station 1, from what it found — **all** must hold:
+
+1. **Clear:** one behavior to change, its expected result stated by the author, and the place found in the code
+   (function or file, with the SHA). No blocking question; a detail the code answers is not a question.
+2. **Small:** the expected change stays within `size.small`'s files (`HGA config` → `size`; tests and docs do not
+   count), in one module.
+3. **Not high:** no expected file matches `risk.high_paths` (with the repository's `risk.repos` entry), and it
+   is not about authentication, permissions, a migration or a data format.
+4. **No open duplicate** (station 1's search).
+5. **The author did not ask for a full intent.**
+
+If one fails, say which in one line and go on with station 2. The author may ask for either path at any point.
+This is an expectation, not the class: `/hga:issue`'s `HGA risk` still sets the track, so a change that turns
+out bigger gets the standard gates.
+
+**Stations in the fast lane** (pane: each `done` or `skipped`, evidence `fast lane: <the reason>`):
+
+| # | Station | In the fast lane |
+|---|---|---|
+| 2 | Interview | `skipped` — nothing to ask |
+| 3 | Research | `skipped`, or `done` if a detail needed a look (with the SHA) |
+| 4 | Draft | the issue body (below) in the scratchpad; no `ICHK` — it checks an intent.md |
+| 5 | Approval | one `AskUserQuestion`: "Create the issue and implement it now (Recommended)" / "Create the issue only" / "Write a full intent instead" (→ station 2) |
+| 6 | Knowledge base | `skipped` — no note; the issue and the PR are the record |
+| 7 | Issue | created directly, not through `/hga:new-issue` (that needs an intent.md) |
+| 8 | Handoff | `/hga:issue` in this session, or the command for it |
+
+**The body** — the implementer's contract, in the triage's finalized structure (`language` from `HGA config`):
+
+```
+**Ref:** fast lane of /hga:intent · <date> · <author> · related: #… (why)
+
+> <the request, verbatim>
+
+## Goal                     one or two sentences: what must be true afterwards
+## Current behavior         the mechanism, with function and type names (origin/<default-branch> `<sha>`)
+## Implementation           behavior and key interfaces: what it returns, stores, prints
+## Acceptance criteria      numbered, each checkable on its own; the regression test that fails on the
+                            base, and the live check if the UI shows it
+## Not part of it           the boundaries
+```
+
+**Station 7:** `gh issue create --repo <owner/repo> --title "<title>" --body-file <file>`, then
+`gh issue view <n> --json title,body` must match. Then `HGA track <owner/repo> <n>`,
+`HGA meta <owner/repo> <n> --type <Bug|Feature|Task> --effort Low` (skip `n/a` fields), and
+`HGA triage-state <owner/repo> <n> ready-for-agent` — the fast lane is its triage. Report `issue` to the pane.
+
+**Station 8:** with "implement it now" and `HGA repo-check <owner/repo>` OK, load the `hga:issue` skill with the
+issue URL in this session; otherwise give `/hga:issue <issue URL>` for the repository's checkout.
 
 ### 2. Interview
 
@@ -234,9 +291,13 @@ closed." If it names stations not closed, close them with their evidence, and th
 - the open questions, with their owners;
 - the next step (the triage started here / the command for the triage session).
 
+**Fast lane:** the report comes before station 8 loads `/hga:issue` — the request in one sentence, the issue's
+link with its `HGA meta` line and `ready-for-agent`, the five conditions in one line, and the next step.
+
 **Done** when the note is validated and pushed (or committed, for a local-only knowledge base), the issue exists
 read back (or the author asked for no issue), the pane shows every station closed, and the report named the next
-step.
+step. In the fast lane there is no note: done when the issue is read back with `ready-for-agent`, the pane shows
+every station closed, and `/hga:issue` is loaded (or its command given).
 
 ## Boundaries
 

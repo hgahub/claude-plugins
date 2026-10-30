@@ -8,7 +8,18 @@ went, and **[`/hga:init`](skills/init/SKILL.md)** sets everything up.
 
 ```
 /hga:intent → /hga:new-issue → /hga:triage → /hga:issue
+/hga:intent (fast lane: small and clear) ────→ /hga:issue
 ```
+
+**Where to start:**
+
+- There is no issue yet, only an idea or a request → [`/hga:intent`](skills/intent/SKILL.md). A small, clear
+  request takes its fast lane: a `ready-for-agent` issue with one approval, then
+  [`/hga:issue`](skills/issue/SKILL.md) in the same session.
+- There is an issue, but it is not ready → [`/hga:triage <issue>`](skills/triage/SKILL.md).
+- What should I work on next? → [`/hga:triage`](skills/triage/SKILL.md).
+- The issue is ready (`ready-for-agent`) → [`/hga:issue <issue>`](skills/issue/SKILL.md).
+- What do we know about X? → [`/hga:knowledge`](skills/knowledge/SKILL.md).
 
 The groups below describe each skill's primary role. All seven skills can be invoked by either the user or
 Claude; the grouping does not restrict invocation.
@@ -21,7 +32,7 @@ Entry points for setting up the plugin, starting work and inspecting results. Tr
 | Command | What it does |
 |---|---|
 | [`/hga:init [quick \| new \| join <URL> \| check]`](skills/init/SKILL.md) | `quick`: a local setup with the defaults and at most two questions; otherwise checks the prerequisites, creates or joins the knowledge base (a private GitHub repository, another git host, or local only), writes the machine and team configuration and a short usage guide in the team's language (`workflow/hga-guide.md`, optionally a Docs copy), and on a re-run repairs what the check found |
-| [`/hga:intent [intent]`](skills/intent/SKILL.md) | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage |
+| [`/hga:intent [intent]`](skills/intent/SKILL.md) | Interviews (1–3 questions per round) and researches (knowledge base, the default branch, issues, docs) until the picture is complete; an intent.md under `notes/`, with a readiness gate (`intent_check.py`: PASS / WARN / BLOCK) and the author's approval; then the issue and the triage. A small, clear request takes the fast lane instead: no intent.md, a `ready-for-agent` issue in the triage's finalized form with one approval, then `/hga:issue` in the same session |
 | [`/hga:triage [issue]`](skills/triage/SKILL.md) | Vets an issue (five questions), finalizes it for implementation, picks the next one, launches a parallel implementation session |
 | [`/hga:issue <issue>`](skills/issue/SKILL.md) | Claim (Slack or GitHub, read back: the earliest claim wins) → In Progress → worktree → build and test, live test in the browser (with a tester's verdict and fix rounds) → PR → review → In review → cleanup → knowledge base → report, on a verified checklist |
 | [`/hga:dashboard [refresh]`](skills/dashboard/SKILL.md) | A claude.ai Dashboard over the metrics records: lead time, elapsed per section, tokens and an API-price cost estimate per section and model, review rounds, the account's five-hour usage — filterable by repository and period; creates it on first use, refreshes it afterwards |

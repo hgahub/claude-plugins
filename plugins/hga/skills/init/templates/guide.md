@@ -29,7 +29,18 @@ This page describes **our** setup; `/hga:init` rewrites it whenever the settings
 ```
 idea → /hga:intent → /hga:new-issue → /hga:triage → /hga:issue → reviewed PR → merge
                                                         ↘ /hga:knowledge (along the way)
+small, clear request → /hga:intent (fast lane) ───────→ /hga:issue
 ```
+
+**Where to start:**
+
+- No issue yet, only an idea or a request → `/hga:intent`. A small, clear request (one behavior, a few files,
+  nothing about auth, permissions or data formats) takes the fast lane: one approval, a `ready-for-agent` issue,
+  and the implementation starts in the same session.
+- There is an issue, but it is not ready → `/hga:triage <issue URL>`.
+- What should I work on next? → `/hga:triage`.
+- The issue is `ready-for-agent` → `/hga:issue <issue URL>`.
+- What do we know about X? → `/hga:knowledge`.
 
 | Step | Command | What happens | What you do |
 |---|---|---|---|
