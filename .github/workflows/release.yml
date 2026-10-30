@@ -58,3 +58,17 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "$RELEASE_TAG"
           fi
+      - name: Move stable to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          # Users add the marketplace at #stable, so this is what a plugin update installs. Fast-forward only:
+          # an older tag leaves stable alone, and a stable that is not an ancestor of the tag fails here.
+          if ! git rev-parse -q --verify refs/remotes/origin/stable >/dev/null; then
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/heads/stable -f sha="$GITHUB_SHA"
+          elif git merge-base --is-ancestor "$GITHUB_SHA" origin/stable; then
+            echo "stable already contains $RELEASE_TAG; leaving it unchanged."
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" -f sha="$GITHUB_SHA" -F force=false
+          fi

@@ -64,3 +64,13 @@ def test_mismatched_manifests_block_checks_and_bumps(tmp_path):
         version["check"](tmp_path)
     with pytest.raises(ValueError, match="differ"):
         version["bump"]("100.0.0", tmp_path)
+
+
+def test_installs_follow_stable_and_releases_move_it():
+    # An update installs what the marketplace's ref holds: the docs pin #stable, and only a release moves it.
+    for doc in ("README.md", "plugins/hga/README.md", "docs/quickstart.md"):
+        adds = [line for line in (ROOT / doc).read_text(encoding="utf-8").splitlines()
+                if line.startswith("claude plugin marketplace add ")]
+        assert adds == ["claude plugin marketplace add hgahub/claude-plugins#stable"], doc
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "refs/heads/stable" in release and "force=false" in release and "--force" not in release

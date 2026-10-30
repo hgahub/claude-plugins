@@ -67,7 +67,7 @@ while an intent is running.
 ## Install
 
 ```
-claude plugin marketplace add hgahub/claude-plugins
+claude plugin marketplace add hgahub/claude-plugins#stable
 claude plugin install hga@hga-plugins
 ```
 
@@ -75,7 +75,8 @@ Then run [`/hga:init quick`](skills/init/SKILL.md) once per machine: a local kno
 (status labels, GitHub's own closing, GitHub comments instead of Slack, local review), after at most two
 questions. `/hga:init` changes any of it later and offers the choices `quick` skipped; to join a team's knowledge
 base, run `/hga:init join <git URL>` instead. Update with `claude plugin update hga@hga-plugins`, then
-`/reload-plugins` (or a new session).
+`/reload-plugins` (or a new session): `#stable` follows the releases, so an update installs the latest release.
+Added the marketplace without `#stable`? [Move it once](../../docs/releases.md#what-an-update-installs).
 
 **Prerequisites** — without them the skills stop, they do not break anything:
 

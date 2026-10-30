@@ -18,7 +18,7 @@ the first run.
 In a terminal:
 
 ```
-claude plugin marketplace add hgahub/claude-plugins
+claude plugin marketplace add hgahub/claude-plugins#stable
 claude plugin install hga@hga-plugins
 ```
 

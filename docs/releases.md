@@ -41,17 +41,33 @@ The tag push is the publication decision. `.github/workflows/release.yml` then:
    to this reusable-workflow call.
 3. Creates a GitHub Release with generated notes from merged PRs and GitHub's source archives, after all
    checks pass. Write access is limited to this final job; the built-in `GITHUB_TOKEN` is sufficient.
+4. Moves the `stable` branch to the tagged commit, creating it on the first release. It only fast-forwards:
+   a tag older than `stable` leaves it unchanged.
 
-Check the **Release** run in Actions and the resulting release on GitHub. No npm credentials or npm publish
-step are needed. No tag or release is created merely by merging the workflow or the version PR.
+Check the **Release** run in Actions, the resulting release on GitHub, and that `stable` points at the tag
+(`git ls-remote origin stable`). No npm credentials or npm publish step are needed. No tag, release or `stable`
+move is created merely by merging the workflow or the version PR.
+
+## What an update installs
+
+Users add the marketplace at the `stable` branch (`claude plugin marketplace add hgahub/claude-plugins#stable`),
+so `claude plugin update hga@hga-plugins` installs the latest release, never an unreleased commit. `main` is the
+development line. An update brings a new copy only when the plugin's `version` changes, which each release does.
+
+An installation added without `#stable` follows `main`. Adding the marketplace again does not change its source,
+so move it once; removing the marketplace uninstalls the plugin, but hga keeps its configuration and knowledge
+base outside the plugin (`~/.claude/hga/`, the knowledge base folder), and both stay:
+
+```sh
+claude plugin marketplace remove hga-plugins
+claude plugin marketplace add hgahub/claude-plugins#stable
+claude plugin install hga@hga-plugins
+```
 
 ## Retry and corrections
 
 For a transient runner or publication failure, rerun the failed jobs in the same Actions run. An existing
 release is left unchanged, and a tag moved or removed while CI ran prevents publication. Never force-move
 a published version tag. For a code, manifest or workflow defect, fix it in a PR, choose a higher version,
-merge and push a new tag.
-
-The GitHub Release is a tested source snapshot and changelog. The current marketplace installation tracks
-the Git repository's default branch; this workflow does not turn plugin updates into release-only delivery.
-Users continue to update with `claude plugin update hga@hga-plugins` and `/reload-plugins`.
+merge and push a new tag. If the `stable` step failed after the release was created, rerunning the job moves it;
+never push to `stable` by hand.
