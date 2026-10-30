@@ -65,7 +65,7 @@ may ask you a question if a decision is open; answer it or pick the default it o
 
 ## Expected time and tokens
 
-Measured on four runs of this plugin's own issues: 16 to 28 minutes of active work per issue, plus 1 to 2 minutes
+Measured on four runs of this plugin's own issues: 7 to 28 minutes of active work per issue, plus under 2 minutes
 of waiting for the review. Output tokens were 32,000 to 50,000 per run. Most of the total is the context re-read
 on every call: 6 to 15 million cache-read tokens. The sample issue is smaller than those, so expect the lower end.
 These numbers are an estimate from a few runs, not a promise.
