@@ -17,8 +17,8 @@ defaults (status labels, GitHub comments, local review), after at most two quest
 it later and offers the choices `quick` skipped. Update with `claude plugin update hga@hga-plugins`, then
 `/reload-plugins` (or a new session).
 
-New here? The [quickstart](docs/quickstart.md) takes you from this install to a reviewed pull request on a sample
-repository.
+New here? The [quickstart](docs/quickstart.md) takes you from this install to a reviewed pull request in a
+repository of your own.
 
 ## Plugins
 
