@@ -8,14 +8,15 @@ Claude Code plugins by [hgahub](https://github.com/hgahub), in one plugin market
 ## Install
 
 ```
-claude plugin marketplace add hgahub/claude-plugins
+claude plugin marketplace add hgahub/claude-plugins#stable
 claude plugin install hga@hga-plugins
 ```
 
 Then run [`/hga:init quick`](plugins/hga/skills/init/SKILL.md) in Claude Code: a local knowledge base with the
 defaults (status labels, GitHub comments, local review), after at most two questions. `/hga:init` changes any of
 it later and offers the choices `quick` skipped. Update with `claude plugin update hga@hga-plugins`, then
-`/reload-plugins` (or a new session).
+`/reload-plugins` (or a new session): `#stable` follows the releases, so an update installs the latest release.
+Added the marketplace without `#stable`? [Move it once](docs/releases.md#what-an-update-installs).
 
 New here? The [quickstart](docs/quickstart.md) takes you from this install to a reviewed pull request in a
 repository of your own.
