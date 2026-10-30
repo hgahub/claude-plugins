@@ -1260,6 +1260,11 @@ def test_risk_from_a_worktree(hga, tmp_path, monkeypatch, capsys):
     assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main", "--json"]) == 0
     got = json.loads(capsys.readouterr().out)
     assert (got["risk"], got["size"], got["size_files"], got["size_lines"]) == ("standard", "medium", 1, 70)
+    assert (got["track"], got["gates"]) == ("standard", ["every step as the skill describes it"])
+    (wt / "app.py").write_text("x = 1\n", encoding="utf-8")  # small: the quick track
+    assert hga.main(["risk", "acme/web-app", "--worktree", str(wt), "--base", "main"]) == 0
+    out = capsys.readouterr().out
+    assert "Track: quick\nGates: 4 Decisions: not_applicable if nothing was decided · 8 Review: one local round" in out
     # nothing changed: exit 4
     gitrun(wt, "switch", "-q", "--discard-changes", "main")
     (wt / "app.py").unlink()
@@ -1303,6 +1308,7 @@ def test_risk_from_a_pr_with_its_labels(hga, monkeypatch, capsys):
     assert out.startswith("Risk: high · 1 file(s) match a high pattern · 4 file(s), PR #7")
     assert "high  src/auth/login.py  (**/auth/**)" in out
     assert "Size: small · 3 file(s), 15 changed line(s) outside the low patterns" in out  # README.md: low
+    assert "Track: high" in out  # high wins over small
     assert hga.main(["risk", "acme/web-app", "--pr", "7", "--issue", "6", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["reasons"] == ["label risk:high", "1 file(s) match a high pattern"]
     with pytest.raises(SystemExit):
@@ -1501,7 +1507,7 @@ def test_evidence_step3_worktree(hga, ev, gitenv, tmp_path, capsys):
     assert hga.main(["evidence", "acme/api", "18", "--step", "3", "--worktree", str(wt)]) == 1
 
 
-def fake_gh(hga, monkeypatch, view, runs="", statuses="", files="1\tapp.py\n", pr_labels=(), labels=(), follow_up=None):
+def fake_gh(hga, monkeypatch, view, runs="", statuses="", files="61\tapp.py\n", pr_labels=(), labels=(), follow_up=None):
     def gh(*args):
         if args[:2] == ("pr", "view"):
             return json.dumps(list(pr_labels)) if "labels" in args else json.dumps(view)
@@ -1616,9 +1622,14 @@ def test_evidence_step8_bot_provider_needs_a_clean_review_of_the_head(hga, ev, t
     write(tmp_path / "kb" / "hga.config.json", {"review": {"provider": "copilot"}})
     hga.save_evidence("acme/web-app", 18, {**hga.load_evidence("acme/web-app", 18),
                                            "steps": {"7": {"ok": True, "at": "x", "facts": [], "pr": 7, "head": A}}})
-    fake_gh(hga, monkeypatch, pr(A), files="1\tapp.py\n")
+    fake_gh(hga, monkeypatch, pr(A), files="61\tapp.py\n")
     assert evidence(hga, 8, "--pr", "7") == 1
     assert "FAILED bot_review_clean · standard class: no clean copilot review of aaaaaaa" in capsys.readouterr().out
+    # a small standard change takes the quick track: no bot round; the tests don't make it bigger
+    fake_gh(hga, monkeypatch, pr(A), files="60\tapp.py\n300\ttests/test_app.py\n")
+    assert evidence(hga, 8, "--pr", "7") == 0
+    assert "ok     bot_review_clean · quick track (standard, small: 1 file(s), 60 line(s)): no copilot round" \
+        in capsys.readouterr().out
     # a low class has no bot round
     fake_gh(hga, monkeypatch, pr(A), files="1\tREADME.md\n")
     assert evidence(hga, 8, "--pr", "7") == 0
@@ -1630,7 +1641,7 @@ def test_evidence_step8_bot_provider_needs_a_clean_review_of_the_head(hga, ev, t
     data["reviews"] += [{"provider": "copilot", "head": A, "result": "clean", "at": "x"},
                         {"provider": "copilot", "head": B, "result": "clean", "at": "y"}]
     hga.save_evidence("acme/web-app", 18, data)
-    fake_gh(hga, monkeypatch, pr(B), files="1\tapp.py\n")
+    fake_gh(hga, monkeypatch, pr(B), files="61\tapp.py\n")
     assert evidence(hga, 8, "--pr", "7") == 0
     assert "head_unchanged · PR head bbbbbbb = the latest review" in capsys.readouterr().out
 

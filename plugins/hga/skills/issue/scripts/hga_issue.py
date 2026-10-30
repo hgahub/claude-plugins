@@ -100,7 +100,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       files. Prints the class, each file's match and the gates the class changes: the evidence of a
       not_applicable step. Also the size class (`size.*`), over the files that match no low pattern: `small`
       up to size.small's files and changed lines, `large` above size.large's files or lines, `medium`
-      between. Exit 4 if there is no changed file.
+      between; and the track whose gates apply: the class, or `quick` for a small standard change (one local
+      review round, no bot). Exit 4 if there is no changed file.
   gate <owner/repo> <n> --worktree <dir> -- <command…>
       Runs the gate's command in the worktree, its output passed through, and exits with its exit code. It
       appends a `gates` entry (command, exit code, start, end, the worktree's HEAD) to the issue's evidence
@@ -115,8 +116,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       head is the worktree's HEAD, and it closes the issue — or, with `labels.closing`, --partial or a base other
       than the default branch, its description says `Ref #n` and it does not close it (`labels.closing`: closes
       nothing). 8 (--pr): the PR's head is the step-7 record's or the latest review's, its CI checks finished
-      with success, skipped or neutral, and with a bot provider and a standard or high class a clean review of
-      the head is recorded (review-wait) — or, with --closed-with, the follow-up issue of the maintainer's
+      with success, skipped or neutral, and with a bot provider and a standard (not small: the quick track) or
+      high class a clean review of the head is recorded (review-wait) — or, with --closed-with, the follow-up issue of the maintainer's
       closing is open and names the PR. 9: the status step 9 sets reads back, and the issue is open. Exit 0 every fact passed,
       1 a fact failed (a failed read too), 64 a usage error.
   deps <owner/repo> <n>
@@ -1620,7 +1621,8 @@ def cmd_claim_check(a) -> int:
 # --- risk class: which gates a change needs ----------------------------------------------------
 
 RISK_CLASSES = ("low", "standard", "high")
-# The gates each class changes (the issue skill's gate matrix), printed with the class as its evidence.
+# The gates each track changes (the issue skill's gate matrix), printed with the class as its evidence. The track
+# is the risk class, except a small standard change: the quick track (track()).
 RISK_GATES = {
     "low": [
         "4 Decisions: not_applicable if nothing was decided",
@@ -1630,6 +1632,11 @@ RISK_GATES = {
         "11 Knowledge: not_applicable if nothing new was learned",
     ],
     "standard": ["every step as the skill describes it"],
+    "quick": [
+        "4 Decisions: not_applicable if nothing was decided",
+        "8 Review: one local round at medium level, no bot",
+        "11 Knowledge: not_applicable if nothing new was learned",
+    ],
     "high": [
         "4 Decisions: the maintainer's decision is required",
         "5 Build + tests: the new tests must fail on the base",
@@ -1694,6 +1701,11 @@ def classify_risk(files: list[str], low: list[str], high: list[str], labels: set
 
 
 SIZE_CLASSES = ("small", "medium", "large")
+
+
+def track(cls: str, size: str) -> str:
+    """Which gates apply: the risk class's, or the quick track's for a small standard change."""
+    return "quick" if (cls, size) == ("standard", "small") else cls
 
 
 def classify_size(rows: list[dict], lines: dict[str, int], limits: dict) -> tuple[str, int, int]:
@@ -1782,16 +1794,18 @@ def cmd_risk(a) -> int:
     low, high, high_label = risk_patterns(a.repo)
     cls, rows, reasons = classify_risk(sorted(files), low, high, labels, high_label)
     size, size_files, size_lines = classify_size(rows, files, cfg()["size"])
+    trk = track(cls, size)
     if a.json:
         print(json.dumps({"repo": a.repo, "risk": cls, "reasons": reasons, "source": source, "files": rows,
-                          "gates": RISK_GATES[cls], "size": size, "size_files": size_files,
-                          "size_lines": size_lines}, ensure_ascii=False))
+                          "gates": RISK_GATES[trk], "size": size, "size_files": size_files,
+                          "size_lines": size_lines, "track": trk}, ensure_ascii=False))
     else:
         print(f"Risk: {cls} · {'; '.join(reasons)} · {len(files)} file(s), {source}")
         for r in rows:
             print(f"  {r['kind']:<5} {r['file']}" + (f"  ({r['pattern']})" if r["pattern"] else ""))
         print(f"Size: {size} · {size_files} file(s), {size_lines} changed line(s) outside the low patterns")
-        print("Gates: " + " · ".join(RISK_GATES[cls]))
+        print(f"Track: {trk}")
+        print("Gates: " + " · ".join(RISK_GATES[trk]))
     if not files:
         print("no changed file: nothing to classify", file=sys.stderr)
         return 4
@@ -2084,9 +2098,14 @@ def review_facts(repo: str, num: int, pr: int, data: dict, view: dict, closed_wi
         return facts
     files, labels = pr_files_labels(repo, pr)
     low, high, high_label = risk_patterns(repo)
-    cls = classify_risk(files, low, high, labels | issue_labels(repo, num), high_label)[0]
+    cls, rows, _ = classify_risk(sorted(files), low, high, labels | issue_labels(repo, num), high_label)
+    size, size_files, size_lines = classify_size(rows, files, cfg()["size"])
     if cls == "low":
         facts.append(fact("bot_review_clean", True, f"low class: no {provider} round"))
+        return facts
+    if track(cls, size) == "quick":
+        facts.append(fact("bot_review_clean", True, f"quick track (standard, small: {size_files} file(s), "
+                                                    f"{size_lines} line(s)): no {provider} round"))
         return facts
     if closed_with:
         facts.append(closed_review_fact(repo, pr, closed_with))

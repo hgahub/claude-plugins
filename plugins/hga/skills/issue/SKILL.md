@@ -12,8 +12,8 @@ report last, because only the report may say that everything is finished.
 
 **Invoking the skill means the whole workflow**, even with a bare issue URL: claim, In Progress, worktree, build
 and tests, live test, PR, review and its fixes, In review, cleanup, knowledge base, report. Steps 0–3, 7, 9, 10 and 12
-are always required; the others follow the change's risk class ("Risk class"), which `HGA risk` sets — never your
-own judgment. Otherwise a step is skipped only if the user **explicitly** excludes it or it is technically
+are always required; the others follow the change's track — its risk class, or the quick track of a small
+standard change ("Risk class") — which `HGA risk` sets, never your own judgment. Otherwise a step is skipped only if the user **explicitly** excludes it or it is technically
 impossible; the PR and the report then say what was skipped and why. (Stopping after the PR "because the request
 did not ask for more" is the classic failure.)
 
@@ -71,7 +71,7 @@ it" is not evidence.
 | 5 | Build + automated tests | ✅ | every `HGA gate` command's latest run exited 0 on the current HEAD and files | new cases (low: ➖); how many fail on the base and why (high: all); the gate's numbers; `HGA risk --worktree`'s `Risk:` line |
 | 6 | Live test | ✅ ➖ | — | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); browser, start path; result per criterion; app stopped, port free — ➖ low |
 | 7 | PR | ✅ | PR open, head = worktree HEAD, closes the issue (or says `Ref #n` where step 7 uses it) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: nothing); follow-up issues (7a); high: `checks` not empty, rollback note |
-| 8 | Review | ✅ | head unchanged, CI green; with a bot (standard, high) a clean review of the head, or `--closed-with` | local review result and level; bot rounds and severities, 👍 on the head SHA, or the maintainer's closing + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line |
+| 8 | Review | ✅ | head unchanged, CI green; with a bot (standard, high; not quick) a clean review of the head, or `--closed-with` | local review result and level; bot rounds and severities, 👍 on the head SHA, or the maintainer's closing + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line |
 | 9 | In review | ✅ | step 9's status reads back, issue OPEN | read-back: `Status: In Review · issue: OPEN` |
 | 10 | Cleanup | ✅ | — | `launch.json` as before; worktree + local branch deleted; remote branch kept until merge |
 | 11 | Knowledge | ✅ ➖ | — | the note's path; `validate_kb` 0 errors; commit SHA after push — ➖ low, if nothing new was learned |
@@ -110,6 +110,11 @@ pane shows steps 0–11.** Without the tool, skip the pane.
 **Up only.** Only the `risk.high_label` label raises a class (added by the maintainer, or on their word). Nothing
 lowers it: the run's class is the highest `HGA risk` printed since step 5.
 
+**Quick track:** a `standard` change whose `Size:` is `small` (files outside the low patterns, within the team's
+`size.small`) takes the quick column below; `HGA risk` prints it as `Track: quick`. The size goes up only, like the
+class: the run's size is the largest since step 5, so a review fix that grows the change past small brings back the
+standard gates (the bot round) before step 9. `high` always wins; `low` keeps its own column.
+
 It runs three times:
 
 1. **Step 0, provisional:** no diff yet — compare the issue's labels with `risk.high_label`. Evidence:
@@ -117,22 +122,23 @@ It runs three times:
    provisional `high` applies to step 4 at once.
 2. **End of step 5** (decides step 6): `HGA risk <owner/repo> --worktree ../<repo>-<n> --issue <n>`. Exit 4 (no
    changed file): stop and look. Its `Size:` line (small / medium / large, from the files outside the low
-   patterns) changes no gate yet: it goes into the report and the metrics record, from its last run.
+   patterns) and `Track:` line come with it; the size goes into the report and the metrics record.
 3. **End of step 8** (review fixes can grow the diff): `HGA risk <owner/repo> --pr <pr> --issue <n>`. If the class
-   rose, do the higher class's missing gates before step 9; on the pane the step goes back to `in_progress`.
+   or the size rose, do the higher track's missing gates before step 9; on the pane the step goes back to
+   `in_progress`.
 
-| Step | low | standard | high |
-|---|---|---|---|
-| 4 Decisions | ➖ if nothing was decided | as described | the **maintainer's** decision: the issue's dated "Decisions", or their `AskUserQuestion` answer |
-| 5 Build + tests | the gate runs; new test cases ➖ | as described | every new test **fails on the base**, for the right reason |
-| 6 Live test | ➖ | as described | required; **only the maintainer can waive it** |
-| 7 PR | as described | as described | at least one `checks` point, and a **rollback** note in "Risk" |
-| 8 Review | **one** local round at `low`; **no bot** | as described | local at `high` every round, plus the bot |
-| 11 Knowledge | ➖ if nothing new was learned | as described | as described |
+| Step | low | quick (standard, small) | standard | high |
+|---|---|---|---|---|
+| 4 Decisions | ➖ if nothing was decided | ➖ if nothing was decided | as described | the **maintainer's** decision: the issue's dated "Decisions", or their `AskUserQuestion` answer |
+| 5 Build + tests | the gate runs; new test cases ➖ | as described | as described | every new test **fails on the base**, for the right reason |
+| 6 Live test | ➖ | as described | as described | required; **only the maintainer can waive it** |
+| 7 PR | as described | as described | as described | at least one `checks` point, and a **rollback** note in "Risk" |
+| 8 Review | **one** local round at `low`; **no bot** | **one** local round at `medium`; **no bot** | as described | local at `high` every round, plus the bot |
+| 11 Knowledge | ➖ if nothing new was learned | ➖ if nothing new was learned | as described | as described |
 
-A ➖ step goes to the pane as `not_applicable` with its `Risk:` line, and the PR and report say "not applicable
-(low)". Step 4 precedes the class: if nothing was decided, report it `done` ("nothing to decide: …"), then
-`not_applicable` if step 5 says low.
+A ➖ step goes to the pane as `not_applicable` with its `Risk:` line (quick: and its `Size:` line), and the PR
+and report say "not applicable (low)" or "(quick)". Step 4 precedes the class: if nothing was decided, report it `done` ("nothing to decide: …"), then
+`not_applicable` if step 5 says low or quick.
 
 ## What is allowed in advance, and what is not
 
@@ -344,14 +350,16 @@ decides (see "Risk class").
 | Class | Local review | Bot (`review.provider` ≠ `local`) |
 |---|---|---|
 | low | **one** round at `low`; fix real findings, no further round | **none** |
+| quick (standard, small) | **one** round at `medium`; fix real findings, no further round | **none** |
 | standard | `medium`, or `high` above 1000 changed lines | as below |
 | high | `high`, every round | as below |
 
 1. **Local review first, on every PR:** the `code-review` skill, without `--comment`, at the class's level
    (`gh pr view <pr> --json additions,deletions` for the size). Fix real findings (test, gate, commit, push).
    With `local` as provider this **is** the review: repeat after each fix round until nothing significant, with
-   the round limit of point 4. A low class's single round is the whole review (`--review-rounds 1`).
-2. **Bot** (standard and high): `HGA review-request <owner/repo> <pr>`, ~20 s after a push (too early fails with
+   the round limit of point 4. A low class's or the quick track's single round is the whole review
+   (`--review-rounds 1`).
+2. **Bot** (standard and high, not quick): `HGA review-request <owner/repo> <pr>`, ~20 s after a push (too early fails with
    "ref does not exist"). Then in the background: `HGA review-wait <owner/repo> <pr> --issue <n> --timeout-min 30`
    — exit 0 = 👍, 1 = findings (`severity · path:line · id · title`), 2 = timeout, 3 = the review failed. Only a
    bot review of the exact head commit counts; a clean one is recorded for step 8's machine check. Copilot and Greptile support is newer; if the output looks wrong, check the API
@@ -368,11 +376,12 @@ decides (see "Risk class").
 5. **Closing, if decided:** open findings into a follow-up issue (7a), each comment answered with its link; still
    fix severe findings and regressions, noting that no bot reviewed that fix; fill in the PR's "Review"; take
    round counts from `review-wait` or the API, not memory.
-6. **Then:** `HGA risk … --pr …` ("Risk class", point 3); a risen class's gates come before step 9.
+6. **Then:** `HGA risk … --pr …` ("Risk class", point 3); a risen track's gates come before step 9 — a quick
+   change that grew past small gets its bot round now.
 7. **Last action:** `HGA evidence <owner/repo> <n> --step 8 --pr <pr>` — the head is the one step 7's record or the
-   last clean bot review saw, CI on it finished success / skipped / neutral, and with a bot (standard, high) a clean
-   review of the head is recorded; if the maintainer closed the review, add `--closed-with <follow-up issue>` (open,
-   naming the PR). After fixes pushed without a bot round (local review, low class, closed review), run `--step 7`
+   last clean bot review saw, CI on it finished success / skipped / neutral, and with a bot (standard, high; not a
+   small standard PR) a clean review of the head is recorded; if the maintainer closed the review, add `--closed-with <follow-up issue>` (open,
+   naming the PR). After fixes pushed without a bot round (local review, low class, quick track, closed review), run `--step 7`
    again first. The local `code-review` result is not machine-checked: report it.
 
 ## 9. In review
@@ -435,7 +444,7 @@ the full report on the main one, a short pointer on each other. In the configure
 HGA metrics-record <owner/repo> <n> --difficulty medium --review-rounds 2 --risk standard --size small --effort low
 ```
 
-`--review-rounds`: the bot rounds, or the local rounds without a bot (1 for low); `--risk`: the run's class (omit
+`--review-rounds`: the bot rounds, or the local rounds without a bot (1 for low and quick); `--risk`: the run's class (omit
 if `HGA risk` never ran); `--size`: the last `Size:` line's class (omit likewise); `--effort`: step 0's Effort
 (omit if `n/a` or empty); `--session` per extra session. It overwrites step 1's run marker. Commit only that file:
 

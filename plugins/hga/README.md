@@ -128,7 +128,7 @@ Two layers, merged (`hga_issue.py config` prints the result; `config --repo <own
 | `live_test.browser` | `builtin` (the desktop app's browser) or `chrome` (Claude in Chrome): which one [`/hga:issue`](skills/issue/SKILL.md)'s live test tries first; the other one is the fallback. |
 | `parallel` | [`/hga:triage`](skills/triage/SKILL.md) launches at most `max_per_repo` implementations per repository, and none above `usage_ceiling_pct` of the 5-hour plan usage. |
 | `risk` | The risk classes of `hga_issue.py risk`: `high` if a changed file matches `high_paths` or the issue / PR has `high_label`; `low` if every file matches `low_paths`; `standard` otherwise. A pattern without `/` matches the file name anywhere; with `/`, the path from the repository root (`**` spans folders). A team's list replaces the default one. Per repository, `repos.<owner/repo>.low_paths` replaces the team's list and `high_paths` adds to it — e.g. a repository whose `*.md` files are runtime prompts sets its own `low_paths`. The class decides which steps of [`/hga:issue`](skills/issue/SKILL.md) may be `not_applicable`. |
-| `size` | The size class `hga_issue.py risk` prints next to the risk class, counted over the changed files that match no low pattern (tests and docs do not count): `small` up to `small.files` files and `small.lines` changed lines, `large` above `large.files` or `large.lines`, `medium` between. It changes no gate yet: it goes into the report and the metrics record, next to the issue's Effort, so the limits can be calibrated against the measured runs. |
+| `size` | The size class `hga_issue.py risk` prints next to the risk class, counted over the changed files that match no low pattern (tests and docs do not count): `small` up to `small.files` files and `small.lines` changed lines, `large` above `large.files` or `large.lines`, `medium` between. A `standard` change of size `small` takes the **quick track** of [`/hga:issue`](skills/issue/SKILL.md): one local review round at `medium`, no bot round (`hga_issue.py evidence --step 8` does not require one), and steps 4 and 11 may be `not_applicable`; the regression test, the gate and the live test stay. The size also goes into the report and the metrics record, next to the issue's Effort, so the limits can be calibrated against the measured runs. |
 
 `hga_issue.py config` prints a malformed field as a warning on stderr (the JSON still comes out); `doctor` counts
 it as a missing item.
@@ -239,8 +239,8 @@ section's name opens or closes it.
   checked the facts, not only that the model typed evidence. `HGA evidence <owner/repo> <n> --step N` checks them
   (the worktree and its base; the gate's exit code on the current HEAD and files, recorded by `HGA gate`; the
   PR's state, head and closing reference (or `Ref #n` where the skill uses it); an unchanged head, finished CI
-  and, with a review bot, a clean review of the head recorded by `review-wait` or the maintainer's closing with
-  its follow-up issue; the status read back) and writes
+  and, with a review bot (not for a low class or the quick track), a clean review of the head recorded by
+  `review-wait` or the maintainer's closing with its follow-up issue; the status read back) and writes
   `~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json`. The step tool rejects such a step's `done` when the
   record is missing, a fact failed, the entry was edited, or it is older than the step's `in_progress`.
   Still reported by the model, not checked: the local `code-review` result, test counts and base failures, the
