@@ -73,7 +73,7 @@ may also ask a question if a decision is open; answer it or pick the default it 
 
 Measured on five runs of this plugin's own issues, not on the sample: 7 to 28 minutes of active work per issue, plus
 under 2 minutes of waiting for the review. Output tokens were 32,000 to 50,000 per run. Cache-read tokens, which make
-up most of the total, were 5.5 to 15 million. The sample run adds an app start and a browser check, which these
+up most of the total, were 6 to 15 million. The sample run adds an app start and a browser check, which these
 figures do not include, so its time and tokens are not measured yet. These numbers are an estimate, not a promise.
 
 ## Next
