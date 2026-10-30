@@ -415,15 +415,32 @@ def test_review_wait_lists_inline_findings(hga, monkeypatch, capsys):
     assert "1 inline finding(s)" in capsys.readouterr().out
 
 
-def test_review_wait_short_sha_records_the_full_head(hga, monkeypatch, capsys):
+def test_review_wait_short_sha_records_the_full_head_and_step_8_passes(hga, tmp_path, monkeypatch, capsys):
     fake_review_api(hga, monkeypatch, [review("COMMENTED")])
-    saved = {}
-    monkeypatch.setattr(hga, "load_evidence", lambda repo, n: saved.get(n, {"steps": {}, "reviews": []}))
-    monkeypatch.setattr(hga, "save_evidence", lambda repo, n, data: saved.__setitem__(n, data))
+    monkeypatch.setattr(hga, "ISSUE_DIR", tmp_path / "issue")
+    hga.cfg()["review"]["provider"] = "copilot"
+    monkeypatch.setattr(hga, "pr_files_labels", lambda repo, pr: ({"plugins/hga/x.py": 100000}, set()))
+    monkeypatch.setattr(hga, "issue_labels", lambda repo, num: set())
+    monkeypatch.setattr(hga, "ci_facts", lambda repo, head: [hga.fact("ci", True, "ok")])
     code = hga.main(["review-wait", "a/b", "1", "--provider", "copilot", "--sha", HEAD[:7], "--issue", "5",
                      "--timeout-min", "1", "--interval", "0"])
     assert code == 0
-    assert [(r["provider"], r["head"], r["result"]) for r in saved[5]["reviews"]] == [("copilot", HEAD, "clean")]
+    assert [(r["provider"], r["head"], r["result"]) for r in hga.load_evidence("a/b", 5)["reviews"]] == [
+        ("copilot", HEAD, "clean")]
+    capsys.readouterr()
+    assert hga.main(["evidence", "a/b", "5", "--step", "8", "--pr", "1"]) == 0
+    assert "ok     bot_review_clean" in capsys.readouterr().out
+
+
+def test_review_wait_refused_record_is_not_a_success(hga, tmp_path, monkeypatch, capsys):
+    other = "abc1234" + "f" * 33  # a review of another commit, sharing the 8-character prefix sent as --sha
+    fake_review_api(hga, monkeypatch, [review("COMMENTED", commit=other)])
+    monkeypatch.setattr(hga, "ISSUE_DIR", tmp_path / "issue")
+    code = hga.main(["review-wait", "a/b", "1", "--provider", "copilot", "--sha", "abc1234f", "--issue", "5",
+                     "--timeout-min", "1", "--interval", "0"])
+    assert code == 6
+    assert "NOT recorded" in capsys.readouterr().out
+    assert hga.load_evidence("a/b", 5)["reviews"] == []
 
 
 def test_triage_labels_dropped_only_when_work_starts(hga):

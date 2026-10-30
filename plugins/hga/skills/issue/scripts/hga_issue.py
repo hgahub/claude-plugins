@@ -2455,29 +2455,24 @@ def wait_review(a, provider: str, head: str) -> tuple[int | None, dict | None]:
     return 2, None
 
 
-def record_review(a, provider: str, head: str) -> None:
+def record_review(a, provider: str, view: dict, head: str) -> bool:
     """A clean bot review of the head, in the issue's evidence record (step 8's check reads it): --issue, else the
-    issues the PR closes. The head is recorded in full (review_facts compares full SHAs): a short --sha is resolved
-    from the PR's headRefOid."""
-    try:
-        view = pr_view(a.repo, a.pr)
-        full = view.get("headRefOid") or ""
-        if not full.startswith(head):
-            print(f"warning: the review is not recorded: the PR head {full[:7]} does not start with {head[:7]}",
-                  file=sys.stderr)
-            return
-        head = full
-        issues = [a.issue] if a.issue else closing_refs(a.repo, view)
-    except RuntimeError as e:
-        print(f"warning: the review is not recorded: {e}", file=sys.stderr)
-        return
+    issues the PR closes. The head is recorded in full (review_facts compares full SHAs): a short --sha must be a
+    prefix of the PR's headRefOid. False when refused, so the caller does not report it as recorded."""
+    full = view.get("headRefOid") or ""
+    if not full.startswith(head):
+        print(f"warning: the review is not recorded: the PR head {full[:7]} does not start with {head[:7]}",
+              file=sys.stderr)
+        return False
+    issues = [a.issue] if a.issue else closing_refs(a.repo, view)
     if not issues:
         print("note: the review is not recorded: the PR closes no issue of this repository (pass --issue <n>)",
               file=sys.stderr)
     for n in issues:
         data = load_evidence(a.repo, n)
-        data["reviews"].append({"provider": provider, "head": head, "result": "clean", "at": _stamp()})
-        print(f"Recorded: the clean {provider} review of {head[:7]} in {save_evidence(a.repo, n, data)}")
+        data["reviews"].append({"provider": provider, "head": full, "result": "clean", "at": _stamp()})
+        print(f"Recorded: the clean {provider} review of {full[:7]} in {save_evidence(a.repo, n, data)}")
+    return True
 
 
 def cmd_review_wait(a) -> int:
@@ -2485,7 +2480,8 @@ def cmd_review_wait(a) -> int:
     if provider == "local":
         print("review provider is local: the review is the code-review skill's rounds, there is nothing to wait for")
         return 4
-    head = a.sha or json.loads(gh("pr", "view", str(a.pr), "--repo", a.repo, "--json", "headRefOid"))["headRefOid"]
+    view = pr_view(a.repo, a.pr)
+    head = a.sha or view["headRefOid"]
     comments = review = None
     changes_requested = False
     if provider == "codex":
@@ -2517,8 +2513,10 @@ def cmd_review_wait(a) -> int:
     rounds = count_rounds(provider, bot_reviews(a.repo, a.pr, provider), comments)
     if clean_result:
         print(f"Round: {rounds} · Result: no significant findings (👍)")
-        record_review(a, provider, head)
-        return 0
+        if record_review(a, provider, view, head):
+            return 0
+        print("Result: clean, but NOT recorded (see the warning above): step 8 cannot count it")
+        return 6  # a clean review that step 8 cannot count is not a success
     if changes_requested and not inline:
         print(f"Round: {rounds} · Result: changes requested in the review's body, no inline findings"
               f" · {review.get('html_url') or ''}")
