@@ -88,6 +88,11 @@ base, run `/hga:init join <git URL>` instead. Update with `claude plugin update 
 - Optional: a Slack MCP connector (claims and reports in a channel), Claude in Chrome or the built-in browser of
   the desktop app (live tests), a review bot on your repositories (Codex, Copilot or Greptile).
 
+[`/hga:init check`](skills/init/SKILL.md) (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor [--repo owner/repo]`) shows what is missing — with a board, also a status name it has no option for; the
+check also offers to repair it, and asks the choices the team configuration lacks (deferred by `quick` or an
+older version) — a moved knowledge base, an invalid configuration field, a leftover
+`labels.closed` (moved to `labels.closing` or removed), template files a newer plugin version added.
+
 ### Compatibility
 
 What works in which Claude Code environment. **works**: the feature ran in the desktop app, or its skill and
@@ -112,11 +117,6 @@ instead. **not tested**: nobody has checked it yet.
 Checked on Windows 11, Claude Code 2.1.314 (CLI) and 2.1.309 (desktop app), 2026-10-30. On Windows the skills
 run `python` instead of `python3`, and a named time zone (`timezone`) needs `pip install tzdata`. macOS and
 Linux: not tested.
-
-[`/hga:init check`](skills/init/SKILL.md) (or `python3 <plugin>/skills/issue/scripts/hga_issue.py doctor [--repo owner/repo]`) shows what is missing — with a board, also a status name it has no option for; the
-check also offers to repair it, and asks the choices the team configuration lacks (deferred by `quick` or an
-older version) — a moved knowledge base, an invalid configuration field, a leftover
-`labels.closed` (moved to `labels.closing` or removed), template files a newer plugin version added.
 
 ## Configuration
 
