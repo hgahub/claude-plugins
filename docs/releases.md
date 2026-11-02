@@ -8,7 +8,10 @@ Its version must agree in `plugins/hga/.claude-plugin/plugin.json` and the `hga`
 
 1. Start a branch or worktree from the current `origin/main`.
 2. Choose a higher version: patch for fixes, minor for compatible features, major for breaking changes.
-   While below 1.0, use a minor increment for breaking changes and call them out in the PR.
+   From 1.0 on, a change to anything the [stability promise](../plugins/hga/README.md#versioning-and-stability)
+   covers needs a major version and a migration note in the PR (what changes, what users run, what
+   `/hga:init check` detects); the experimental panes do not. While below 1.0, use a minor increment for breaking
+   changes and call them out in the PR.
 3. Run `python3 scripts/version.py --set X.Y.Z` with the chosen version. This updates both manifests;
    it does not commit, tag or push. Review both changes and describe the release's user-visible changes
    and any migration steps in the PR.
