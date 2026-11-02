@@ -60,7 +60,8 @@ while an intent is running.
 | [`/triage-pane [refresh \| owner/repo]`](#triage-panel) | Toggles the triage dashboard |
 | [`/intent-pane`](#intent-pane-and-progress-band) | Toggles the intent pane (the band above the prompt comes by itself) |
 
-> The panes are built on Claude Code's mod API (early access, it may change from release to release). Checked
+> The panes are experimental: they are built on Claude Code's mod API (early access, it may change from release to
+> release), and [versioning](#versioning-and-stability) does not cover them. Checked
 > with Claude Code 2.1.309 (desktop app) and 2.1.314 (CLI), see [Compatibility](#compatibility). The skills work
 > without the panes.
 
@@ -118,6 +119,31 @@ instead. **not tested**: nobody has checked it yet.
 Checked on Windows 11, Claude Code 2.1.314 (CLI) and 2.1.309 (desktop app), 2026-10-30. On Windows the skills
 run `python` instead of `python3`, and a named time zone (`timezone`) needs `pip install tzdata`. macOS and
 Linux: not tested.
+
+### Versioning and stability
+
+From 1.0 on, the version follows [SemVer](https://semver.org): a breaking change to anything below comes only with
+a major version.
+
+**Covered:**
+
+- the skill names (`/hga:init`, `/hga:intent`, `/hga:new-issue`, `/hga:triage`, `/hga:issue`, `/hga:knowledge`,
+  `/hga:dashboard`) and the arguments they take;
+- the team configuration (`<knowledge_dir>/hga.config.json`) and the user configuration (`~/.claude/hga/config.json`):
+  their keys and what the values mean, versioned by their `"schema"` field;
+- the knowledge base layout (its folders, `hga.config.json`, `metrics/`) and the page frontmatter
+  ([The knowledge base](#the-knowledge-base));
+- the metrics records (schema 1, [The metrics record](#the-metrics-record));
+- the `hga_issue.py` subcommands the skills call, with their arguments, exit codes and the output lines the skills
+  read.
+
+**Experimental, not covered:** the [panes](#the-panes), the progress band and anything else built on Claude Code's
+mod API. They may break or change with a Claude Code release, whatever this plugin's version; the skills work
+without them.
+
+**A breaking change brings** a major version, a migration note in its release PR and the release notes, and a
+`/hga:init check` (doctor) that detects the old format and offers the migration — for the configuration files,
+through their `"schema"` field.
 
 ## Configuration
 
@@ -262,6 +288,10 @@ The local review runs on every PR, whatever the provider. Copilot and Greptile s
 report problems as issues.
 
 ## The panes
+
+**Experimental.** The panes and the progress band run on Claude Code's mod API, which is in early access: a Claude
+Code release can change or break them regardless of this plugin's version, and they are not covered by its
+[versioning](#versioning-and-stability). The skills work without them.
 
 ### Issue pane
 

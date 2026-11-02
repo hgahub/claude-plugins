@@ -2,8 +2,9 @@
 
 Claude Code plugins by [hgahub](https://github.com/hgahub), in one plugin marketplace (`hga-plugins`).
 
-> The panes use Claude Code's mod API, which is in early access and may change between releases. Checked with
-> Claude Code 2.1.309 (desktop app) and 2.1.314 (CLI): see the [compatibility table](plugins/hga/README.md#compatibility).
+> The panes are experimental: they use Claude Code's mod API, which is in early access and may change between
+> releases, and the plugin's [versioning](plugins/hga/README.md#versioning-and-stability) does not cover them. Checked
+> with Claude Code 2.1.309 (desktop app) and 2.1.314 (CLI): see the [compatibility table](plugins/hga/README.md#compatibility).
 
 ## Install
 
