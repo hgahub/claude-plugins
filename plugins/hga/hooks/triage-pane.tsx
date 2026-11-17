@@ -93,7 +93,8 @@ const PHASE_SPEC = {
 }
 
 export function repoOf(remote: string | null | undefined): string | null {
-  const m = remote?.match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/)
+  // Also an SSH host alias of the `github.com-<name>` form (git@github.com-work:o/r.git), as hga_issue.py's REMOTE_RE.
+  const m = remote?.match(/github\.com(?:-[\w.-]+)?[:/]([^/:\s]+)\/([^/\s]+?)(?:\.git)?\/?$/)
   return m ? `${m[1]}/${m[2]}` : null
 }
 
