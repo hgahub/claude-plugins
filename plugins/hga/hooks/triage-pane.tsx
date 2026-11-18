@@ -99,7 +99,16 @@ export function repoOf(remote: string | null | undefined): string | null {
   return m ? `${m[1]}/${m[2]}` : null
 }
 
-const prefix = (r: string) => `${r.replace(/[^A-Za-z0-9_-]+/g, '-')}-`
+// The state files' name: owner/repo#n with every other character run as `-` (issue-pane.tsx: fileBase). The name
+// only narrows what is read: `acme-web-` is also the start of `acme/web-api`'s files, so the issue inside decides.
+const prefix = (r: string) => `${r.replace(/[^A-Za-z0-9_-]+/g, '-')}-`.toLowerCase()
+// The issue (owner/repo#n) belongs to this repository; GitHub names are case-insensitive.
+export const ofRepo = (issue: unknown, r: string): boolean => {
+  if (typeof issue !== 'string') return false
+  const id = issue.toLowerCase()
+  const head = `${r.toLowerCase()}#`
+  return id.startsWith(head) && /^\d+$/.test(id.slice(head.length))
+}
 // owner/repo#n → repo#n: the pane is per repository, the owner adds nothing.
 const short = (id: string) => id.replace(/^[^/#\s]+\//, '')
 const cut = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, Math.max(0, n - 1))}…`)
@@ -190,10 +199,12 @@ async function loadRunning($: EngineInterface): Promise<void> {
   try {
     if (await $.fs.exists(dir)) {
       for (const f of await $.fs.list(dir)) {
-        if (f.kind !== 'file' || !f.name.startsWith(prefix(r)) || !f.name.endsWith('.json')) continue
+        const name = f.name.toLowerCase()
+        // The evidence records (<owner>-<repo>-<n>.evidence.json) sit next to the state files: not read.
+        if (f.kind !== 'file' || !name.startsWith(prefix(r)) || !name.endsWith('.json') || name.endsWith('.evidence.json')) continue
         try {
           const data = JSON.parse(await $.fs.read(`${dir}/${f.name}`)) as Running
-          if (Array.isArray(data.steps) && typeof data.updatedAt === 'number') list.push(data)
+          if (Array.isArray(data.steps) && typeof data.updatedAt === 'number' && ofRepo(data.issue, r)) list.push(data)
         } catch {
           // half-written or broken file: retried on the next round
         }
@@ -202,8 +213,14 @@ async function loadRunning($: EngineInterface): Promise<void> {
   } catch {
     // no file system access: the running section stays empty
   }
+  // One issue reported under two spellings (acme/web#5, Acme/Web#5) has two files: the newer one stands for it.
+  const latest = new Map<string, Running>()
+  for (const f of list) {
+    const k = f.issue.toLowerCase()
+    if ((latest.get(k)?.updatedAt ?? -Infinity) < f.updatedAt) latest.set(k, f)
+  }
   const h2 = await read($, hidden)
-  const visible = list
+  const visible = [...latest.values()]
     .filter(f => t - f.updatedAt < (finished(f) ? DAY : 7 * DAY) && !isHidden(f, h2))
     .sort((a, b) => b.updatedAt - a.updatedAt)
   await update($, running, () => visible)

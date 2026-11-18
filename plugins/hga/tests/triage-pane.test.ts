@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { repoOf } from '../hooks/triage-pane'
+import { ofRepo, repoOf } from '../hooks/triage-pane'
 
 const T0 = Date.parse('2026-10-13T10:00:00+02:00')
 const MIN = 60_000
@@ -61,7 +61,8 @@ function engine(on: On, opts: { next?: Run; config?: object; registerFails?: boo
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 34.4 }] } }) as never)
   on('fs.exists', () => ({ value: true }) as never)
   on('fs.list', () => ({ value: Object.keys(files).map(name => ({ name, kind: 'file' })) }) as never)
-  on('fs.read', ($, e) => ({ value: JSON.stringify(files[fileName(e.path)]) }) as never)
+  const reads: string[] = []
+  on('fs.read', ($, e) => { reads.push(String(e.path).replaceAll('\\', '/')); return { value: JSON.stringify(files[fileName(e.path)]) } as never })
   on('process.run', ($, e) => {
     runs.push(e.argv)
     const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false })
@@ -77,7 +78,7 @@ function engine(on: On, opts: { next?: Run; config?: object; registerFails?: boo
   on('ui.render', { component: 'SessionMode' }, ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as never)
   on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }) as never)
   const nexts = () => runs.filter(r => r.includes('next'))
-  return { runs, nexts, opened, toasts, clock, registered, files }
+  return { runs, nexts, opened, toasts, clock, registered, files, reads }
 }
 
 // The desktop app runs Claude Code in SDK mode: at start there is no surface, and it is not interactive.
@@ -434,6 +435,43 @@ test('a report over open steps is not finished: it stays above, marked; a skippe
   const ui = await footer($)
   expect((await ui.find({ type: 'Button' }))?.text).toBe('🧭 1/2 · ▶1')
   await ui.unmount()
+})
+
+test("only this repository's runs: not a longer name's sharing the file prefix, not the evidence records", async ($, on) => {
+  const s = engine(on, {
+    files: {
+      // acme/web-app-api's file starts with acme-web-app- too: running, recent, it would take a slot
+      'acme-web-app-api-2.json': { issue: 'acme/web-app-api#2', verb: 'fix', startedAt: T0 - 10 * MIN, updatedAt: T0 - MIN, session: 's7', steps: steps(3, 3) },
+      // the evidence record next to #31's state file
+      'acme-web-app-31.evidence.json': { schema: 1, issue: 'acme/web-app#31', gates: [], reviews: [], steps: {} },
+      // the same repository with other letter case (the step tool's id as the model typed it)
+      'Acme-Web-App-50.json': { issue: 'Acme/Web-App#50', verb: 'fix', startedAt: T0 - 10 * MIN, updatedAt: T0 - MIN, session: 's8', steps: steps(3, 3) },
+      // the same issue under the other spelling, older: one row, one slot
+      'acme-web-app-50.json': { issue: 'acme/web-app#50', verb: 'fix', startedAt: T0 - 10 * MIN, updatedAt: T0 - 5 * MIN, session: 's8', steps: steps(2, 2) },
+    },
+  })
+  await start($)
+  await triage($)
+  const drawn = await pane($)
+  expect(drawn).not.toContain('web-app-api#2')
+  expect(drawn).toContain('Web-App#50')
+  expect(drawn).toContain('"key":"Acme/Web-App#50"') // the newer spelling stands for the issue
+  expect(drawn).not.toContain('"key":"acme/web-app#50"')
+  // neither the triage panel nor the issue pane's restore reads it (the fake fs lists the same files in every folder)
+  expect(s.reads.filter(p => p.endsWith('/hga/issue/acme-web-app-31.evidence.json'))).toEqual([])
+  expect(s.reads.filter(p => p.endsWith('/hga/issue/acme-web-app-31.json')).length).toBeGreaterThan(0)
+  const ui = await footer($)
+  expect((await ui.find({ type: 'Button' }))?.text).toBe('🧭 2/2 · ▶1') // #31 and #50, not #2
+  await ui.unmount()
+})
+
+test('ofRepo: owner/repo#n of this repository, in any letter case; not a longer name or a bare prefix', () => {
+  expect(ofRepo('acme/web#12', 'acme/web')).toBe(true)
+  expect(ofRepo('ACME/Web#12', 'acme/web')).toBe(true)
+  expect(ofRepo('acme/web-api#12', 'acme/web')).toBe(false)
+  expect(ofRepo('acme/web#', 'acme/web')).toBe(false)
+  expect(ofRepo('acme/web#12x', 'acme/web')).toBe(false)
+  expect(ofRepo(undefined, 'acme/web')).toBe(false)
 })
 
 test('a launched session shows up within seconds, not after the minute tick', async ($, on) => {

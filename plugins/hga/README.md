@@ -356,7 +356,8 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
   too. (Before 0.2.0 a manual scheduled task, `hga-issue-<repo>-<n>`, launched it.)
 - **Activation:** loading [`/hga:triage`](skills/triage/SKILL.md) (or the Skill tool), [`/triage-pane`](#triage-panel), a `next` run, or a `phase` call. The
   repository comes from the session's git remote; [`/triage-pane owner/repo`](#triage-panel) switches.
-- **Running:** from the issue pane's state files, every minute. An unfinished issue silent for 60 minutes is
+- **Running:** from the issue pane's state files of this repository's issues (the issue id inside the file decides,
+  in any letter case — not the file name, which `acme/web-api` shares with `acme/web`), every minute. An unfinished issue silent for 60 minutes is
   marked stalled and frees its slot; past In review (step 9) it no longer takes a slot. **Finished** means the
   report went out over a closed checklist: ✓ green when every step 0–11 was done or not applicable, ✓ in the
   warning color when one was skipped. A report sent while a step was still open (an older state file) stays among
