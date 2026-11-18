@@ -226,7 +226,9 @@ async function loadRunning($: EngineInterface): Promise<void> {
   await update($, running, () => visible)
 }
 
-// The ✕ button: hides the row; if the issue reports again later (a newer file), it comes back.
+// The ✕ button: hides the row; if the issue reports again later (a newer file), it comes back. It is drawn only on
+// rows that are not alive (stalled, or the report sent), which take no slot (`occupies` needs `alive`) and are not in
+// `live`: so removing the row from `running` never changes the footer's counts. Keep it so (#75).
 async function hide($: EngineInterface, f: Running): Promise<void> {
   const next = { ...(await read($, hidden)), [f.issue]: f.updatedAt }
   await update($, hidden, () => next)
@@ -567,6 +569,7 @@ export const register: Register = on => {
           <Box width={8}>
             <Text dimColor>{`◷ ${duration(elapsed(f, t))}`}</Text>
           </Box>
+          {/* No ✕ on a running row: hiding it would drop it from the footer's slot count (see hide). */}
           {alive(f, t) ? null : (
             <Button key={`hide-${numberOf(f)}`} label="✕" plain dimColor onPress={async () => { await hide($, f) }} />
           )}
