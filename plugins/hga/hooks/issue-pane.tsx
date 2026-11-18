@@ -228,7 +228,8 @@ async function restore($: EngineInterface): Promise<void> {
     const id = await $.session.id()
     let found: IssueFile | null = null
     for (const f of await $.fs.list(dir)) {
-      if (f.kind !== 'file' || !f.name.endsWith('.json')) continue
+      // The evidence records (<owner>-<repo>-<n>.evidence.json) are not state files.
+      if (f.kind !== 'file' || !f.name.endsWith('.json') || f.name.endsWith('.evidence.json')) continue
       try {
         const data = JSON.parse(await $.fs.read(`${dir}/${f.name}`)) as IssueFile
         if (data.session !== id || !Array.isArray(data.steps) || (cur !== null && data.issue !== cur.issue)) continue

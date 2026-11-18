@@ -99,7 +99,12 @@ export function repoOf(remote: string | null | undefined): string | null {
   return m ? `${m[1]}/${m[2]}` : null
 }
 
-const prefix = (r: string) => `${r.replace(/[^A-Za-z0-9_-]+/g, '-')}-`
+// The state files' name: owner/repo#n with every other character run as `-` (issue-pane.tsx: fileBase). The name
+// only narrows what is read: `acme-web-` is also the start of `acme/web-api`'s files, so the issue inside decides.
+const prefix = (r: string) => `${r.replace(/[^A-Za-z0-9_-]+/g, '-')}-`.toLowerCase()
+// The issue (owner/repo#n) belongs to this repository; GitHub names are case-insensitive.
+export const ofRepo = (issue: unknown, r: string): boolean =>
+  typeof issue === 'string' && issue.toLowerCase().startsWith(`${r.toLowerCase()}#`) && /^\d+$/.test(issue.slice(r.length + 1))
 // owner/repo#n → repo#n: the pane is per repository, the owner adds nothing.
 const short = (id: string) => id.replace(/^[^/#\s]+\//, '')
 const cut = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, Math.max(0, n - 1))}…`)
@@ -190,10 +195,12 @@ async function loadRunning($: EngineInterface): Promise<void> {
   try {
     if (await $.fs.exists(dir)) {
       for (const f of await $.fs.list(dir)) {
-        if (f.kind !== 'file' || !f.name.startsWith(prefix(r)) || !f.name.endsWith('.json')) continue
+        const name = f.name.toLowerCase()
+        // The evidence records (<owner>-<repo>-<n>.evidence.json) sit next to the state files: not read.
+        if (f.kind !== 'file' || !name.startsWith(prefix(r)) || !name.endsWith('.json') || name.endsWith('.evidence.json')) continue
         try {
           const data = JSON.parse(await $.fs.read(`${dir}/${f.name}`)) as Running
-          if (Array.isArray(data.steps) && typeof data.updatedAt === 'number') list.push(data)
+          if (Array.isArray(data.steps) && typeof data.updatedAt === 'number' && ofRepo(data.issue, r)) list.push(data)
         } catch {
           // half-written or broken file: retried on the next round
         }
