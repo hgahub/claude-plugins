@@ -141,7 +141,8 @@ test('a done or skipped step needs evidence; a finished step reported again keep
   // in_progress evidence is not a finished step's evidence
   expect((await step($, { issue: ISSUE, step: 5, state: 'done' })).result).toStartWith('Invalid input')
   await step($, { issue: ISSUE, step: 5, state: 'done', evidence: '12 passed' })
-  expect((await step($, { issue: ISSUE, step: 5, state: 'done', checks: ['Rollback tested'] })).result).toContain('1/13 done')
+  // reported again without evidence: it keeps its own
+  expect((await step($, { issue: ISSUE, step: 5, state: 'done' })).result).toContain('1/13 done')
   const ui = await mount($)
   await ui.press({ key: 'section-Build' })
   expect(await pane($)).toContain('12 passed')
@@ -329,61 +330,29 @@ test('double click on a row: the evidence wraps, another double click restores i
   await ui.unmount()
 })
 
-test('manual review: the list under Review, tickable, a same-text point keeps its tick, cut above 13', async ($, on) => {
+// The manual review list (`checks`) was removed in 1.1: an argument for it is ignored, an older state file's list
+// is dropped on the next report, and the pane draws no such section.
+test('no manual review: a checks argument is ignored, an older list is dropped, no section is drawn', async ($, on) => {
   engine(on)
   const writes: { path: string; text: string }[] = []
   mock.env(on, { HOME: '/home/test' })
   on('session.id', () => ({ value: 'sess-1' }) as never)
+  on('fs.exists', () => ({ value: true }) as never)
+  on('fs.list', () => ({ value: [{ name: 'acme-web-app-18.json', kind: 'file' }] }) as never)
+  on('fs.read', () => ({
+    value: JSON.stringify({ issue: ISSUE, verb: 'fix', startedAt: 1_000_000, updatedAt: 1_000_000, session: 'sess-1',
+      steps: Array.from({ length: 13 }, () => null), checks: [{ text: 'old point', done: false }] }),
+  }) as never)
   on('fs.write', ($, e) => { writes.push(e as never); return { value: undefined } as never })
-  evidence(on, () => passing(7, 8))
   await start($)
-  await step($, { issue: ISSUE, step: 7, state: 'in_progress' })
-  await step($, { issue: ISSUE, step: 8, state: 'in_progress' })
-  const r = await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok', checks: ['Migration is backward compatible', '  Permission:   admin only  ', ''] })
-  expect(r.result).toBe(`${ISSUE}: 1/13 done. Manual review: 0/2 ticked.`)
-  let drawn = await pane($)
-  expect(drawn).toContain('Manual review')
-  expect(drawn).toContain('0/2 ⌄')
-  expect(drawn).toContain('Permission: admin only')
-  // between the Review and the Finish sections
-  expect(drawn.indexOf('section-Review')).toBeGreaterThan(-1)
-  expect(drawn.indexOf('section-Manual review')).toBeGreaterThan(drawn.indexOf('section-Review'))
-  expect(drawn.indexOf('section-Manual review')).toBeLessThan(drawn.indexOf('section-Finish'))
-
-  const ui = await mount($)
-  await ui.press({ key: 'check-1' })
-  drawn = await pane($)
-  expect(drawn).toContain('1/2 ⌄')
-  expect(drawn).toContain('"strikethrough":true')
-  expect(JSON.parse(writes.at(-1)!.text).checks[1]).toEqual({ text: 'Permission: admin only', done: true })
-  await ui.unmount()
-
-  // A new list: a point with the same text keeps its tick, the others are new; cut above 13.
-  const more = ['Permission: admin only', ...Array.from({ length: 14 }, (_, k) => `point ${k}`)]
-  const r2 = await step($, { issue: ISSUE, step: 8, state: 'done', evidence: 'ok', checks: more })
-  expect(r2.result).toContain('Manual review: 1/13 ticked.')
-  expect(r2.result).toContain('Only the first 13 points')
-  expect(await pane($)).not.toContain('Migration')
-
-  expect((await step($, { issue: ISSUE, step: 8, state: 'done', checks: 'one string' })).result).toStartWith('Invalid input')
-})
-
-test('manual review: an empty list = no highlighted point; without a list there is no section', async ($, on) => {
-  engine(on)
-  mock.env(on, { HOME: '/home/test' })
-  evidence(on, () => passing(7))
-  await start($)
-  await step($, { issue: ISSUE, step: 7, state: 'in_progress' })
-  await step($, { issue: ISSUE, step: 7, state: 'done', evidence: 'ok' })
   expect(await pane($)).not.toContain('Manual review')
-  await step($, { issue: ISSUE, step: 7, state: 'done', checks: [] })
-  const ui = await mount($)
-  await ui.press({ key: 'section-Manual review' })
-  expect(await pane($)).toContain('no highlighted manual review point')
-  await ui.unmount()
+  expect(await pane($)).not.toContain('old point')
+  const r = await step($, { issue: ISSUE, step: 4, state: 'done', evidence: 'ok', checks: ['a point'] })
+  expect(r.result).toBe(`${ISSUE}: 1/13 done.`)
+  expect(JSON.parse(writes.at(-1)!.text).checks).toBeUndefined()
+  expect(await pane($)).not.toContain('Manual review')
 })
 
-// The metrics record (hga_issue.py metrics-record) reads the step times and the five-hour snapshots from here.
 test('step times: in_progress stamps the start, done the end and keeps the start; a repeat keeps the first start', async ($, on) => {
   const s = engine(on)
   const writes: { path: string; text: string }[] = []

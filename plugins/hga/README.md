@@ -302,13 +302,13 @@ issue, the counter and the elapsed time, below it a progress bar per section; ea
 (`5/5 ›`, `1/2 · 1 skipped ›`), and only the running section is open, with its steps and evidence. Clicking a
 section's name opens or closes it.
 
-![The issue pane near the end of a run: four sections, Finish open with one skipped step, three manual review points](docs/issue-panel.png)
+![The issue pane near the end of a run: four sections, Finish open with one skipped step](docs/issue-panel.png)
 
 - Steps: ✓ done (green) · ◐ in progress · ! skipped, with the reason · ○ not yet. Section icons: ☰ Prepare,
   ✎ Build, ⌕ Review, ⚑ Finish. One accent color (the running step and the bar), green checks and a warning
   color — everything else dim; colors are theme keys.
 - The model reports the state with the `mcp__hga__step` tool (`issue`, `step` 0–12, `state`, `evidence`,
-  `verb`, `started_at`, `checks`); [`/hga:issue`](skills/issue/SKILL.md)'s checklist section requires a call at every state change.
+  `verb`, `started_at`); [`/hga:issue`](skills/issue/SKILL.md)'s checklist section requires a call at every state change.
 - **Machine-checked steps** — 3 Worktree, 5 Build + tests, 7 PR, 8 Review, 9 In review: their ✓ means a script
   checked the facts, not only that the model typed evidence. `HGA evidence <owner/repo> <n> --step N` checks them
   (the worktree and its base; the gate's exit code on the current HEAD and files, recorded by `HGA gate`; the
@@ -324,12 +324,6 @@ section's name opens or closes it.
   honestly what was left out, and the run counts as finished with an exception.
 - A long evidence ends in `…` on a narrow pane: **double-click** the step's name to wrap the row onto several
   lines, double-click again to bring it back to one.
-- **Manual review** (☑, under the Review section): with the PR, the model lists at most 13 points (`checks`) that
-  only a person can check — check tasks on the finished change along the review criteria (scope, correctness,
-  security, compatibility, …), not decisions that belonged before the build; the reviewer ticks them by clicking ☐. The tick goes into the state file, and a point
-  with the same text keeps its tick when a new list arrives; an empty list reads "no highlighted manual review
-  point". The section stays open while a point is unticked, and the step tool's answer gives the standing too
-  (`Manual review: 2/5 ticked.`).
 - A button on the right of the footer (`🎫 web-app#142 8/13`, dim while the pane is closed) toggles the pane;
   so does [`/issue-pane`](#issue-pane). The first report opens the pane; once you close it, only a new issue reopens it.
 

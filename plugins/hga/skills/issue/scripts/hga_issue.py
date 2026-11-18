@@ -1767,7 +1767,7 @@ RISK_GATES = {
         "4 Decisions: the maintainer's decision is required",
         "5 Build + tests: the new tests must fail on the base",
         "6 Live test: required; only the maintainer can waive it",
-        "7 PR: at least one manual review point, and a rollback note",
+        "7 PR: a rollback note",
         "8 Review: local at high level, and the bot if one is configured",
     ],
 }

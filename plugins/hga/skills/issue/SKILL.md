@@ -70,7 +70,7 @@ it" is not evidence.
 | 4 | Decisions | ✅ ➖ | — | who decided what; high: the maintainer's decision; ➖ low, if nothing was decided |
 | 5 | Build + automated tests | ✅ | every `HGA gate` command's latest run exited 0 on the current HEAD and files, and each of the repository's required ones (`repos.<owner/repo>.gate`) ran | new cases (low: ➖); how many fail on the base and why (high: all); the gate's numbers; `HGA risk --worktree`'s `Risk:` line |
 | 6 | Live test | ✅ ➖ | — | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); browser, start path; result per criterion; app stopped, port free — ➖ low |
-| 7 | PR | ✅ | PR open, head = worktree HEAD, closes the issue (or says `Ref #n` where step 7 uses it) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: nothing); follow-up issues (7a); high: `checks` not empty, rollback note |
+| 7 | PR | ✅ | PR open, head = worktree HEAD, closes the issue (or says `Ref #n` where step 7 uses it) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: nothing); follow-up issues (7a); high: rollback note |
 | 8 | Review | ✅ | head unchanged, CI green (or no CI at all — reported as "no CI"); with a bot (standard, high; not quick) a clean review of the head, or `--closed-with` | local review result and level; bot rounds and severities, 👍 on the head SHA, or the maintainer's closing + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line |
 | 9 | In review | ✅ | step 9's status reads back, issue OPEN | read-back: `Status: In Review · issue: OPEN` |
 | 10 | Cleanup | ✅ | — | `launch.json` as before; worktree + local branch deleted; remote branch kept until merge |
@@ -93,7 +93,7 @@ after the report (with item 12). It does not go into the PR description.
 **Side pane — mandatory, at every step.** If the session has `mcp__hga__step`, each of steps 0–12 gets two calls:
 `in_progress` **in the same message as the step's first action**, and `done` (one line of evidence), `skipped`
 (reason) or `not_applicable` (the `Risk:` line) with its last action. Parameters: `issue` = `owner/repo#n` (the
-main issue), `step`, `verb` = the claim verb, `checks` = the manual review list (step 7). The first call is step
+main issue), `step`, `verb` = the claim verb. The first call is step
 0's `in_progress` with `started_at` = the `HGA now` timestamp. The pane is the maintainer's live view; a step
 completed later (e.g. a live test after merge) still gets its `done`. **Gate:** before each showing of the table,
 compare the pane's `N/13 done` with it and make the missing calls first; **the report does not go out until the
@@ -132,7 +132,7 @@ It runs three times:
 | 4 Decisions | ➖ if nothing was decided | ➖ if nothing was decided | as described | the **maintainer's** decision: the issue's dated "Decisions", or their `AskUserQuestion` answer |
 | 5 Build + tests | the gate runs; new test cases ➖ | as described | as described | every new test **fails on the base**, for the right reason |
 | 6 Live test | ➖ | as described | as described | required; **only the maintainer can waive it** |
-| 7 PR | as described | as described | as described | at least one `checks` point, and a **rollback** note in "Risk" |
+| 7 PR | as described | as described | as described | a **rollback** note in "Risk" |
 | 8 Review | **one** local round at `low`; **no bot** | **one** local round at `medium`; **no bot** | as described | local at `high` every round, plus the bot |
 | 11 Knowledge | ➖ if nothing new was learned | ➖ if nothing new was learned | as described | as described |
 
@@ -331,13 +331,6 @@ decides (see "Risk class").
 - **Machine check:** `HGA evidence <owner/repo> <n> --step 7 --worktree ../<repo>-<n> --pr <pr>`, with `--partial`
   for a deliberately partial PR (then, as with `labels.closing` or a non-default base, it checks for `Ref #<n>`
   and no closing). Its recorded head is what step 8 compares against.
-- **Manual review list** (`checks` in step 7's `done` call): at most 13 lines for the human reviewer — where a
-  person's look is worth most on **this diff**, beyond what the tests and the bot prove. Each is a **check task
-  on the finished change**: place (`file:line`, screen, doc section) + situation + what must hold. Pick by risk:
-  goal and scope, correctness, security and privacy, compatibility and data integrity, simplicity, readability,
-  tests, performance, operability, rollout and docs. No style points, no general advice, no reopened decisions
-  — an "is it acceptable that…" point is a late step 4 question: ask it now. `checks: []` if there is none; a
-  **high** class needs at least one. If the review changes the list, resend it whole in step 8's `done`.
 
 ## 7a. Follow-up issues — as GitHub issues, tracked
 
