@@ -7,8 +7,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       The merged configuration as JSON: defaults < team (`<knowledge_dir>/hga.config.json`) < user
       (`~/.claude/hga/config.json`). Skills and panels read their settings from here. Shape problems go to
       stderr as warnings (doctor counts them as missing items). With --repo, the repository's view: its
-      `repos.<owner/repo>` entry's `github` and `labels` merged over the rest, as every command that names a
-      repository reads them.
+      `repos.<owner/repo>` entry's `github` and `labels` merged over the rest, and its `gate` list (the
+      required gate commands), as every command that names a repository reads them.
   doctor [--repo <owner/repo>]
       Checks the prerequisites (Python, git, gh login and scopes, uv, knowledge base, configuration), and
       with a board, that its Status field has an option for every github.statuses name (the board's owner
@@ -109,17 +109,19 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       Runs the gate's command in the worktree, its output passed through, and exits with its exit code. It
       appends a `gates` entry (command, exit code, start, end, the worktree's HEAD) to the issue's evidence
       record: `~/.claude/hga/issue/<owner>-<repo>-<n>.evidence.json`, next to the pane's state file, written
-      atomically. A gate of several commands is several gate calls.
+      atomically. A gate of several commands is several gate calls. A command that cannot start (not found:
+      exit 127) is reported and not recorded, so it cannot stand on the HEAD as a failed run.
   evidence <owner/repo> <n> --step {3,5,7,8,9} [--worktree <dir>] [--pr <n>] [--partial] [--closed-with <n>]
       Checks the step's facts, prints one `ok` or `FAILED` line per fact and writes `steps[N]` (ok, the time,
       the facts) into the evidence record; the issue pane's step tool accepts these steps' `done` only with a
       passing record written after the step's in_progress. 3 (--worktree): a linked worktree of the
       repository, on a branch created from origin's default branch, without an upstream. 5 (--worktree): every
-      gate command's latest run on the worktree's HEAD exited 0. 7 (--worktree, --pr): the PR is open, its
+      gate command's latest run on the worktree's HEAD exited 0, and each command of the repository's
+      `repos.<owner/repo>.gate` list has such a run (a missing one is named). 7 (--worktree, --pr): the PR is open, its
       head is the worktree's HEAD, and it closes the issue — or, with `labels.closing`, --partial or a base other
       than the default branch, its description says `Ref #n` and it does not close it (`labels.closing`: closes
       nothing). 8 (--pr): the PR's head is the step-7 record's or the latest review's, its CI checks finished
-      with success, skipped or neutral, and with a bot provider and a standard (not small: the quick track) or
+      with success, skipped or neutral (no check at all is allowed and says "no CI", not a pass), and with a bot provider and a standard (not small: the quick track) or
       high class a clean review of the head is recorded (review-wait) — or, with --closed-with, the follow-up issue of the maintainer's
       closing is open and names the PR. 9: the status step 9 sets reads back, and the issue is open. Exit 0 every fact passed,
       1 a fact failed (a failed read too), 64 a usage error.
@@ -259,6 +261,9 @@ def load_config() -> dict:
 
 CFG: dict = {}
 REPO_SECTIONS = ("github", "labels")
+# A repository's required gate commands (`repos.<owner/repo>.gate`): HGA evidence --step 5 wants a passing run of
+# each on the worktree's HEAD and files. A list, not a section: it replaces, never merges.
+REPO_LISTS = ("gate",)
 
 
 def repo_entry(entries: object, repo: str) -> dict:
@@ -274,7 +279,39 @@ def repo_entry(entries: object, repo: str) -> dict:
 def repo_config(c: dict, repo: str) -> dict:
     """The configuration as a repository sees it: its `repos` entry's sections merged over the team's."""
     over = repo_entry(c.get("repos"), repo)
-    return _merge(c, {k: over[k] for k in REPO_SECTIONS if isinstance(over.get(k), dict)})
+    view = _merge(c, {k: over[k] for k in REPO_SECTIONS if isinstance(over.get(k), dict)})
+    for k in REPO_LISTS:
+        if isinstance(over.get(k), list):
+            view[k] = list(over[k])
+    return view
+
+
+def command_words(cmd: str, posix: bool | None = None) -> list[str]:
+    """A configured command's words. On Windows (posix False) a backslash is a path separator, not an escape: the
+    words keep it, and only their surrounding quotes go."""
+    if posix is None:
+        posix = os.name != "nt"
+    if posix:
+        return shlex.split(cmd)
+    return [w[1:-1] if len(w) >= 2 and w[0] == w[-1] and w[0] in "\"'" else w for w in shlex.split(cmd, posix=False)]
+
+
+def gate_commands(c: dict, repo: str) -> list[str] | None:
+    """The repository's required gate commands, each normalized as `HGA gate` records it (shlex.join of its words),
+    or None when none is set. A command that cannot be split (an unclosed quote) is an error, not a skipped one:
+    step 5 must not pass on a list it cannot read."""
+    cmds = repo_config(c, repo).get("gate")
+    if not isinstance(cmds, list):
+        return None
+    out = []
+    for x in cmds:
+        if not _text(x):
+            continue
+        try:
+            out.append(shlex.join(command_words(x)))
+        except ValueError as e:
+            raise ValueError(f"repos.{repo}.gate: cannot read the command {x!r} ({e}); fix the team configuration")
+    return out or None
 
 
 def _text(v: object) -> bool:
@@ -369,12 +406,25 @@ def config_problems(c: dict) -> list[str]:
     for repo, over in repos.items():
         if "/" not in repo.strip("/"):
             out.append(f"repos.{repo} must be named owner/repo")
-        elif not isinstance(over, dict) or not all(k in REPO_SECTIONS and isinstance(v, dict) for k, v in over.items()):
-            out.append(f"repos.{repo} must be an object with github / labels sections")
+        elif not isinstance(over, dict) or not all(
+                (k in REPO_SECTIONS and isinstance(v, dict)) or k in REPO_LISTS for k, v in over.items()):
+            out.append(f"repos.{repo} must be an object with github / labels sections and a gate list")
+        elif "gate" in over and not _commands(over["gate"]):
+            out.append(f"repos.{repo}.gate must be a list of commands, e.g. [\"npm test\", \"npm run build\"]")
         else:
             # the repository's view, without the team's own problems again
             out += [f"repos.{repo}: {p}" for p in config_problems({**repo_config(c, repo), "repos": {}}) if p not in team]
     return out
+
+
+def _commands(v: object) -> bool:
+    """A non-empty list of commands, each splittable into words as a shell would (quotes closed)."""
+    if not isinstance(v, list) or not v or not all(_text(x) for x in v):
+        return False
+    try:
+        return all(command_words(x) for x in v)
+    except ValueError:
+        return False
 
 
 def _patterns(v: object) -> bool:
@@ -1980,8 +2030,11 @@ def cmd_gate(a) -> int:
         # stdin closed: a gate is not interactive, and a command that asks for input must not hang the run
         code = subprocess.run([exe, *command[1:]], cwd=a.worktree, stdin=subprocess.DEVNULL).returncode
     except OSError as e:
-        print(f"gate: cannot run {command[0]}: {e}", file=sys.stderr)
-        code = 127
+        # Nothing ran, so there is no run to record: a recorded exit 127 would stand on this HEAD until a new commit.
+        hint = (" — the whole command came as one word; pass its words separately (in zsh, `-- $cmd` does not split)"
+                if len(command) == 1 and re.search(r"\s", command[0]) else "")
+        print(f"gate: cannot run {command[0]}: {e}{hint} · not recorded", file=sys.stderr)
+        return 127
     if code < 0:  # killed by a signal (POSIX): the shell's convention
         code = 128 - code
     # After the run: a file the gate itself writes (a report, a cache git does not ignore) is part of what step 5 sees.
@@ -2043,9 +2096,10 @@ def worktree_facts(repo: str, wt: str) -> list[dict]:
     return facts
 
 
-def gate_facts(data: dict, wt: str) -> list[dict]:
+def gate_facts(data: dict, wt: str, required: list[str] | None = None) -> list[dict]:
     """Every gate command's latest run on the worktree's HEAD and its current content has exit 0 (a gate may be
-    several commands). A change after the run (a fix, a new file) needs a new run."""
+    several commands), and each required command (the repository's `gate` list) has such a run. A change after the
+    run (a fix, a new file) needs a new run."""
     head = git(wt, "rev-parse", "HEAD")
     if head is None:
         return [fact("gate_passed_on_head", False, f"not a git checkout: {wt}")]
@@ -2064,8 +2118,16 @@ def gate_facts(data: dict, wt: str) -> list[dict]:
             last = "; the files changed since the last one"
         return [fact("gate_passed_on_head", False, f"no gate run on HEAD {head[:7]} with the current files{last}")]
     failed = [g for g in latest.values() if g.get("exit") != 0]
+    missing = [c for c in required or [] if c not in latest]
     runs = ", ".join(f"`{g.get('command')}` exit {g.get('exit')}" for g in (failed or latest.values()))
-    return [fact("gate_passed_on_head", not failed, f"{runs} on HEAD {head[:7]}")]
+    detail = f"{runs} on HEAD {head[:7]}"
+    if missing:
+        detail += f"; required but not run: {', '.join(f'`{c}`' for c in missing)}"
+    elif required is None:
+        detail += " (no required gate list: repos.<owner/repo>.gate)"
+    else:
+        detail += f" · all {len(required)} required"
+    return [fact("gate_passed_on_head", not failed and not missing, detail)]
 
 
 def pr_view(repo: str, pr: int) -> dict:
@@ -2139,7 +2201,8 @@ def ci_facts(repo: str, head: str) -> list[dict]:
         else:
             failed.append(f"{context} ({state})")
     if not (pending or failed or passed):
-        return [fact("ci_finished", True, f"no CI check on {head[:7]}")]
+        # Allowed (a repository may have no CI), but not a pass: the report says "no CI", never "CI passed".
+        return [fact("ci_finished", True, f"no CI: no check run or commit status on {head[:7]} — nothing passed")]
     detail = "; ".join(x for x in (f"failed: {', '.join(failed)}" if failed else "",
                                     f"pending: {', '.join(pending)}" if pending else "") if x)
     return [fact("ci_finished", not (pending or failed), detail or f"{passed} check(s) passed on {head[:7]}")]
@@ -2226,7 +2289,7 @@ def cmd_evidence(a) -> int:
         if a.step == 3:
             facts = worktree_facts(a.repo, a.worktree)
         elif a.step == 5:
-            facts = gate_facts(data, a.worktree)
+            facts = gate_facts(data, a.worktree, gate_commands(cfg(), a.repo))
         elif a.step == 7:
             view = pr_view(a.repo, a.pr)
             facts = pr_facts(a.repo, a.num, a.pr, a.worktree, view, a.partial)

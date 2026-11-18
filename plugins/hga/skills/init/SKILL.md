@@ -116,7 +116,9 @@ Otherwise start from `$INIT/templates/hga.config.json` and ask:
    closes with `Closes #n`. "None (Recommended)" leaves `repos` empty; for each one the user names, store only
    what differs, e.g. `"repos": {"acme/tools": {"github": {"project": null}, "labels": {"closing": null}}}` —
    its `github` and `labels` merge over the team's for every command naming that repository. Check it with
-   `HGA config --repo <owner/repo>`.
+   `HGA config --repo <owner/repo>`. A repository's required gate commands go there as a list too, e.g.
+   `"repos": {"acme/web-app": {"gate": ["npm test", "npm run build"]}}` (the same commands its
+   `workflow/<app>.md` page lists under `## Gate`): step 5 of `/hga:issue` then checks that each one ran.
 5. **Slack:** "No Slack — claims and reports as GitHub comments (Recommended without a Slack connector)", or a
    channel. For a channel, find it with the Slack tools (`slack_search_channels`), confirm the name, and store
    `{"channel": "#name", "channel_id": "C…"}`. Read one message from it (`slack_read_channel`, limit 1) to prove
