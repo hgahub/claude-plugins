@@ -1806,3 +1806,49 @@ def test_evidence_writes_the_entry_digest(hga, ev, monkeypatch):
     assert evidence(hga, 9) == 0
     entry = ev()["steps"]["9"]
     assert entry["digest"] == hga.evidence_digest("acme/web-app#18", 9, entry)
+
+
+# --- GitHub remote URLs (repo-check, origin_repo, worktree facts) --------------------------------
+
+@pytest.mark.parametrize("url", [
+    "https://github.com/hgahub/duumbi-app.git",
+    "https://github.com/hgahub/duumbi-app",
+    "git@github.com:hgahub/duumbi-app.git",
+    "ssh://git@github.com/hgahub/duumbi-app.git",
+    "git@github.com-hgahub:hgahub/duumbi-app.git",  # SSH host alias, ~/.ssh/config `Host github.com-hgahub`
+    "ssh://git@github.com-work/hgahub/duumbi-app",
+])
+def test_github_repo_recognizes_github_remotes(hga, monkeypatch, url):
+    monkeypatch.setattr(hga, "ssh_hostname", lambda alias: pytest.fail(f"ssh -G must not run for {url}"))
+    assert hga.github_repo(url) == "hgahub/duumbi-app"
+
+
+def test_github_repo_resolves_other_ssh_aliases(hga, monkeypatch):
+    hosts = {"gh-work": "github.com", "gitlab-work": "gitlab.com"}
+    monkeypatch.setattr(hga, "ssh_hostname", hosts.get)
+    assert hga.github_repo("git@gh-work:acme/web-app.git") == "acme/web-app"
+    assert hga.github_repo("ssh://git@gh-work:2222/acme/web-app.git") == "acme/web-app"
+    assert hga.github_repo("git@gitlab-work:acme/web-app.git") is None
+    assert hga.github_repo("git@unknown:acme/web-app.git") is None
+
+
+@pytest.mark.parametrize("url", ["", "https://gitlab.com/acme/web-app.git", "/srv/git/web-app.git"])
+def test_github_repo_rejects_other_remotes(hga, monkeypatch, url):
+    monkeypatch.setattr(hga, "ssh_hostname", lambda alias: None)
+    assert hga.github_repo(url) is None
+
+
+def test_ssh_hostname_reads_ssh_g(hga, monkeypatch):
+    out = "user git\nhostname github.com\nport 22\n"
+    monkeypatch.setattr(hga.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout=out, stderr=""))
+    assert hga.ssh_hostname("github.com-hgahub") == "github.com"
+
+
+def test_repo_check_accepts_an_ssh_host_alias(hga, tmp_path, capsys):
+    repo = tmp_path / "duumbi-app"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                    "git@github.com-hgahub:hgahub/duumbi-app.git"], check=True)
+    assert hga.main(["repo-check", "hgahub/duumbi-app", "--path", str(repo)]) == 0
+    assert "OK:" in capsys.readouterr().out

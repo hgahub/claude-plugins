@@ -520,8 +520,7 @@ def cmd_doctor(a) -> int:
 
 def origin_repo(path: str) -> str | None:
     """owner/repo of the checkout's GitHub origin, or None."""
-    m = REMOTE_RE.search(git(path, "remote", "get-url", "origin") or "")
-    return f"{m.group(1)}/{m.group(2)}" if m else None
+    return github_repo(git(path, "remote", "get-url", "origin") or "")
 
 
 def owner_project(owner: str, title: str) -> dict | None:
@@ -547,7 +546,39 @@ def board_missing_statuses(repo: str, project: str) -> tuple[list[str], list[str
 
 # --- repository check --------------------------------------------------------------------------
 
-REMOTE_RE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$", re.I)
+# A GitHub remote: https://github.com/o/r(.git), git@github.com:o/r(.git), ssh://git@github.com/o/r — and an
+# SSH host alias of the `github.com-<name>` form (git@github.com-work:o/r.git), the usual way to keep several
+# GitHub accounts apart in ~/.ssh/config.
+REMOTE_RE = re.compile(r"github\.com(?:-[\w.-]+)?[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", re.I)
+# Any other SSH remote, scp-like or ssh://: user@host:o/r or ssh://user@host(:port)/o/r.
+SSH_REMOTE_RE = re.compile(r"^(?:ssh://)?(?:[^@/:]+@)?([^@/:]+)(?::\d+/|[:/])([^/:]+)/([^/]+?)(?:\.git)?/?$", re.I)
+
+
+def ssh_hostname(alias: str) -> str | None:
+    """The HostName that ~/.ssh/config gives an SSH host alias (`ssh -G` reads the config; it does not connect)."""
+    try:
+        res = subprocess.run(["ssh", "-G", alias], capture_output=True, text=True, encoding="utf-8", timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode != 0:
+        return None
+    return next((ln.split(None, 1)[1].strip() for ln in res.stdout.splitlines()
+                 if ln.lower().startswith("hostname ") and len(ln.split(None, 1)) == 2), None)
+
+
+def github_repo(url: str) -> str | None:
+    """owner/repo of a GitHub remote URL, or None. An SSH host alias counts when it resolves to github.com."""
+    url = (url or "").strip()
+    m = REMOTE_RE.search(url)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}"
+    scheme = re.match(r"([a-z][a-z0-9+.-]*)://", url, re.I)
+    if scheme and scheme.group(1).lower() != "ssh":
+        return None
+    m = SSH_REMOTE_RE.match(url)
+    if m and (ssh_hostname(m.group(1)) or "").lower() == "github.com":
+        return f"{m.group(2)}/{m.group(3)}"
+    return None
 
 
 def git(path: str, *args: str) -> str | None:
@@ -562,8 +593,7 @@ def cmd_repo_check(a) -> int:
         print(f"not a git checkout: {Path(a.path).resolve()}", file=sys.stderr)
         return 4
     url = git(a.path, "remote", "get-url", "origin") or ""
-    m = REMOTE_RE.search(url)
-    have = f"{m.group(1)}/{m.group(2)}".lower() if m else None
+    have = (github_repo(url) or "").lower() or None
     if have == want:
         print(f"OK: {top} = {a.repo}")
         return 0
@@ -1958,8 +1988,7 @@ def worktree_facts(repo: str, wt: str) -> list[dict]:
     if dirs is None:
         return [fact("is_worktree", False, f"not a git checkout: {wt}")]
     git_dir, common = (dirs.splitlines() + ["", ""])[:2]
-    m = REMOTE_RE.search(git(wt, "remote", "get-url", "origin") or "")
-    have = f"{m.group(1)}/{m.group(2)}" if m else "no GitHub origin"
+    have = github_repo(git(wt, "remote", "get-url", "origin") or "") or "no GitHub origin"
     linked = git_dir != common
     facts = [fact("is_worktree", linked and have.lower() == repo.lower(),
                   f"{'a linked worktree' if linked else 'the main checkout, not a worktree'} of {have}")]

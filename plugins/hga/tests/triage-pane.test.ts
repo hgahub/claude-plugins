@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { repoOf } from '../hooks/triage-pane'
 
 const T0 = Date.parse('2026-10-13T10:00:00+02:00')
 const MIN = 60_000
@@ -424,4 +425,17 @@ test('the dashboard comes back when the session is reopened', async ($, on) => {
   await start($)
   await s.clock.advance(0)
   expect(s.opened).toEqual(['🧭 web-app'])
+})
+
+// The same URLs as the Python test (test_github_repo_recognizes_github_remotes).
+test('repoOf reads GitHub remotes, an SSH host alias of the github.com-<name> form too', () => {
+  for (const url of [
+    'https://github.com/hgahub/duumbi-app.git',
+    'git@github.com:hgahub/duumbi-app.git',
+    'ssh://git@github.com/hgahub/duumbi-app.git',
+    'git@github.com-hgahub:hgahub/duumbi-app.git',
+    'ssh://git@github.com-work/hgahub/duumbi-app',
+  ]) expect(repoOf(url)).toBe('hgahub/duumbi-app')
+  expect(repoOf('https://gitlab.com/acme/web-app.git')).toBe(null)
+  expect(repoOf(null)).toBe(null)
 })
