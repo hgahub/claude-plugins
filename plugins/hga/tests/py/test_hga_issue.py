@@ -1407,6 +1407,61 @@ def test_metrics_rows_of_older_records_and_markers_have_no_risk(hga):
     assert (row["risk"], row["na_steps"]) == (None, None)
 
 
+def test_closure_classes(hga):
+    done = {"state": "done"}
+    full = [done] * 13
+    assert hga.closure(full) == "verified_complete"
+    assert hga.closure([done] * 6 + [{"state": "not_applicable"}] + [done] * 6) == "verified_complete"
+    assert hga.closure([done] * 6 + [{"state": "skipped"}] + [done] * 6) == "completed_with_exceptions"
+    # the synthetic run of #73: nothing reported before the report
+    assert hga.closure([None] * 12 + [done]) == "report_sent"
+    assert hga.closure([done] * 4 + [{"state": "in_progress"}] + [done] * 8) == "report_sent"
+    assert hga.closure([done] * 4 + [None] + [{"state": "skipped"}] + [done] * 7) == "report_sent"
+    # an unknown state is not closed (the pane's openSteps agrees)
+    assert hga.closure([done] * 4 + [{"state": "finished"}] + [done] * 8) == "report_sent"
+    assert hga.open_steps([done] * 4 + [{"state": "finished"}] + [done] * 8) == [4]
+    # step 12 not done (or missing): not closed at all
+    assert hga.closure([done] * 12 + [{"state": "in_progress"}]) is None
+    assert hga.closure([done] * 12 + [{"state": "skipped"}]) is None
+    assert hga.closure([done] * 12) is None and hga.closure([]) is None
+    # a record's `steps` rows (state may be null) read the same as state-file entries
+    assert hga.closure([{"step": i, "state": "done"} for i in range(13)]) == "verified_complete"
+
+
+def test_metrics_record_closure(hga, tmp_path, monkeypatch, capsys):
+    (tmp_path / "kb").mkdir()
+    transcripts(tmp_path, hga, monkeypatch)
+    data = state_file(tmp_path, hga, monkeypatch)  # steps 1–4, 10, 11 never reported, step 12 done
+    _, rec = record(hga, capsys)
+    # `finished` keeps its schema-1 meaning (step 12 done); `closure` says the report came with open steps
+    assert (rec["finished"], rec["closure"]) == (True, "report_sent")
+    hga.main(["metrics-record", "acme/web-app", "18"])
+    assert "step(s) 1, 2, 3, 4, 10, 11 still open: closure report_sent" in capsys.readouterr().err
+    for i in (1, 2, 3, 4, 10, 11):
+        data["steps"][i] = step("done", 1, 2)
+    write(tmp_path / "issue" / "acme-web-app-18.json", data)
+    _, rec = record(hga, capsys)
+    assert (rec["finished"], rec["closure"]) == (True, "completed_with_exceptions")  # step 6 is skipped
+    data["steps"][12] = step("in_progress", 100, None)
+    write(tmp_path / "issue" / "acme-web-app-18.json", data)
+    _, rec = record(hga, capsys, "--until", at(105).isoformat())
+    assert (rec["finished"], rec["closure"]) == (False, None)
+    rows, _ = metrics_out(hga, capsys, "--repo", "acme/web-app")
+    assert {r["closure"] for r in rows} == {None}  # on every row of the run
+
+
+def test_metrics_rows_closure_of_older_records_and_markers(hga):
+    # a record from before the closure field: derived from its steps
+    old = {"schema": 1, "stage": "recorded", "repo": "a/b", "issue": 1, "finished": True,
+           "steps": [{"step": i, "state": None if i == 3 else "done"} for i in range(13)]}
+    rows = hga.metrics_rows(old, "a/b/1-x", False, set())
+    assert rows[0]["closure"] == "report_sent"
+    stored = {**old, "closure": "verified_complete"}  # a stored value is taken as it is
+    assert hga.metrics_rows(stored, "a/b/1-x", False, set())[0]["closure"] == "verified_complete"
+    marker = {"schema": 1, "stage": "started", "repo": "a/b", "issue": 1}
+    assert hga.metrics_rows(marker, "a/b/1-y", False, set())[0]["closure"] is None
+
+
 # --- step evidence: gate, evidence, review-wait's entry -------------------------------------------
 
 

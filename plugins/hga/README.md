@@ -242,7 +242,9 @@ At the end of step 12, `hga_issue.py metrics-record <owner/repo> <n>` writes the
 `metrics/<owner>/<repo>/<n>-<start>.json` in the knowledge base, and the skill commits that one file. One file
 per run, so parallel sessions never conflict and a re-run of the issue gets a new file. A record holds:
 
-- the start and end, and each of the 13 steps' start and end (the issue pane stamps them);
+- the start and end, and each of the 13 steps' state, start and end (the issue pane stamps them), and how the
+  run closed (`closure`: `verified_complete`, `completed_with_exceptions` with a skipped step, `report_sent` with a
+  step still open, or `null` before the report);
 - the elapsed breakdown — wall clock, active time, review wait, pauses — for the run and for each section
   (Prepare, Build, Review, Finish);
 - tokens from the session transcripts (subagents included), in total, per section and per model;
@@ -317,6 +319,9 @@ section's name opens or closes it.
   record is missing, a fact failed, the entry was edited, or it is older than the step's `in_progress`.
   Still reported by the model, not checked: the local `code-review` result, test counts and base failures, the
   live test, and the other steps.
+- **A closed checklist before the report:** the step tool rejects step 12's `done` while a step 0–11 is not yet
+  reported or still in progress, and names them. A skipped step (with its reason) closes it: the report can say
+  honestly what was left out, and the run counts as finished with an exception.
 - A long evidence ends in `…` on a narrow pane: **double-click** the step's name to wrap the row onto several
   lines, double-click again to bring it back to one.
 - **Manual review** (☑, under the Review section): with the PR, the model lists at most 13 points (`checks`) that
@@ -352,7 +357,10 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
 - **Activation:** loading [`/hga:triage`](skills/triage/SKILL.md) (or the Skill tool), [`/triage-pane`](#triage-panel), a `next` run, or a `phase` call. The
   repository comes from the session's git remote; [`/triage-pane owner/repo`](#triage-panel) switches.
 - **Running:** from the issue pane's state files, every minute. An unfinished issue silent for 60 minutes is
-  marked stalled and frees its slot; past In review (step 9) it no longer takes a slot. Finished issues stay for a day,
+  marked stalled and frees its slot; past In review (step 9) it no longer takes a slot. **Finished** means the
+  report went out over a closed checklist: ✓ green when every step 0–11 was done or not applicable, ✓ in the
+  warning color when one was skipped. A report sent while a step was still open (an older state file) stays among
+  the running ones, marked `!` and `report · N open`, and takes no slot. Finished issues stay for a day,
   unfinished ones for a week; ✕ hides one until it reports again. In the desktop app, an issue's name jumps to
   its session.
 - **Issues:** `hga_issue.py next <repo> --json` every five minutes, and right away after a session changes a

@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ResolveInput } from 'claude-code'
 
 import type { Branch, Bucket, Issues, Limits, Phase, Question, Running, Verdict } from '../types'
+import { closure, openSteps } from './issue-pane'
 
 const PANE = 'hga-triage'
 
@@ -103,15 +104,23 @@ const prefix = (r: string) => `${r.replace(/[^A-Za-z0-9_-]+/g, '-')}-`
 const short = (id: string) => id.replace(/^[^/#\s]+\//, '')
 const cut = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, Math.max(0, n - 1))}…`)
 const finishedSteps = (f: Running) => f.steps.filter(l => l !== null && l.state !== 'in_progress').length
-const finished = (f: Running) => f.steps[12]?.state === 'done'
-const stalled = (f: Running, t: number) => !finished(f) && t - f.updatedAt > STALLED_MIN * 60_000
+// Finished: the report went out over a closed checklist (issue-pane.tsx: closure), skipped steps included.
+const finished = (f: Running) => {
+  const c = closure(f.steps)
+  return c === 'verified_complete' || c === 'completed_with_exceptions'
+}
+// The report went out (step 12 done), finished or not: the session no longer works on it.
+const reported = (f: Running) => f.steps[12]?.state === 'done'
+// A report sent while a step 0–11 is still open: not finished, shown among the running ones with a warning.
+const reportOpen = (f: Running) => reported(f) && !finished(f)
+const stalled = (f: Running, t: number) => !reported(f) && t - f.updatedAt > STALLED_MIN * 60_000
 // Whether the session is still alive (marked `◐ running` in the issue lists).
-const alive = (f: Running, t: number) => !finished(f) && !stalled(f, t)
+const alive = (f: Running, t: number) => !reported(f) && !stalled(f, t)
 // After In review (step 9) only cleanup, knowledge and the report follow: it no longer takes a slot (closer to D.1's count).
 const closed = (f: Running) => f.steps[9]?.state === 'done'
 const occupies = (f: Running, t: number) => alive(f, t) && !closed(f)
 const numberOf = (f: Running) => Number(f.issue.split('#').pop())
-// The clock of a finished or stalled issue stops at the last report.
+// The clock of a reported or stalled issue stops at the last report.
 const elapsed = (f: Running, t: number) => (alive(f, t) ? Math.max(t, f.updatedAt) : f.updatedAt) - f.startedAt
 const isHidden = (f: Running, h: Record<string, number>) => h[f.issue] !== undefined && f.updatedAt <= h[f.issue]!
 
@@ -468,7 +477,7 @@ export const register: Register = on => {
     const live = new Set(list.filter(f => alive(f, t)).map(numberOf))
     const ph = await read($, phase)
     const opened = (await read($, openGroups)) ?? DEFAULT_OPEN
-    // A 13/13 issue no longer runs: it sits below the running ones, in its own (collapsible) group.
+    // A finished issue (closed checklist, report sent) sits below the running ones, in its own (collapsible) group.
     const done = list.filter(finished)
     const clock = (ms: number) => {
       const d = new Date(ms)
@@ -498,14 +507,19 @@ export const register: Register = on => {
     )
     const row = (f: Running) => {
       const all13 = finished(f)
+      // A run finished with a skipped step keeps the ✓, in the warning color.
       const state: { mark: string; color?: string } = all13
-        ? { mark: '✓', color: 'success' }
-        : stalled(f, t)
+        ? { mark: '✓', color: closure(f.steps) === 'verified_complete' ? 'success' : 'warning' }
+        : reportOpen(f) || stalled(f, t)
           ? { mark: '!', color: 'warning' }
           : closed(f)
             ? { mark: '◐' }
             : { mark: '◐', color: ACCENT }
-      const note = stalled(f, t) ? `quiet for ${Math.floor((t - f.updatedAt) / 60_000)} min` : currentStep(f)
+      const note = reportOpen(f)
+        ? `report · ${openSteps(f.steps).length} open`
+        : stalled(f, t)
+          ? `quiet for ${Math.floor((t - f.updatedAt) / 60_000)} min`
+          : currentStep(f)
       const full = Math.round((finishedSteps(f) / STEPS.length) * MINI)
       // Fixed-width columns: with the desktop app's proportional font, padding with spaces does not align.
       return (

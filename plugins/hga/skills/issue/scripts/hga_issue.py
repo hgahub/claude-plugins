@@ -42,8 +42,10 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       file (`~/.claude/hga/issue/<owner>-<repo>-<n>.json`) for the start, the step times and the five-hour
       usage snapshots, and the transcripts for the elapsed breakdown, the tokens (in total, per section of
       the checklist and per model). The end is --until, else step 12's end, else now. The sessions are the
-      --session ones, else this session and the one in the state file. The schema is in the knowledge
-      base's metrics/README.md.
+      --session ones, else this session and the one in the state file. `closure` says how the run closed:
+      `verified_complete` (steps 0–11 done or not applicable), `completed_with_exceptions` (one skipped),
+      `report_sent` (one still open: a warning on stderr), or null before step 12 is done. The schema is in the
+      knowledge base's metrics/README.md.
   metrics [--repo <owner/repo>] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--format json|csv] [--cost]
           [--stale-hours 24]
       Every schema-1 metrics record of the knowledge base as flat rows for charts (records with another
@@ -53,8 +55,9 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       start date (both inclusive). `lead_s` on run and section rows: `wall_s` − `pause_s` (no pause_s = 0), the
       lead time without pauses. `outcome` on every row: `finished` / `unfinished` (a record), `aborted`
       (only the start marker, older than --stale-hours), `open` (a younger marker), empty for records from
-      before the markers; `risk`, `size`, `effort` and `na_steps` (steps reported not_applicable) on every row
-      of a record.
+      before the markers; `closure` on every row of a record (`verified_complete`, `completed_with_exceptions`,
+      `report_sent`, or empty while step 12 is not done; from the steps for older records); `risk`, `size`,
+      `effort` and `na_steps` (steps reported not_applicable) on every row of a record.
       stderr gets the counts and the abort rate. --cost adds `api_cost_usd_est` to every row: the tokens at Anthropic API
       list prices (a table in this script), an estimate, not what a Claude subscription costs.
   status <owner/repo> <n>
@@ -884,6 +887,9 @@ STEP_NAMES = (
     "Live test", "PR", "Review", "In review", "Cleanup", "Knowledge", "Report",
 )
 SECTIONS = (("Prepare", 0, 4), ("Build", 5, 6), ("Review", 7, 8), ("Finish", 9, 12))
+# How a run closed (hooks/issue-pane.tsx: closure; keep them in step). A step 0–11 is closed when it is done,
+# skipped or not applicable.
+CLOSED_STATES = ("done", "skipped", "not_applicable")
 DIFFICULTIES = ("easy", "medium", "hard")
 EFFORTS = ("low", "medium", "high")  # the Effort issue field's options, lower-cased
 
@@ -949,6 +955,28 @@ def _elapsed_fields(b: dict) -> dict:
     }
 
 
+def open_steps(steps: list) -> list[int]:
+    """The steps 0–11 not closed (hooks/issue-pane.tsx: openSteps): never reported, in progress, or an unknown state."""
+    states = [st.get("state") if isinstance(st, dict) else None for st in list(steps or [])[:12]]
+    states += [None] * (12 - len(states))
+    return [i for i, s in enumerate(states) if s not in CLOSED_STATES]
+
+
+def closure(steps: list) -> str | None:
+    """How the run closed, from its 13 steps (state-file entries, or a record's `steps` rows): None while step 12
+    (Report) is not done; `report_sent` if a step 0–11 is still open (never reported, or in progress);
+    `completed_with_exceptions` if they are all closed and one was skipped; `verified_complete` otherwise (each
+    done or not applicable). Only the report says the work is finished, and only a closed checklist backs it."""
+    steps = list(steps or [])
+    report = steps[12] if len(steps) > 12 and isinstance(steps[12], dict) else {}
+    if report.get("state") != "done":
+        return None
+    if open_steps(steps):
+        return "report_sent"
+    skipped = any(isinstance(st, dict) and st.get("state") == "skipped" for st in steps[:12])
+    return "completed_with_exceptions" if skipped else "verified_complete"
+
+
 def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: datetime,
                    difficulty: str | None, review_rounds: int | None, pause_min: float,
                    risk: str | None = None, size: str | None = None, effort: str | None = None) -> dict:
@@ -993,6 +1021,7 @@ def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: d
         "started_at": _iso(start),
         "ended_at": _iso(end),
         "finished": isinstance(steps[12], dict) and steps[12].get("state") == "done",
+        "closure": closure(steps),
         "recorded_at": _iso(datetime.now(local_tz())),
         "sessions": sessions,
         "transcripts": {"main": len(main), "subagents": len(subs)},
@@ -1094,6 +1123,9 @@ def cmd_metrics_record(a) -> int:
     end = parse_ts(a.until) if a.until else _ms(report.get("endedAt")) or datetime.now(local_tz())
     rec = metrics_record(state, a.repo, a.num, sessions, end, a.difficulty, a.review_rounds, a.pause_min, a.risk,
                          a.size, a.effort)
+    if rec["closure"] == "report_sent":
+        still = ", ".join(map(str, open_steps(rec["steps"])))
+        print(f"warning: step 12 is done with step(s) {still} still open: closure report_sent", file=sys.stderr)
     if not rec["transcripts"]["main"]:
         print(f"warning: no transcript for {', '.join(sessions) or 'this session'}: only wall-clock times",
               file=sys.stderr)
@@ -1131,7 +1163,8 @@ COST_COLUMN = "api_cost_usd_est"
 COST_NOTE = (f"{COST_COLUMN}: an estimate at Anthropic API list prices ({API_PRICES_AS_OF}), "
              "not what a Claude subscription costs")
 METRICS_COLUMNS = (
-    "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "outcome", "difficulty",
+    "kind", "run", "repo", "issue", "verb", "date", "started_at", "ended_at", "finished", "outcome", "closure",
+    "difficulty",
     "review_rounds", "risk", "size", "effort", "na_steps", "section", "section_index", "model",
     "wall_s", "active_s", "review_wait_s", "pause_s", "lead_s",
     "calls", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
@@ -1192,6 +1225,9 @@ def metrics_rows(rec: dict, run: str, cost: bool, unpriced: set[str], outcome: s
         "run": run, "repo": rec.get("repo"), "issue": rec.get("issue"), "verb": rec.get("verb"),
         "date": (rec.get("started_at") or "")[:10] or None, "started_at": rec.get("started_at"),
         "ended_at": rec.get("ended_at"), "finished": rec.get("finished"), "outcome": outcome,
+        # an older record has no closure field: its steps give it; a marker has neither
+        "closure": rec["closure"] if "closure" in rec else closure(rec["steps"]) if isinstance(rec.get("steps"), list)
+        else None,
         "difficulty": rec.get("difficulty"),
         "review_rounds": rec.get("review_rounds"),
         "risk": rec.get("risk"),

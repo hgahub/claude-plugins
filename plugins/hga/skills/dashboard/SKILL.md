@@ -53,7 +53,7 @@ The rows (one table, the `kind` column tells them apart; the schema of the recor
 
 | `kind` | One row per | Filled columns |
 |---|---|---|
-| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `outcome`, `difficulty`, `review_rounds`, `risk` (low / standard / high, empty in older records), `size` (small / medium / large) and `effort` (low / medium / high), both empty in older records, `na_steps` (steps reported not_applicable); `wall_s`, `active_s`, `review_wait_s`, `pause_s`, `lead_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
+| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `outcome`, `closure`, `difficulty`, `review_rounds`, `risk` (low / standard / high, empty in older records), `size` (small / medium / large) and `effort` (low / medium / high), both empty in older records, `na_steps` (steps reported not_applicable); `wall_s`, `active_s`, `review_wait_s`, `pause_s`, `lead_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
 | `section` | run and section (`section`: Prepare, Build, Review, Finish; `section_index` 0–3) | the run's identity columns, elapsed (`lead_s` included), tokens, `api_cost_usd_est` |
 | `model` | run, section and model (`model`: the model id) | the run's identity columns, `section`, tokens, `api_cost_usd_est` |
 
@@ -75,6 +75,10 @@ The rows (one table, the `kind` column tells them apart; the schema of the recor
   reached the report; `open` — only the marker, younger than that: it may still be going on; **empty** — a
   record from before the markers existed, which never had one. An `aborted` or `open` run has a run row only:
   no times, tokens or sections.
+- `closure` (on every row of a record): `verified_complete` / `completed_with_exceptions` (a step skipped) /
+  `report_sent` (the report went out while a step 0–11 was still open) — or empty while step 12 is not done and
+  on markers. Older records get it from their steps. A `finished` run with `report_sent` is a report, not a
+  finished checklist.
 - **Abort rate** = `aborted` / (`finished` + `unfinished` + `aborted`). `open` runs and runs with an empty
   `outcome` are left out of both sides: an older run could not have been counted as aborted.
 
@@ -146,7 +150,9 @@ there, never `wall_s` directly. Every lead-time tooltip shows the lead time with
 
 From top to bottom:
 
-1. **Tiles** (each a `dash.calc` over the filtered `kind=run` rows): runs, finished runs, **abort rate** (as
+1. **Tiles** (each a `dash.calc` over the filtered `kind=run` rows): runs, finished runs (with "n with open
+   steps" under it — `closure` = `report_sent` — when n > 0, and "n with a skipped step" for
+   `completed_with_exceptions`), **abort rate** (as
    defined in section 2, with "n of m runs" under it, and "no runs with a marker" instead of 0 % when m is 0),
    median lead time (with "without pauses" or "with pauses" under it, after the mode), median active time,
    total tokens, `api_cost_usd_est` total — labeled "API-price estimate (not the subscription cost)" — and
@@ -155,7 +161,8 @@ From top to bottom:
 2. **Lead time per issue** — one bar per run (`repo#issue`, by start), length the lead time, colored by
    `difficulty` (easy / medium / hard / not reported), with `active_s` as a thinner bar inside it; the tooltip
    adds review wait, pauses, verb and review rounds.
-3. **Solving speed** — per week of `date`: finished runs (bars), aborted runs (a second, muted bar beside
+3. **Solving speed** — per week of `date`: finished runs (bars; a `report_sent` run stacked on top in the
+   warning color, so a report over open steps never reads as a closed run), aborted runs (a second, muted bar beside
    them), and the median lead time (line), so the trend shows whether issues get done faster and fewer runs
    die on the way.
 4. **Elapsed by section** — one stacked bar per run from the `kind=section` rows, Prepare → Build → Review →
