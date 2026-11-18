@@ -68,10 +68,10 @@ it" is not evidence.
 | 2 | In Progress | ✅ | — | `HGA status-set` read-back: `Status: In Progress · issue: OPEN` |
 | 3 | Worktree | ✅ | linked worktree, on a branch, based on `origin/<default>`, no upstream | branch name + base SHA; upstream unset |
 | 4 | Decisions | ✅ ➖ | — | who decided what; high: the maintainer's decision; ➖ low, if nothing was decided |
-| 5 | Build + automated tests | ✅ | every `HGA gate` command's latest run exited 0 on the current HEAD and files | new cases (low: ➖); how many fail on the base and why (high: all); the gate's numbers; `HGA risk --worktree`'s `Risk:` line |
+| 5 | Build + automated tests | ✅ | every `HGA gate` command's latest run exited 0 on the current HEAD and files, and each of the repository's required ones (`repos.<owner/repo>.gate`) ran | new cases (low: ➖); how many fail on the base and why (high: all); the gate's numbers; `HGA risk --worktree`'s `Risk:` line |
 | 6 | Live test | ✅ ➖ | — | the verdict (`PASSED` / `FAILED` / `NOT VERIFIED`); browser, start path; result per criterion; app stopped, port free — ➖ low |
 | 7 | PR | ✅ | PR open, head = worktree HEAD, closes the issue (or says `Ref #n` where step 7 uses it) | PR URL, head SHA; `closingIssuesReferences` lists the issue (with `labels.closing`: nothing); follow-up issues (7a); high: `checks` not empty, rollback note |
-| 8 | Review | ✅ | head unchanged, CI green; with a bot (standard, high; not quick) a clean review of the head, or `--closed-with` | local review result and level; bot rounds and severities, 👍 on the head SHA, or the maintainer's closing + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line |
+| 8 | Review | ✅ | head unchanged, CI green (or no CI at all — reported as "no CI"); with a bot (standard, high; not quick) a clean review of the head, or `--closed-with` | local review result and level; bot rounds and severities, 👍 on the head SHA, or the maintainer's closing + follow-up issue; CI; `HGA risk --pr`'s `Risk:` line |
 | 9 | In review | ✅ | step 9's status reads back, issue OPEN | read-back: `Status: In Review · issue: OPEN` |
 | 10 | Cleanup | ✅ | — | `launch.json` as before; worktree + local branch deleted; remote branch kept until merge |
 | 11 | Knowledge | ✅ ➖ | — | the note's path; `validate_kb` 0 errors; commit SHA after push — ➖ low, if nothing new was learned |
@@ -255,7 +255,9 @@ decides (see "Risk class").
 - The repo's full gate before the PR, **each command through `HGA gate`** (one call per command; it passes the
   output and exit code through and records them with the worktree's HEAD and files):
   `HGA gate <owner/repo> <n> --worktree ../<repo>-<n> -- <command…>`. Report the numbers yourself — the script
-  records only the exit code. Any change after the gate needs it again.
+  records only the exit code. Any change after the gate needs it again. With the repository's `gate` list in the
+  configuration (`HGA config --repo`), `evidence --step 5` names a required command that did not run; a command
+  that cannot start (exit 127) is not recorded — spell its words out (a shell variable does not split in zsh).
 - **Then:** `HGA risk … --worktree …` ("Risk class", point 2). **low:** no new cases or base proof required
   (`new cases: n/a (low)`); steps 4 (if nothing was decided) and 6 become ➖. **high:** every new test needs its
   base failure; no new test means the step is not done.
@@ -429,7 +431,7 @@ how the run closed: `verified_complete`, or `completed_with_exceptions` with a s
 **Where:** with Slack, in the claim's thread (no broadcast); otherwise an issue comment. Several issues in one PR:
 the full report on the main one, a short pointer on each other. In the configured language:
 
-- ✅ Done: #n — PR link (head SHA), CI, the review's result (local; bot rounds; 👍 or the maintainer's closing with
+- ✅ Done: #n — PR link (head SHA), CI (`no CI` when step 8's evidence says so — never "passed"), the review's result (local; bot rounds; 👍 or the maintainer's closing with
   the follow-up), the issue is In Review and open (the merge closes it — or, with `labels.closing`, the maintainer)
 - **Fix** in 1–2 lines; **Tests**: new cases, base failure, the gate's numbers; **Live test verdict** with the
   browser and fix rounds

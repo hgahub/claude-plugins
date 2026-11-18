@@ -1,4 +1,5 @@
 import json
+import shlex
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -1255,13 +1256,34 @@ def test_config_problems_catch_bad_repo_overrides(hga, tmp_path, capsys):
     text = "\n".join(problems)
     assert "repos.a/b: labels.closing must be a label name" in text
     assert "repos.a/b: github.statuses.done" in text
-    assert "repos.c/d must be an object with github / labels sections" in text
+    assert "repos.c/d must be an object with github / labels sections and a gate list" in text
     assert "repos.e/f must be an object" in text
     assert "repos.plugins must be named owner/repo" in text  # it would never match
     assert len(problems) == 5  # the team's own fields are not reported again
     assert hga.config_problems(hga._merge(hga.DEFAULTS, {"repos": []}))[0].startswith("repos must be an object")
     assert hga.main(["doctor", "--repo", "a/b"]) == 1
     assert "MISSING] configuration · repos.a/b: labels.closing must be" in capsys.readouterr().out
+
+
+def test_repo_gate_list_in_the_config(hga, tmp_path, capsys):
+    write(tmp_path / "kb" / "hga.config.json", {"repos": {
+        "a/b": {"gate": ["npm test", "npm  run   build"]},
+        "c/d": {"gate": "npm test"},
+        "e/f": {"gate": []},
+        "g/h": {"gate": ["echo 'unclosed"]},
+        "i/j": {"gate": ["npm test", ""]},
+    }})
+    c = hga.load_config()
+    text = "\n".join(hga.config_problems(c))
+    assert "repos.a/b" not in text
+    for repo in ("c/d", "e/f", "g/h", "i/j"):
+        assert f"repos.{repo}.gate must be a list of commands" in text
+    # the repository's view carries it; each command as `HGA gate` records it (its words joined again)
+    assert hga.repo_config(c, "A/B")["gate"] == ["npm test", "npm  run   build"]
+    assert hga.gate_commands(c, "a/b") == ["npm test", "npm run build"]
+    assert hga.gate_commands(c, "x/y") is None and "gate" not in hga.repo_config(c, "x/y")
+    assert hga.main(["config", "--repo", "a/b"]) == 0
+    assert json.loads(capsys.readouterr().out)["gate"] == ["npm test", "npm  run   build"]
 
 
 def test_config_problems_catch_bad_risk(hga):
@@ -1536,6 +1558,57 @@ def test_gate_and_evidence_usage_errors_exit_64(hga, ev, gitenv, tmp_path, capsy
     assert len(data["gates"]) == 1 and data["steps"] == {}
 
 
+def test_gate_that_cannot_start_is_not_recorded(hga, ev, gitenv, tmp_path, capsys):
+    wt = plain_repo(tmp_path)
+    # the zsh trap of #73: `-- $cmd` hands the whole command over as one word
+    assert gate(hga, wt, "python3 scripts/version.py") == 127
+    err = capsys.readouterr().err
+    assert "cannot run python3 scripts/version.py" in err and "pass its words separately" in err and "not recorded" in err
+    assert gate(hga, wt, "no-such-command-hga") == 127
+    assert "pass its words separately" not in capsys.readouterr().err
+    assert hga.load_evidence("acme/web-app", 18)["gates"] == []
+    # so it cannot keep step 5 failing on this HEAD: one good run passes
+    gate(hga, wt, sys.executable, "-c", "pass")
+    assert evidence(hga, 5, "--worktree", str(wt)) == 0
+
+
+def test_evidence_step5_checks_the_required_gate_list(hga, ev, gitenv, tmp_path, capfd):
+    wt = plain_repo(tmp_path)
+    test_cmd = (sys.executable, "-c", "pass")
+    build_cmd = (sys.executable, "-c", "import sys; sys.exit(0)")
+    # the configuration may space or quote a command differently from how the gate records it
+    write(tmp_path / "kb" / "hga.config.json", {"repos": {"acme/web-app": {"gate": [
+        shlex.join(test_cmd).replace(" -c ", "   -c   "), shlex.join(build_cmd)]}}})
+    hga.CFG = {}
+    gate(hga, wt, *test_cmd)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    out = capfd.readouterr().out
+    assert "FAILED gate_passed_on_head" in out and f"required but not run: `{shlex.join(build_cmd)}`" in out
+    gate(hga, wt, *build_cmd)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 0
+    assert "all 2 required" in capfd.readouterr().out
+    # a command beyond the list that failed still fails the step, until its latest run passes
+    code = tmp_path / "exit-code"
+    extra = (sys.executable, "-c", "import sys; sys.exit(int(open(sys.argv[1]).read()))", str(code))
+    code.write_text("2", encoding="utf-8")
+    gate(hga, wt, *extra)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    code.write_text("0", encoding="utf-8")
+    gate(hga, wt, *extra)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 0
+    # a new commit: the required runs must be on it
+    (wt / "app.py").write_text("x = 3\n", encoding="utf-8")
+    gitrun(wt, "commit", "-q", "-am", "fix")
+    gate(hga, wt, *test_cmd)
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    assert "required but not run" in capfd.readouterr().out
+    # without a list: as before, and the detail says there is none
+    write(tmp_path / "kb" / "hga.config.json", {})
+    hga.CFG = {}
+    assert evidence(hga, 5, "--worktree", str(wt)) == 0
+    assert "(no required gate list: repos.<owner/repo>.gate)" in capfd.readouterr().out
+
+
 def test_default_ref_without_origin_head(hga, gitenv, tmp_path):
     main, wt = worktree_setup(tmp_path)
     assert hga.default_ref(str(wt)) == "origin/main"
@@ -1729,9 +1802,11 @@ def test_evidence_step8_review_local_provider(hga, ev, monkeypatch, capsys):
     assert "FAILED ci_finished · failed: test (failure); pending: lint" in capsys.readouterr().out
     fake_gh(hga, monkeypatch, pr(A), statuses="ci/legacy\tpending\n")
     assert evidence(hga, 8, "--pr", "7") == 1
-    # no CI at all: nothing to wait for
+    # no CI at all: nothing to wait for — allowed, but said as "no CI", not as a pass
     fake_gh(hga, monkeypatch, pr(A))
     assert evidence(hga, 8, "--pr", "7") == 0
+    out = capsys.readouterr().out
+    assert "ok     ci_finished · no CI: no check run or commit status on" in out and "passed on" not in out
     # a review fix pushed after step 7's record
     fake_gh(hga, monkeypatch, pr(B), runs=ok_runs)
     assert evidence(hga, 8, "--pr", "7") == 1

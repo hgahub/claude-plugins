@@ -9,7 +9,9 @@ skill's general description, the page wins. One page per app (`web-app.md`); a p
 
 Useful sections:
 
-- **Gate** — the full check before a PR (e.g. `just check`, `npm test && npm run lint`), and what to record.
+- **Gate** — the full check before a PR, one command per line (e.g. `npm test`, `npm run lint`), each run through
+  `HGA gate`, and what to record. The same list goes into the team configuration as `repos.<owner/repo>.gate`,
+  so that step 5's machine check names a required command that did not run.
 - **Install in a worktree** — the setup command for a fresh worktree.
 - **Live test** — the start command and port, environment overrides (e.g. auth off), how to log in, which
   state objects to read with JavaScript, where the server log is. The command must run the **worktree's** code
