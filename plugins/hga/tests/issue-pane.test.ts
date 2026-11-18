@@ -611,6 +611,8 @@ test('closure: report_sent, completed_with_exceptions, verified_complete, or nul
   expect(closure([...Array.from({ length: 12 }, () => null), done])).toBe('report_sent')
   expect(closure(all.map((l, i) => (i === 4 ? { ...l, state: 'in_progress' as const } : l)))).toBe('report_sent')
   expect(closure(all.map((l, i) => (i === 12 ? null : l)))).toBeNull()
+  // an unknown state is not closed (hga_issue.py's closure agrees)
+  expect(openSteps(all.map((l, i) => (i === 4 ? ({ ...l, state: 'finished' } as never) : l)))).toEqual([4])
   expect(closure(all.slice(0, 12))).toBeNull()
   expect(openSteps([...Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? done : null)), done])).toEqual([1, 3, 5, 7, 9, 11])
 })

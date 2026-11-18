@@ -955,18 +955,26 @@ def _elapsed_fields(b: dict) -> dict:
     }
 
 
+def open_steps(steps: list) -> list[int]:
+    """The steps 0–11 not closed (hooks/issue-pane.tsx: openSteps): never reported, in progress, or an unknown state."""
+    states = [st.get("state") if isinstance(st, dict) else None for st in list(steps or [])[:12]]
+    states += [None] * (12 - len(states))
+    return [i for i, s in enumerate(states) if s not in CLOSED_STATES]
+
+
 def closure(steps: list) -> str | None:
     """How the run closed, from its 13 steps (state-file entries, or a record's `steps` rows): None while step 12
     (Report) is not done; `report_sent` if a step 0–11 is still open (never reported, or in progress);
     `completed_with_exceptions` if they are all closed and one was skipped; `verified_complete` otherwise (each
     done or not applicable). Only the report says the work is finished, and only a closed checklist backs it."""
-    states = [st.get("state") if isinstance(st, dict) else None for st in list(steps or [])[:len(STEP_NAMES)]]
-    states += [None] * (len(STEP_NAMES) - len(states))
-    if states[12] != "done":
+    steps = list(steps or [])
+    report = steps[12] if len(steps) > 12 and isinstance(steps[12], dict) else {}
+    if report.get("state") != "done":
         return None
-    if any(s not in CLOSED_STATES for s in states[:12]):
+    if open_steps(steps):
         return "report_sent"
-    return "completed_with_exceptions" if "skipped" in states[:12] else "verified_complete"
+    skipped = any(isinstance(st, dict) and st.get("state") == "skipped" for st in steps[:12])
+    return "completed_with_exceptions" if skipped else "verified_complete"
 
 
 def metrics_record(state: dict, repo: str, num: int, sessions: list[str], end: datetime,
@@ -1116,8 +1124,8 @@ def cmd_metrics_record(a) -> int:
     rec = metrics_record(state, a.repo, a.num, sessions, end, a.difficulty, a.review_rounds, a.pause_min, a.risk,
                          a.size, a.effort)
     if rec["closure"] == "report_sent":
-        open_steps = ", ".join(str(i) for i, st in enumerate(rec["steps"][:12]) if st["state"] not in CLOSED_STATES)
-        print(f"warning: step 12 is done with step(s) {open_steps} still open: closure report_sent", file=sys.stderr)
+        still = ", ".join(map(str, open_steps(rec["steps"])))
+        print(f"warning: step 12 is done with step(s) {still} still open: closure report_sent", file=sys.stderr)
     if not rec["transcripts"]["main"]:
         print(f"warning: no transcript for {', '.join(sessions) or 'this session'}: only wall-clock times",
               file=sys.stderr)

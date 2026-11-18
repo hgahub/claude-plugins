@@ -360,7 +360,7 @@ groups of `hga_issue.py next` (Ready, Needs a human, Blocked, Needs info, In pro
   marked stalled and frees its slot; past In review (step 9) it no longer takes a slot. **Finished** means the
   report went out over a closed checklist: ✓ green when every step 0–11 was done or not applicable, ✓ in the
   warning color when one was skipped. A report sent while a step was still open (an older state file) stays among
-  the running ones, marked `!` and `reported · open: …`, and takes no slot. Finished issues stay for a day,
+  the running ones, marked `!` and `report · N open`, and takes no slot. Finished issues stay for a day,
   unfinished ones for a week; ✕ hides one until it reports again. In the desktop app, an issue's name jumps to
   its session.
 - **Issues:** `hga_issue.py next <repo> --json` every five minutes, and right away after a session changes a

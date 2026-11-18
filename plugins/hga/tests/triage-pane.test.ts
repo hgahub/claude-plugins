@@ -427,7 +427,7 @@ test('a report over open steps is not finished: it stays above, marked; a skippe
   expect(drawn).toContain('"2 ⌄"') // #24 (step 6 skipped) and #25; not #26
   expect(at('web-app#26')).toBeLessThan(at('"Finished"'))
   expect(at('web-app#25')).toBeGreaterThan(at('"Finished"'))
-  expect(drawn).toContain('reported · open: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11')
+  expect(drawn).toContain('"report · 11 open"') // fits the 17-column note
   // #24's ✓ in the warning color, #25's (and the Finished header's) in the success color
   expect(drawn.match(/\{"color":"warning","dimColor":false\},"children":\[" ✓"\]/g)?.length).toBe(1)
   // the reported run takes no slot: #31 alone, as without it

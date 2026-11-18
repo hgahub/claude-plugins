@@ -516,7 +516,7 @@ export const register: Register = on => {
             ? { mark: '◐' }
             : { mark: '◐', color: ACCENT }
       const note = reportOpen(f)
-        ? `reported · open: ${openSteps(f.steps).join(', ')}`
+        ? `report · ${openSteps(f.steps).length} open`
         : stalled(f, t)
           ? `quiet for ${Math.floor((t - f.updatedAt) / 60_000)} min`
           : currentStep(f)

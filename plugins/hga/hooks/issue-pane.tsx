@@ -101,9 +101,11 @@ const finished = (j: Issue) => j.steps.filter(l => l !== null && l.state !== 'in
 // and one was skipped; verified_complete otherwise. The triage panel's Finished group takes the last two.
 export type Closure = 'verified_complete' | 'completed_with_exceptions' | 'report_sent'
 const REPORT = 12
-// The steps 0–11 not yet closed (done, skipped or not_applicable): a report must not go out over them.
+// The steps 0–11 not yet closed (done, skipped or not_applicable — hga_issue.py: CLOSED_STATES): a report must not go
+// out over them. Anything else (never reported, in progress, an unknown state) is open.
+const CLOSED: readonly string[] = ['done', 'skipped', 'not_applicable']
 export const openSteps = (steps: readonly (Step | null | undefined)[]): number[] =>
-  STEPS.slice(0, REPORT).flatMap((_, i) => (steps[i] == null || steps[i]!.state === 'in_progress' ? [i] : []))
+  STEPS.slice(0, REPORT).flatMap((_, i) => (CLOSED.includes(steps[i]?.state ?? '') ? [] : [i]))
 export function closure(steps: readonly (Step | null | undefined)[]): Closure | null {
   if (steps[REPORT]?.state !== 'done') return null
   if (openSteps(steps).length > 0) return 'report_sent'

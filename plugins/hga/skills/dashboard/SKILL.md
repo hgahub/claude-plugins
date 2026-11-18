@@ -150,7 +150,9 @@ there, never `wall_s` directly. Every lead-time tooltip shows the lead time with
 
 From top to bottom:
 
-1. **Tiles** (each a `dash.calc` over the filtered `kind=run` rows): runs, finished runs, **abort rate** (as
+1. **Tiles** (each a `dash.calc` over the filtered `kind=run` rows): runs, finished runs (with "n with open
+   steps" under it — `closure` = `report_sent` — when n > 0, and "n with a skipped step" for
+   `completed_with_exceptions`), **abort rate** (as
    defined in section 2, with "n of m runs" under it, and "no runs with a marker" instead of 0 % when m is 0),
    median lead time (with "without pauses" or "with pauses" under it, after the mode), median active time,
    total tokens, `api_cost_usd_est` total — labeled "API-price estimate (not the subscription cost)" — and
@@ -159,7 +161,8 @@ From top to bottom:
 2. **Lead time per issue** — one bar per run (`repo#issue`, by start), length the lead time, colored by
    `difficulty` (easy / medium / hard / not reported), with `active_s` as a thinner bar inside it; the tooltip
    adds review wait, pauses, verb and review rounds.
-3. **Solving speed** — per week of `date`: finished runs (bars), aborted runs (a second, muted bar beside
+3. **Solving speed** — per week of `date`: finished runs (bars; a `report_sent` run stacked on top in the
+   warning color, so a report over open steps never reads as a closed run), aborted runs (a second, muted bar beside
    them), and the median lead time (line), so the trend shows whether issues get done faster and fewer runs
    die on the way.
 4. **Elapsed by section** — one stacked bar per run from the `kind=section` rows, Prepare → Build → Review →

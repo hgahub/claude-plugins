@@ -1417,6 +1417,9 @@ def test_closure_classes(hga):
     assert hga.closure([None] * 12 + [done]) == "report_sent"
     assert hga.closure([done] * 4 + [{"state": "in_progress"}] + [done] * 8) == "report_sent"
     assert hga.closure([done] * 4 + [None] + [{"state": "skipped"}] + [done] * 7) == "report_sent"
+    # an unknown state is not closed (the pane's openSteps agrees)
+    assert hga.closure([done] * 4 + [{"state": "finished"}] + [done] * 8) == "report_sent"
+    assert hga.open_steps([done] * 4 + [{"state": "finished"}] + [done] * 8) == [4]
     # step 12 not done (or missing): not closed at all
     assert hga.closure([done] * 12 + [{"state": "in_progress"}]) is None
     assert hga.closure([done] * 12 + [{"state": "skipped"}]) is None
