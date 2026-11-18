@@ -378,6 +378,40 @@ test("finished and stalled issues' clocks stop; ✕ hides, the store remembers; 
   expect(await pane($)).not.toContain('web-app#24')
 })
 
+// #75: ✕ only where a row takes no slot, so hiding it never changes the footer. A later change to the ✕ condition
+// (or to what takes a slot) that breaks this fails here.
+test('✕ is never on a running row, and hiding a row leaves the footer as it was', async ($, on) => {
+  const s = engine(on, {
+    files: {
+      // past In review: alive, but no longer takes a slot
+      'acme-web-app-27.json': { issue: 'acme/web-app#27', verb: 'fix', startedAt: T0 - 60 * MIN, updatedAt: T0 - 2 * MIN, session: 's9', steps: steps(10, 10) },
+    },
+  })
+  await start($)
+  await triage($)
+  const text = async () => {
+    const ui = await footer($)
+    const b = (await ui.find({ type: 'Button' }))?.text
+    await ui.unmount()
+    return b
+  }
+  const before = await text()
+  expect(before).toBe('🧭 1/2 · ▶1')
+  await openGroups($, 'finished')
+  const ui = await $.ui.mount(PANE_PROPS as never)
+  // alive rows — running (#31) or past In review (#27) — have no ✕
+  expect(await ui.find({ key: 'hide-31' })).toBeUndefined()
+  expect(await ui.find({ key: 'hide-27' })).toBeUndefined()
+  // the stalled (#23) and the finished (#24) ones have one; hiding them changes no count
+  await ui.press({ key: 'hide-23' })
+  await ui.press({ key: 'hide-24' })
+  await ui.unmount()
+  expect(await text()).toBe(before)
+  // nor after the next reading of the files
+  await s.clock.advance(MIN)
+  expect(await text()).toBe(before)
+})
+
 test('a hidden issue comes back if its state file is newer; starts from the store', async ($, on) => {
   const fresh = { issue: 'acme/web-app#24', verb: 'fix', startedAt: T0 - 300 * MIN, updatedAt: T0 - 10 * MIN, session: 's2', steps: steps(13) }
   const s = engine(on, {
