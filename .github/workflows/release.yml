@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.15'
       - name: Require a merged commit and matching versions
         env:
           RELEASE_TAG: ${{ github.ref_name }}
