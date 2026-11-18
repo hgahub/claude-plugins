@@ -25,6 +25,7 @@ own `usage` field names.
 | `repo`, `issue`, `verb` | `owner/repo` as given, the issue number, the claim verb (`fix`, `implement`, …). |
 | `started_at`, `ended_at` | The run's start (step 0's `HGA now`) and end (step 12's first `done`, or `--until`). |
 | `finished` | Whether step 12 was `done` when the record was written. |
+| `closure` | How the run closed, from its steps: `verified_complete` — step 12 `done` and every step 0–11 `done` or `not_applicable`; `completed_with_exceptions` — the same with at least one `skipped`; `report_sent` — step 12 `done` while a step 0–11 was `null` or `in_progress`; `null` — step 12 not `done`. Absent in older records (`hga_issue.py metrics` derives it from their `steps`). |
 | `recorded_at` | When the record was written. |
 | `sessions`, `transcripts` | The Claude Code session ids measured; how many main and subagent transcripts were found. |
 | `difficulty` | `easy` / `medium` / `hard` as reported in step 12, or `null`. |

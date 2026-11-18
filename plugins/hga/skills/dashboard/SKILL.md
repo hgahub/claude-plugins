@@ -53,7 +53,7 @@ The rows (one table, the `kind` column tells them apart; the schema of the recor
 
 | `kind` | One row per | Filled columns |
 |---|---|---|
-| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `outcome`, `difficulty`, `review_rounds`, `risk` (low / standard / high, empty in older records), `size` (small / medium / large) and `effort` (low / medium / high), both empty in older records, `na_steps` (steps reported not_applicable); `wall_s`, `active_s`, `review_wait_s`, `pause_s`, `lead_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
+| `run` | run of `/hga:issue` | `run`, `repo`, `issue`, `verb`, `date` (start date), `started_at`, `ended_at`, `finished`, `outcome`, `closure`, `difficulty`, `review_rounds`, `risk` (low / standard / high, empty in older records), `size` (small / medium / large) and `effort` (low / medium / high), both empty in older records, `na_steps` (steps reported not_applicable); `wall_s`, `active_s`, `review_wait_s`, `pause_s`, `lead_s`; `calls`, the four token fields, `total_tokens`; `five_hour_start_at/_pct`, `five_hour_end_at/_pct`; `api_cost_usd_est` |
 | `section` | run and section (`section`: Prepare, Build, Review, Finish; `section_index` 0–3) | the run's identity columns, elapsed (`lead_s` included), tokens, `api_cost_usd_est` |
 | `model` | run, section and model (`model`: the model id) | the run's identity columns, `section`, tokens, `api_cost_usd_est` |
 
@@ -75,6 +75,10 @@ The rows (one table, the `kind` column tells them apart; the schema of the recor
   reached the report; `open` — only the marker, younger than that: it may still be going on; **empty** — a
   record from before the markers existed, which never had one. An `aborted` or `open` run has a run row only:
   no times, tokens or sections.
+- `closure` (on every row of a record): `verified_complete` / `completed_with_exceptions` (a step skipped) /
+  `report_sent` (the report went out while a step 0–11 was still open) — or empty while step 12 is not done and
+  on markers. Older records get it from their steps. A `finished` run with `report_sent` is a report, not a
+  finished checklist.
 - **Abort rate** = `aborted` / (`finished` + `unfinished` + `aborted`). `open` runs and runs with an empty
   `outcome` are left out of both sides: an older run could not have been counted as aborted.
 

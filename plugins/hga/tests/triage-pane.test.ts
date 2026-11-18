@@ -409,6 +409,33 @@ test('a finished issue sits below the running ones, in a separate collapsible "F
   expect(at('web-app#24')).toBeLessThan(at('"Issues"'))
 })
 
+test('a report over open steps is not finished: it stays above, marked; a skipped step finishes with a warning ✓', async ($, on) => {
+  const all = (state: (i: number) => string | null) =>
+    Array.from({ length: 13 }, (_, i) => (state(i) === null ? null : { state: state(i), evidence: 'ok' }))
+  engine(on, {
+    files: {
+      // the synthetic run of #73: only the start and the report
+      'acme-web-app-26.json': { issue: 'acme/web-app#26', verb: 'fix', startedAt: T0 - 60 * MIN, updatedAt: T0 - 10 * MIN, session: 's6', steps: all(i => (i === 0 || i === 12 ? 'done' : null)) },
+      'acme-web-app-25.json': { issue: 'acme/web-app#25', verb: 'fix', startedAt: T0 - 60 * MIN, updatedAt: T0 - 10 * MIN, session: 's5', steps: all(() => 'done') },
+    },
+  })
+  await start($)
+  await triage($)
+  await openGroups($, 'finished')
+  const drawn = await pane($)
+  const at = (s: string) => drawn.indexOf(s)
+  expect(drawn).toContain('"2 ⌄"') // #24 (step 6 skipped) and #25; not #26
+  expect(at('web-app#26')).toBeLessThan(at('"Finished"'))
+  expect(at('web-app#25')).toBeGreaterThan(at('"Finished"'))
+  expect(drawn).toContain('reported · open: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11')
+  // #24's ✓ in the warning color, #25's (and the Finished header's) in the success color
+  expect(drawn.match(/\{"color":"warning","dimColor":false\},"children":\[" ✓"\]/g)?.length).toBe(1)
+  // the reported run takes no slot: #31 alone, as without it
+  const ui = await footer($)
+  expect((await ui.find({ type: 'Button' }))?.text).toBe('🧭 1/2 · ▶1')
+  await ui.unmount()
+})
+
 test('a launched session shows up within seconds, not after the minute tick', async ($, on) => {
   const s = engine(on)
   await start($)

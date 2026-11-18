@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { digest } from '../hooks/issue-pane'
+import { closure, digest, openSteps } from '../hooks/issue-pane'
 
 const TOOL = 'mcp__hga__step'
 const ISSUE = 'acme/web-app#18'
@@ -44,6 +44,10 @@ function evidence(on: On, steps: () => Record<string, unknown> | null) {
 const start = ($: Engine) => $.session.start({ cwd: '/tmp', surface: null, isInteractive: false } as never)
 const step = ($: Engine, args: Record<string, unknown>) =>
   $.tool.call({ tool: TOOL, ...args } as never) as Promise<{ result: string }>
+// Closes steps 1–11 as not applicable (no record needed), so step 12 can be done: the report needs a closed checklist.
+const closeChecklist = async ($: Engine, issue = ISSUE) => {
+  for (let i = 1; i <= 11; i++) await step($, { issue, step: i, state: 'not_applicable', evidence: 'Risk: low' })
+}
 const pane = async ($: Engine) =>
   JSON.stringify(
     await $.ui.render({
@@ -171,6 +175,7 @@ test("a finished issue's clock stops at the last report", async ($, on) => {
   await start($)
   await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
   await s.clock.advance(15 * 60_000)
+  await closeChecklist($)
   await step($, { issue: ISSUE, step: 12, state: 'done', evidence: 'ok' })
   await s.clock.advance(30 * 60_000)
   expect(await pane($)).toContain('◷ 0:15')
@@ -448,6 +453,7 @@ test("five-hour usage: snapshot at step 0's start and at step 12 done, account-w
   await step($, { issue: ISSUE, step: 0, state: 'in_progress' })
   pct = 30
   await step($, { issue: ISSUE, step: 0, state: 'done', evidence: 'ok' })
+  await closeChecklist($)
   await step($, { issue: ISSUE, step: 12, state: 'in_progress' })
   expect(JSON.parse(writes.at(-1)!.text).fiveHour).toEqual({ start: { at: 1_000_000, percentUsed: 21.5 } })
   await s.clock.advance(60_000)
@@ -571,6 +577,44 @@ test("a machine-checked done as the issue's first report has no start to be fres
 })
 
 // The same vector as the Python test (test_evidence_digest_matches_the_pane): the two implementations agree.
+test('step 12 done only over a closed checklist: open steps are named and nothing changes', async ($, on) => {
+  engine(on)
+  const writes: string[] = []
+  mock.env(on, { HOME: '/home/test' })
+  on('fs.write', ($, e) => { writes.push(String((e as { text: string }).text)); return { value: undefined } as never })
+  await start($)
+  await step($, { issue: ISSUE, verb: 'fix', step: 0, state: 'done', evidence: 'repo-check OK' })
+  // the synthetic run of #73: nothing between the start and the report
+  const before = writes.length
+  const refused = (await step($, { issue: ISSUE, step: 12, state: 'done', evidence: 'https://x.test' })).result
+  expect(refused).toStartWith('Invalid input: step 12 (Report) is done only when steps 0–11 are closed')
+  expect(refused).toContain('still open: 1 Claim, 2 In Progress, 3 Worktree')
+  expect(refused).toContain('11 Knowledge.')
+  expect(writes.length).toBe(before)
+  await closeChecklist($)
+  // a step in progress is open too
+  await step($, { issue: ISSUE, step: 4, state: 'in_progress' })
+  expect((await step($, { issue: ISSUE, step: 12, state: 'done', evidence: 'https://x.test' })).result).toContain('still open: 4 Decisions.')
+  // a skipped step (with its reason) closes it: the report may go out, with the exception
+  await step($, { issue: ISSUE, step: 4, state: 'skipped', evidence: 'the maintainer excluded it' })
+  expect((await step($, { issue: ISSUE, step: 12, state: 'done', evidence: 'https://x.test' })).result).toBe(`${ISSUE}: 13/13 done.`)
+  // step 12 in progress or skipped is never refused
+  expect((await step($, { issue: 'acme/web-app#19', step: 12, state: 'skipped', evidence: 'no report: stopped' })).result).toBe('acme/web-app#19: 1/13 done.')
+})
+
+test('closure: report_sent, completed_with_exceptions, verified_complete, or null before the report', () => {
+  const done = { state: 'done' as const, evidence: 'ok' }
+  const all = Array.from({ length: 13 }, () => done)
+  expect(closure(all)).toBe('verified_complete')
+  expect(closure(all.map((l, i) => (i === 6 ? { ...l, state: 'not_applicable' as const } : l)))).toBe('verified_complete')
+  expect(closure(all.map((l, i) => (i === 6 ? { ...l, state: 'skipped' as const } : l)))).toBe('completed_with_exceptions')
+  expect(closure([...Array.from({ length: 12 }, () => null), done])).toBe('report_sent')
+  expect(closure(all.map((l, i) => (i === 4 ? { ...l, state: 'in_progress' as const } : l)))).toBe('report_sent')
+  expect(closure(all.map((l, i) => (i === 12 ? null : l)))).toBeNull()
+  expect(closure(all.slice(0, 12))).toBeNull()
+  expect(openSteps([...Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? done : null)), done])).toEqual([1, 3, 5, 7, 9, 11])
+})
+
 test('the digest is the one HGA evidence writes', () => {
   const e = { ok: true, at: '2026-10-22T10:00:00.000+02:00', facts: [{ name: 'pr_open', ok: true, detail: 'PR #7 is OPEN · ő "q"\n' }], pr: 7, head: 'abc' }
   expect(digest('acme/web-app#18', 7, e)).toBe('fnv1a32:edb2961e')

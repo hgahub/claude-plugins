@@ -421,8 +421,10 @@ complete), and do not wait for the merge either. Several claimed issues in one P
 
 ## 12. Report — the last step
 
-**Precondition:** the pane shows steps 0–11. Then send, then step 12 `done` with the link, then the metrics
-record, then step 12 `done` again with the record's path.
+**Precondition:** the pane shows steps 0–11 closed (`done`, `skipped` with the reason, or `not_applicable`); the
+step tool rejects step 12's `done` otherwise and names the open steps. Then send, then step 12 `done` with the
+link, then the metrics record, then step 12 `done` again with the record's path. The record's `closure` says
+how the run closed: `verified_complete`, or `completed_with_exceptions` with a skipped step.
 
 **Where:** with Slack, in the claim's thread (no broadcast); otherwise an issue comment. Several issues in one PR:
 the full report on the main one, a short pointer on each other. In the configured language:

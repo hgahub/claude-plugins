@@ -96,6 +96,20 @@ const cut = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, Math.ma
 const short = (id: string) => id.replace(/^[^/#\s]+\//, '')
 const finished = (j: Issue) => j.steps.filter(l => l !== null && l.state !== 'in_progress').length
 
+// How a run closed (hga_issue.py: closure; keep them in step): null while step 12 (Report) is not done; report_sent
+// if a step 0–11 is still open (never reported, or in progress); completed_with_exceptions if they are all closed
+// and one was skipped; verified_complete otherwise. The triage panel's Finished group takes the last two.
+export type Closure = 'verified_complete' | 'completed_with_exceptions' | 'report_sent'
+const REPORT = 12
+// The steps 0–11 not yet closed (done, skipped or not_applicable): a report must not go out over them.
+export const openSteps = (steps: readonly (Step | null | undefined)[]): number[] =>
+  STEPS.slice(0, REPORT).flatMap((_, i) => (steps[i] == null || steps[i]!.state === 'in_progress' ? [i] : []))
+export function closure(steps: readonly (Step | null | undefined)[]): Closure | null {
+  if (steps[REPORT]?.state !== 'done') return null
+  if (openSteps(steps).length > 0) return 'report_sent'
+  return steps.slice(0, REPORT).some(l => l?.state === 'skipped') ? 'completed_with_exceptions' : 'verified_complete'
+}
+
 // The step's times for the metrics record: in_progress keeps an earlier start (a repeated report, or a step
 // opened again) and drops the end; done / skipped / not_applicable stamps the end and keeps the start. A finished step reported
 // again (its evidence amended) keeps its end. A step reported done without an in_progress gets no start (step 0
@@ -345,6 +359,17 @@ export const register: Register = on => {
     if (state !== 'in_progress' && evidence === '') {
       const what = state === 'done' ? 'the read-back result' : state === 'skipped' ? 'the reason' : 'the `HGA risk` line'
       return { result: `Invalid input: a ${state} step needs its evidence (${what}).` }
+    }
+    // Step 12: the report only says the work is finished over a closed checklist — every step 0–11 done, skipped
+    // (with its reason) or not applicable.
+    if (step === REPORT && state === 'done') {
+      const open = openSteps(base.steps)
+      if (open.length > 0) {
+        return {
+          result: `Invalid input: step ${REPORT} (${STEPS[REPORT]}) is done only when steps 0–11 are closed — still open: ` +
+            `${open.map(i => `${i} ${STEPS[i]}`).join(', ')}. Report each as done, skipped (with the reason) or not_applicable first.`,
+        }
+      }
     }
     // Steps 3, 5, 7, 8 and 9: done only with the script's passing record; the evidence text is still shown.
     if (state === 'done' && VERIFIED.includes(step)) {
