@@ -1282,6 +1282,16 @@ def test_repo_gate_list_in_the_config(hga, tmp_path, capsys):
     assert hga.repo_config(c, "A/B")["gate"] == ["npm test", "npm  run   build"]
     assert hga.gate_commands(c, "a/b") == ["npm test", "npm run build"]
     assert hga.gate_commands(c, "x/y") is None and "gate" not in hga.repo_config(c, "x/y")
+    # blank entries only: no list, not "all 0 required"
+    assert hga.gate_commands(c, "i/j") == ["npm test"]
+    assert hga.gate_commands({"repos": {"k/l": {"gate": [" ", ""]}}}, "k/l") is None
+    # a command it cannot split fails loudly, naming the key, instead of being skipped
+    with pytest.raises(ValueError, match=r"repos\.g/h\.gate: cannot read the command"):
+        hga.gate_commands(c, "g/h")
+    # Windows: a backslash stays a path separator, the surrounding quotes go; it matches how HGA gate records argv
+    assert hga.command_words(r'scripts\check.cmd "C:\Program Files\x.exe" -v', posix=False) == [
+        r"scripts\check.cmd", r"C:\Program Files\x.exe", "-v"]
+    assert hga.command_words(r"scripts\check.cmd", posix=True) == ["scriptscheck.cmd"]  # why posix=False there
     assert hga.main(["config", "--repo", "a/b"]) == 0
     assert json.loads(capsys.readouterr().out)["gate"] == ["npm test", "npm  run   build"]
 
@@ -1602,6 +1612,11 @@ def test_evidence_step5_checks_the_required_gate_list(hga, ev, gitenv, tmp_path,
     gate(hga, wt, *test_cmd)
     assert evidence(hga, 5, "--worktree", str(wt)) == 1
     assert "required but not run" in capfd.readouterr().out
+    # a list it cannot read fails the step with the key named (not a silent pass)
+    write(tmp_path / "kb" / "hga.config.json", {"repos": {"acme/web-app": {"gate": ["echo 'unclosed"]}}})
+    hga.CFG = {}
+    assert evidence(hga, 5, "--worktree", str(wt)) == 1
+    assert "FAILED read · repos.acme/web-app.gate: cannot read the command" in capfd.readouterr().out
     # without a list: as before, and the detail says there is none
     write(tmp_path / "kb" / "hga.config.json", {})
     hga.CFG = {}

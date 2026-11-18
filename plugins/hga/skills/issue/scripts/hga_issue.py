@@ -286,13 +286,32 @@ def repo_config(c: dict, repo: str) -> dict:
     return view
 
 
+def command_words(cmd: str, posix: bool | None = None) -> list[str]:
+    """A configured command's words. On Windows (posix False) a backslash is a path separator, not an escape: the
+    words keep it, and only their surrounding quotes go."""
+    if posix is None:
+        posix = os.name != "nt"
+    if posix:
+        return shlex.split(cmd)
+    return [w[1:-1] if len(w) >= 2 and w[0] == w[-1] and w[0] in "\"'" else w for w in shlex.split(cmd, posix=False)]
+
+
 def gate_commands(c: dict, repo: str) -> list[str] | None:
     """The repository's required gate commands, each normalized as `HGA gate` records it (shlex.join of its words),
-    or None when none is set."""
+    or None when none is set. A command that cannot be split (an unclosed quote) is an error, not a skipped one:
+    step 5 must not pass on a list it cannot read."""
     cmds = repo_config(c, repo).get("gate")
-    if not isinstance(cmds, list) or not cmds:
+    if not isinstance(cmds, list):
         return None
-    return [shlex.join(shlex.split(x)) for x in cmds if _text(x)]
+    out = []
+    for x in cmds:
+        if not _text(x):
+            continue
+        try:
+            out.append(shlex.join(command_words(x)))
+        except ValueError as e:
+            raise ValueError(f"repos.{repo}.gate: cannot read the command {x!r} ({e}); fix the team configuration")
+    return out or None
 
 
 def _text(v: object) -> bool:
@@ -403,7 +422,7 @@ def _commands(v: object) -> bool:
     if not isinstance(v, list) or not v or not all(_text(x) for x in v):
         return False
     try:
-        return all(shlex.split(x) for x in v)
+        return all(command_words(x) for x in v)
     except ValueError:
         return False
 
