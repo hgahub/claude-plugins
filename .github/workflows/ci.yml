@@ -31,7 +31,8 @@ jobs:
       matrix:
         # ubuntu is pinned: ubuntu-latest is 26.04 now, and setup-python has no Python 3.9 build for it.
         os: [ubuntu-24.04, macos-latest, windows-latest]
-        python: ["3.9", "3.13"]
+        # The supported floor (macOS ships 3.9 as /usr/bin/python3) and the latest stable release.
+        python: ["3.9", "3.15"]
     steps:
       - uses: actions/checkout@v4
         with:
