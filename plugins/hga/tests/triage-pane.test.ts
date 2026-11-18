@@ -446,6 +446,8 @@ test("only this repository's runs: not a longer name's sharing the file prefix, 
       'acme-web-app-31.evidence.json': { schema: 1, issue: 'acme/web-app#31', gates: [], reviews: [], steps: {} },
       // the same repository with other letter case (the step tool's id as the model typed it)
       'Acme-Web-App-50.json': { issue: 'Acme/Web-App#50', verb: 'fix', startedAt: T0 - 10 * MIN, updatedAt: T0 - MIN, session: 's8', steps: steps(3, 3) },
+      // the same issue under the other spelling, older: one row, one slot
+      'acme-web-app-50.json': { issue: 'acme/web-app#50', verb: 'fix', startedAt: T0 - 10 * MIN, updatedAt: T0 - 5 * MIN, session: 's8', steps: steps(2, 2) },
     },
   })
   await start($)
@@ -453,6 +455,8 @@ test("only this repository's runs: not a longer name's sharing the file prefix, 
   const drawn = await pane($)
   expect(drawn).not.toContain('web-app-api#2')
   expect(drawn).toContain('Web-App#50')
+  expect(drawn).toContain('"key":"Acme/Web-App#50"') // the newer spelling stands for the issue
+  expect(drawn).not.toContain('"key":"acme/web-app#50"')
   // neither the triage panel nor the issue pane's restore reads it (the fake fs lists the same files in every folder)
   expect(s.reads.filter(p => p.endsWith('/hga/issue/acme-web-app-31.evidence.json'))).toEqual([])
   expect(s.reads.filter(p => p.endsWith('/hga/issue/acme-web-app-31.json')).length).toBeGreaterThan(0)
