@@ -19,16 +19,13 @@ export type EvidenceFile = {
 export type UsageSnapshot = { at: number; percentUsed: number }
 // The current issue: steps in the order of the issue skill's checklist (0–12), null = not started yet.
 // updatedAt: time of the last report; a finished issue's clock (step 12 done) stops here.
-// checks: the PR's manual review points (the model writes them, the reviewer ticks them); [] = no such point.
 // fiveHour: the five-hour usage at step 0's start and at step 12's done (for the metrics record).
-export type Check = { text: string; done: boolean }
 export type Issue = {
   issue: string
   verb: string
   startedAt: number
   steps: (Step | null)[]
   updatedAt?: number
-  checks?: Check[]
   fiveHour?: { start?: UsageSnapshot; end?: UsageSnapshot }
 }
 // The shared state file (~/.claude/hga/issue/<owner>-<repo>-<n>.json): the issue pane writes it, the triage panel reads it.
@@ -75,7 +72,7 @@ export type IntentFile = Intent & { updatedAt: number; session: string }
 declare module 'claude-code' {
   // The mod's own tools: the generated MCP list only contains servers connected at load time.
   interface McpToolInputs {
-    'mcp__hga__step': { issue: string; step: number; state: string; evidence?: string; verb?: string; started_at?: string; checks?: string[] }
+    'mcp__hga__step': { issue: string; step: number; state: string; evidence?: string; verb?: string; started_at?: string }
     'mcp__hga__phase': { branch: string; issue?: string; step?: string; verdicts?: Record<string, string>; proposed?: string; decisions?: number }
     'mcp__hga__intent': { intent: string; step?: number; state?: string; evidence?: string; sections?: Record<string, string>; questions?: number; verdict?: string; issue?: string; file?: string }
   }

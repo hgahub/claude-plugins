@@ -49,9 +49,6 @@ const VERIFIED: readonly number[] = [3, 5, 7, 8, 9]
 // Fixed-width columns: with the desktop app's proportional font, padding with spaces does not align.
 const NAME = 18
 const TITLE = 14
-// The PR's manual review section: the reviewer ticks off here what they have checked.
-const CHECKS = 'Manual review'
-const CHECKS_MAX = 13
 
 const STEP_SPEC = {
   name: 'step',
@@ -72,14 +69,6 @@ const STEP_SPEC = {
       started_at: {
         type: 'string',
         description: 'When the work really started, ISO 8601 (the `HGA now` value of step 0, e.g. 2026-10-13T08:53:05+02:00); the clock counts from here.',
-      },
-      checks: {
-        type: 'array',
-        items: { type: 'string' },
-        maxItems: CHECKS_MAX,
-        description:
-          "The PR's manual review points for the reviewer, at most 13, one short line each: check tasks on the finished change " +
-          '(place + situation + what must hold), not decisions to make; only what the tests and the review bot do not prove. [] = no such point. Replaces the whole list; a point with the same text keeps its tick.',
       },
     },
     required: ['issue', 'step', 'state'],
@@ -263,15 +252,6 @@ async function doublePress($: EngineInterface, key: string, i: number): Promise<
   await update($, rows, r => (r.includes(i) ? r.filter(x => x !== i) : [...r, i]))
 }
 
-// The reviewer's tick: it goes into the state file too, so it survives a restart.
-async function toggleCheck($: EngineInterface, i: number): Promise<void> {
-  await update($, issue, j =>
-    j === null || j.checks === undefined ? j : { ...j, checks: j.checks.map((c, k) => (k === i ? { ...c, done: !c.done } : c)) },
-  )
-  const j = await read($, issue)
-  if (j !== null) await save($, j)
-}
-
 async function openPane($: EngineInterface): Promise<void> {
   await restore($)
   const j = await read($, issue)
@@ -348,9 +328,6 @@ export const register: Register = on => {
     if (id === '' || !Number.isInteger(step) || step < 0 || step >= STEPS.length || !STATES.includes(state)) {
       return { result: 'Invalid input: issue (owner/repo#number), step 0–12 and state (in_progress | done | skipped | not_applicable) are required.' }
     }
-    if (e.checks !== undefined && !(Array.isArray(e.checks) && e.checks.every((c: unknown) => typeof c === 'string'))) {
-      return { result: 'Invalid input: checks is a list of strings (at most 13).' }
-    }
     const t = await $.clock.now()
     const prev = await read($, issue)
     const base: Issue = prev !== null && prev.issue === id ? prev : { issue: id, verb: '', startedAt: t, steps: STEPS.map(() => null) }
@@ -389,7 +366,6 @@ export const register: Register = on => {
     // The model may report steps late: the real start is step 0's timestamp. A future or invalid value does not count.
     const given = typeof e.started_at === 'string' ? Date.parse(e.started_at) : NaN
     const startOk = Number.isFinite(given) && given <= t
-    const points: string[] | undefined = e.checks?.map((c: string) => c.replace(/\s+/g, ' ').trim()).filter((c: string) => c !== '')
     // The five-hour usage at the start (step 0's first report) and at the end (step 12's first done): account-wide
     // context. Step 12 is reported again with the metrics record's path; that keeps the first snapshot.
     const snapStart = step === 0 && base.fiveHour?.start === undefined ? await fiveHour($, t) : null
@@ -398,11 +374,10 @@ export const register: Register = on => {
       snapStart === null && snapEnd === null
         ? base.fiveHour
         : { ...base.fiveHour, ...(snapStart === null ? {} : { start: snapStart }), ...(snapEnd === null ? {} : { end: snapEnd }) }
+    // An older state file's manual review list (`checks`, removed in 1.1) is dropped on the next report.
+    const { checks: _old, ...kept } = base as Issue & { checks?: unknown }
     const nextIssue: Issue = {
-      ...base,
-      ...(points === undefined
-        ? {}
-        : { checks: points.slice(0, CHECKS_MAX).map(text => ({ text, done: base.checks?.some(c => c.text === text && c.done) ?? false })) }),
+      ...kept,
       startedAt: startOk ? given : base.startedAt,
       verb: typeof e.verb === 'string' && e.verb !== '' ? e.verb : base.verb,
       steps: base.steps.map((l, i) => (i === step ? stamp(l ?? null, state, evidence, t, step === 0 && startOk ? given : undefined) : l)),
@@ -419,11 +394,7 @@ export const register: Register = on => {
     // Opens by itself only for a new issue: if the user closed it, further reports do not reopen it.
     if (prev?.issue !== id) await openPane($)
     const warning = typeof e.started_at === 'string' && !startOk ? ' started_at is invalid or in the future; ignored.' : ''
-    const cut13 = points !== undefined && points.length > CHECKS_MAX ? ` Only the first ${CHECKS_MAX} points of the check list were kept.` : ''
-    // The model sees where the reviewer stands too: the report says from this what is still unticked.
-    const ch = nextIssue.checks
-    const standing = ch === undefined || ch.length === 0 ? '' : ` Manual review: ${ch.filter(c => c.done).length}/${ch.length} ticked.`
-    return { result: `${id}: ${finished(nextIssue)}/${STEPS.length} done.${standing}${warning}${cut13}` }
+    return { result: `${id}: ${finished(nextIssue)}/${STEPS.length} done.${warning}` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -447,52 +418,13 @@ export const register: Register = on => {
     // By default only the running section is open: the one with a step in progress, else the first unfinished one.
     const running =
       SECTIONS.find(sz => stepsOf(sz).some(l => l?.state === 'in_progress')) ?? SECTIONS.find(sz => stepsOf(sz).some(l => l === null))
-    const ch = j.checks
-    // The manual review section is open by default while it has an unticked point.
-    const opened =
-      (await read($, sections)) ?? [...(running === undefined ? [] : [running.title]), ...(ch?.some(c => !c.done) ? [CHECKS] : [])]
+    const opened = (await read($, sections)) ?? (running === undefined ? [] : [running.title])
     const multi = await read($, rows)
     const { Button } = $.ui.resolve(e)
     const toggleSection = async (title: string) => {
       const cur = (await read($, sections)) ?? opened
       await update($, sections, () => (cur.includes(title) ? cur.filter(c => c !== title) : [...cur, title]))
     }
-    const checksOpen = opened.includes(CHECKS)
-    const manual =
-      ch === undefined ? null : (
-        <Box key={CHECKS} flexDirection="column">
-          <Box flexDirection="row">
-            <Box width={3}>
-              <Text color={ch.some(c => !c.done) ? ACCENT : undefined} dimColor={!ch.some(c => !c.done)}>{' ☑'}</Text>
-            </Box>
-            <Box width={TITLE}>
-              <Button key={`section-${CHECKS}`} plain dimColor onPress={async () => { await toggleSection(CHECKS) }}>
-                {CHECKS}
-              </Button>
-            </Box>
-            <Text dimColor>{`${ch.filter(c => c.done).length}/${ch.length} ${checksOpen ? '⌄' : '›'}`}</Text>
-          </Box>
-          {!checksOpen ? null : ch.length === 0 ? (
-            <Box paddingLeft={6}>
-              <Text dimColor>This PR has no highlighted manual review point.</Text>
-            </Box>
-          ) : (
-            ch.map((c, i) => (
-              <Box key={`c${i}`} flexDirection="row" paddingLeft={3}>
-                <Box width={3}>
-                  <Button key={`check-${i}`} plain dimColor={c.done} onPress={async () => { await toggleCheck($, i) }}>
-                    <Text color={c.done ? 'success' : undefined}>{c.done ? '☑' : '☐'}</Text>
-                  </Button>
-                </Box>
-                <Box width={width - 7}>
-                  <Text dimColor={c.done} strikethrough={c.done} wrap="wrap">{c.text}</Text>
-                </Box>
-              </Box>
-            ))
-          )}
-        </Box>
-      )
-
     return (
       <Box flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between">
@@ -519,8 +451,7 @@ export const register: Register = on => {
           // Icon color: accent for the running section, warning if a step was skipped, otherwise neutral.
           const iconColor = ls.some(l => l?.state === 'in_progress') ? ACCENT : skipped > 0 ? 'warning' : undefined
           const isOpen = opened.includes(sz.title)
-          // The manual review sits under the Review section: that is where the reviewer looks for it.
-          return [
+          return (
             <Box key={sz.title} flexDirection="column">
               <Box flexDirection="row">
                 <Box width={3}>
@@ -567,9 +498,8 @@ export const register: Register = on => {
                     )
                   })
                 : null}
-            </Box>,
-            sz.title === 'Review' ? manual : null,
-          ]
+            </Box>
+          )
         })}
       </Box>
     )
