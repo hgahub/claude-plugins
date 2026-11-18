@@ -1,13 +1,15 @@
 ---
 name: dashboard
-description: Use when someone wants to see how the hga issue runs went — lead times, elapsed time per section, tokens, an API-price cost estimate, review rounds, risk classes, aborted runs, plan usage — across repositories and over a period. Aggregates the knowledge base's metrics records (written by /hga:issue step 12) with `hga_issue.py metrics`, then creates a claude.ai Dashboard artifact on first use or refreshes the existing one with the new rows. Triggers include "hga dashboard", "metrics dashboard", "how fast do we solve issues", "how many tokens did the issues take", "refresh the dashboard", "show the issue metrics".
+description: Use when someone wants to see how the hga issue runs went — lead times, elapsed time per section, tokens, an API-price cost estimate, review rounds, risk classes, aborted runs, plan usage — across repositories and over a period. Aggregates the knowledge base's metrics records (written by /hga:issue step 12) with `hga_issue.py metrics`, then creates a claude.ai Data artifact (the type formerly called Dashboard) on first use or refreshes the existing one with the new rows. Triggers include "hga dashboard", "metrics dashboard", "how fast do we solve issues", "how many tokens did the issues take", "refresh the dashboard", "show the issue metrics".
 user-invocable: true
 argument-hint: "[refresh]"
 ---
 
 # Metrics dashboard
 
-A colorful, interactive dashboard on claude.ai over the `/hga:issue` runs, filterable by repository and period.
+A colorful, interactive dashboard on claude.ai over the `/hga:issue` runs, filterable by repository and period,
+built on the claude.ai **Data** artifact type (called **Dashboard** until late 2026; a dashboard made then is
+the same kind of artifact and is refreshed as it is).
 The knowledge base is local (or a git repository), so the dashboard holds a **snapshot**: the rows are an
 attached file, refreshed by running this skill again. One dashboard per user: its link is in the machine
 configuration.
@@ -26,9 +28,11 @@ chart of …") is a refresh plus that change.
 
 ## 1. Preconditions
 
-- The `Artifact` tool must offer the **Dashboard** type: `Artifact` `action: "list"`, `scope: "types"`,
-  `type_query: "dashboard"`. Without it (no claude.ai Artifacts in this session), say so and stop; the rows
-  can still be had as a file: `HGA metrics --cost --format csv`.
+- The `Artifact` tool must offer the **Data** type: `Artifact` `action: "list"`, `scope: "types"` (no
+  `type_query`), and take the type titled "Data" — or, should it be renamed again, the one whose description
+  covers dashboards and metrics pages ("Dashboard" was its earlier title). Use that listing's `type_url`;
+  never a remembered one. Without such a type (no claude.ai Artifacts in this session), say so and stop; the
+  rows can still be had as a file: `HGA metrics --cost --format csv`.
 - If `K` has a remote, pull first (`git -C "$K" pull --ff-only --quiet`): every team member's runs land there.
   If `K` does not exist, say so and suggest `/hga:init`.
 
@@ -86,21 +90,22 @@ On the **first** upload (creating), ask with `AskUserQuestion` — "Upload the m
 If `dashboard_url` is set, `Artifact` `action: "read"` on it first; if it is gone or the read says the user is
 not a writer, say so and ask whether to make a new one (the old link is then replaced).
 
-1. `Artifact` publish with the Dashboard type's `type_url`, `title` = "hga metrics" in the configured
+1. `Artifact` publish with the Data type's `type_url`, `title` = "hga metrics" in the configured
    language, `auto_open: "after_first_write"`, no files. The result carries the dashboard's `url` and the
    type's own instructions: **follow them** for everything about the store (documents, datasets, marking,
    `dash.*`, the check). Read the references they name before writing: `artifact-type/reference/features.md`
-   (filters) and `artifact-type/reference/design-defaults.md`.
+   (filters), `artifact-type/reference/design-defaults.md` and `artifact-type/reference/one-writer.md`.
 2. Right away, write the `url` into `~/.claude/hga/config.json` as `dashboard_url`: read the file first and
    change only that key (keep `knowledge_dir` and the rest). `HGA config` must then print it.
 3. Upload `F` to the dashboard's asset store (`Artifact` publish, `url`, `file_path` = `F`, `asset: true`);
    keep the `url` the reply gives (`/_blob/<id>`) as it is.
 4. Write the store in one `ArtifactData` `batch`:
-   - `dash/meta` — `{title}`.
+   - `dash/meta` — `{title, lang}`, `lang` = the configured `language` code.
    - `datasets/hga_metrics` — `title` "hga runs, sections, models" (in the language), a `description` saying
      what one row is and that the cost column is an API-price estimate, `source: {kind: "file", url, name:
-     "hga-metrics.csv"}`, `updated: {at: <HGA now>, by: "hga /hga:dashboard"}`. No `schedule` and not
-     `fixed`: this skill refreshes it.
+     "hga-metrics.csv", format: "csv"}` (without `format` the type does not read the file as rows),
+     `updated: {at: <HGA now>, by: "hga /hga:dashboard"}`. No `schedule` and not `fixed`: this skill refreshes
+     it.
    - `dash/params` — the two filters and the pause mode (section 6), as `features.md` describes them.
    - `files/index.html` — the page (section 6).
 5. Run the type's check as its instructions say, fix what it confirms, then hand over (section 7).
@@ -110,7 +115,9 @@ not a writer, say so and ask whether to make a new one (the old link is then rep
 1. `Artifact` `action: "read"` on `dashboard_url`, then `ArtifactData` `get` `datasets/hga_metrics`. If either
    fails, go to section 4.
 2. Upload the new `F` (as in 4.3), then one `ArtifactData` `update` of `datasets/hga_metrics`: the source's new
-   `url` and `name`, and `updated` (`at` = `HGA now`). Get it back and check the `url`.
+   `url`, `name` and `format: "csv"` (a dashboard made before the type was renamed may lack it), and `updated`
+   (`at` = `HGA now`). Get it back and check the `url` and the `format`. If `dash/meta` has no `lang`, add it
+   in the same call.
 3. The previous file is an asset this skill uploaded and nothing references any more: remove it
    (`Artifact` `action: "delete"`, `url` = the dashboard, `path` = its asset id from the old `/_blob/<id>`).
 4. Leave the page alone, unless the user asked for a change or it lacks a chart or a behavior from section 6
@@ -119,7 +126,7 @@ not a writer, say so and ask whether to make a new one (the old link is then rep
 
 ## 6. The page
 
-Follow the Dashboard type's instructions for the page's structure, colors and layout; d3 v7 as the global `d3`,
+Follow the Data type's instructions for the page's structure, colors and layout; d3 v7 as the global `d3`,
 everything drawn inside `dash.onData` from `dash.data("hga_metrics")`. The CSV's cells arrive as text:
 `Number()` the numbers (an empty cell is `null`, not 0), `"true"` is finished. One color per section and per
 model, the same in every chart; each chart gets an `id`, a heading and a tooltip. Durations as `1 h 25 min` /

@@ -267,7 +267,7 @@ up to their run, models to their section. `--cost` adds `api_cost_usd_est`: the 
 prices from a small table in the script — an estimate of what they would cost on the API, **not** what a Claude
 subscription costs.
 
-[`/hga:dashboard`](skills/dashboard/SKILL.md) uploads those rows (CSV) to a claude.ai **Dashboard** artifact as an attached file: tiles,
+[`/hga:dashboard`](skills/dashboard/SKILL.md) uploads those rows (CSV) to a claude.ai **Data** artifact (the type was called Dashboard before) as an attached file: tiles,
 lead time per issue by difficulty (without pauses by default — `lead_s` = `wall_s` − `pause_s`, so a machine
 that was off overnight does not count; a filter puts the pauses back), solving speed per week, elapsed by section (stacked), tokens and the cost
 estimate by section and model, review rounds, and the account's five-hour usage as context; filters for the
