@@ -119,7 +119,7 @@ instead. **not tested**: nobody has checked it yet.
 Checked on Windows 11, Claude Code 2.1.314 (CLI) and 2.1.309 (desktop app), 2026-10-30. On Windows the skills
 run `python` instead of `python3`, and a named time zone (`timezone`) needs `pip install tzdata`. On macOS 27,
 Claude Code 2.1.325 (desktop app), 2026-11-18: `/hga:issue` end to end (four runs), `/hga:knowledge` and the issue
-pane work; the CLI there (2.1.318) ran the plugin's validation and pane tests, its `claude -p` live start was not
+pane work; the CLI there (2.1.327, 2026-11-19) ran the plugin's validation and pane tests, its `claude -p` live start was not
 checked (expired login). Linux: not tested.
 
 ### Versioning and stability
