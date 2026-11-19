@@ -147,6 +147,51 @@ without them.
 `/hga:init check` (doctor) that detects the old format and offers the migration — for the configuration files,
 through their `"schema"` field.
 
+## What it runs, reads and sends
+
+Everything the plugin does outside the conversation, in one place. It has no server of its own, collects no
+telemetry and sends nothing to its author; whatever leaves your machine goes through a tool you set up, with your
+own login.
+
+**Runs on your machine:**
+
+- `gh` and `git`, from the skills and from the scripts.
+- The Python 3 scripts in `skills/*/scripts/` (standard library only; none of them opens a network connection
+  itself — the network goes through `gh` and `git`).
+- The panes' hooks module (`hooks/register.tsx`, a mod): the triage panel runs
+  `skills/issue/scripts/hga_issue.py` with `python3` (or `python`) — `config`, and `next <owner/repo> --json` for
+  the repository's ready issues (which calls `gh`); the panes also read and write their state files in
+  `~/.claude/hga/`.
+
+**Reads:**
+
+- The knowledge base (default `~/.hga/knowledge`) and the configuration (`~/.claude/hga/config.json`,
+  `<knowledge_dir>/hga.config.json`).
+- The repositories you work on, their issues, PRs and project board, through `gh`.
+- This session's own transcript (`~/.claude/projects/*/<session id>.jsonl`, subagents included), only for the
+  metrics record: timestamps, the `usage` token counts, and the message text only to tell working from waiting
+  (a `review-wait` run, a human turn). No message text is copied into the record.
+- The account's five-hour plan usage, through the desktop app's session tools where they exist, as context in the
+  metrics record and for `/hga:triage`'s parallel limit.
+
+**Writes on your machine:** the knowledge base, `~/.claude/hga/` (the configuration and the panes' state files in
+`issue/` and `intent/`), worktrees and branches in the repositories you work on, and — only after you agree to
+it in `/hga:init` — a short note in `~/.claude/CLAUDE.md` that lets `/hga:issue` post its Slack claim without
+asking each time. It never changes Claude Code's permission settings.
+
+**Sends, and where:**
+
+| Where | What | When |
+|---|---|---|
+| GitHub (`gh`, your login) | Issues, comments, labels, assignments, branches, PRs, project board fields; review requests (`@codex review` or `@greptileai` comments, Copilot as a reviewer) | The skills you run, on the repositories you name |
+| The knowledge base's git remote | Commits of the pages the skills wrote (`kb_commit.py` pushes) | Only if the knowledge base has a remote; `/hga:init` can create it as a private GitHub repository |
+| Slack (your Slack connector) | Claims and reports in the configured channel | Only if `slack` is set in the configuration |
+| claude.ai (your account) | `/hga:dashboard`: the metrics rows as a CSV file attached to a private Data artifact; `/hga:init`: an optional Docs copy of the usage guide | Only when you run them; both stay private until you share them |
+| Your app, in a browser | The live test of `/hga:issue` opens the app in the desktop app's built-in browser or Claude in Chrome | During step 6, on the app's local or test address |
+
+The skills keep secrets, passwords and tokens out of everything they write, and `validate_kb.py` refuses
+credential-like content in the knowledge base before a commit.
+
 ## Configuration
 
 Two layers, merged (`hga_issue.py config` prints the result; `config --repo <owner/repo>` a repository's view):
