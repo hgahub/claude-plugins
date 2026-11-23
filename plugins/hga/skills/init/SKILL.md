@@ -112,13 +112,16 @@ Otherwise start from `$INIT/templates/hga.config.json` and ask:
    and never closes the issue. Check that the label exists in the repositories the user names
    (`gh label list --repo <owner/repo>`); offer to create it in step 5.
    **A repository that differs** (`repos`): ask whether any of the team's repositories has no board, another
-   board, or another closing than the answers to 3 and 4 — e.g. a tools repository under another owner that
-   closes with `Closes #n`. "None (Recommended)" leaves `repos` empty; for each one the user names, store only
-   what differs, e.g. `"repos": {"acme/tools": {"github": {"project": null}, "labels": {"closing": null}}}` —
+   board, another closing or another language than the answers to 1, 3 and 4 — e.g. a tools repository under
+   another owner that closes with `Closes #n`. "None (Recommended)" leaves `repos` empty; for each one the user
+   names, store only what differs, e.g. `"repos": {"acme/tools": {"github": {"project": null}, "labels": {"closing": null}}}` —
    its `github` and `labels` merge over the team's for every command naming that repository. Check it with
    `HGA config --repo <owner/repo>`. A repository's required gate commands go there as a list too, e.g.
    `"repos": {"acme/web-app": {"gate": ["npm test", "npm run build"]}}` (the same commands its
-   `workflow/<app>.md` page lists under `## Gate`): step 5 of `/hga:issue` then checks that each one ran.
+   `workflow/<app>.md` page lists under `## Gate`): step 5 of `/hga:issue` then checks that each one ran. A
+   repository whose GitHub text (commits, PRs, issues, comments) is in another language than the answer to 1 —
+   e.g. an English-only repository — gets its own `language`: `"repos": {"acme/tools": {"language": "en"}}`;
+   Slack and knowledge base notes stay in the team's language (`team_language` in the repository's view).
 5. **Slack:** "No Slack — claims and reports as GitHub comments (Recommended without a Slack connector)", or a
    channel. For a channel, find it with the Slack tools (`slack_search_channels`), confirm the name, and store
    `{"channel": "#name", "channel_id": "C…"}`. Read one message from it (`slack_read_channel`, limit 1) to prove

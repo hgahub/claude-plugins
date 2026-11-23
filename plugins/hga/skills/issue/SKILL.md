@@ -20,10 +20,11 @@ did not ask for more" is the classic failure.)
 ## Settings
 
 Run `HGA config --repo <owner/repo>` once at the start and keep the values for the whole run — the repository's
-view: its `repos.<owner/repo>` entry may give it its own board and closing:
+view: its `repos.<owner/repo>` entry may give it its own board, closing and language:
 
-- `language` — everything written outward (commits, PR and issue texts, comments, Slack, knowledge base notes).
-  Code, code comments and UI strings follow the repository.
+- `language` — the text written to GitHub (commits, PR and issue texts, issue and PR comments — the claim and the
+  report too when `slack` is `null`). `team_language` — Slack messages and knowledge base notes. Code, code
+  comments and UI strings follow the repository.
 - `slack` — `null`: claim and report are GitHub comments on the issue; otherwise `channel` and `channel_id`.
 - `github.project` — `null`: status is kept with labels (`labels.in_progress`, `labels.in_review`); otherwise the
   board's Status field, its options named by `github.statuses` (`in_review` after step 9, `done` after the merge).
@@ -415,8 +416,8 @@ complete), and do not wait for the merge either. Several claimed issues in one P
 
 **Low class:** ➖ if the run taught nothing new.
 
-- A lasting finding becomes a note in `notes/` per `hga:knowledge` (frontmatter, `## Sources and verification`:
-  SHAs, commands, issue/PR URL, the claim's link). Without a merge it is no evidence of deployment. Commit with
+- A lasting finding becomes a note in `notes/` per `hga:knowledge`, in `team_language` (frontmatter,
+  `## Sources and verification`: SHAs, commands, issue/PR URL, the claim's link). Without a merge it is no evidence of deployment. Commit with
   `kb_commit.py`; the evidence is the SHA after the push (or the commit SHA if the knowledge base has no remote).
   `skipped` only if a push to an existing remote fails.
 - Where a lesson goes: a recurring workflow trap → one line in `workflow/<app>.md` (re-read it right before the
@@ -431,7 +432,8 @@ link, then the metrics record, then step 12 `done` again with the record's path.
 how the run closed: `verified_complete`, or `completed_with_exceptions` with a skipped step.
 
 **Where:** with Slack, in the claim's thread (no broadcast); otherwise an issue comment. Several issues in one PR:
-the full report on the main one, a short pointer on each other. In the configured language:
+the full report on the main one, a short pointer on each other. In `team_language` in Slack, in `language` as an
+issue comment:
 
 - ✅ Done: #n — PR link (head SHA), CI (`no CI` when step 8's evidence says so — never "passed"), the review's result (local; bot rounds; 👍 or the maintainer's closing with
   the follow-up), the issue is In Review and open (the merge closes it — or, with `labels.closing`, the maintainer)

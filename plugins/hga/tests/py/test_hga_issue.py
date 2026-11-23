@@ -1264,13 +1264,35 @@ def test_config_problems_catch_bad_repo_overrides(hga, tmp_path, capsys):
     text = "\n".join(problems)
     assert "repos.a/b: labels.closing must be a label name" in text
     assert "repos.a/b: github.statuses.done" in text
-    assert "repos.c/d must be an object with github / labels sections and a gate list" in text
+    assert "repos.c/d must be an object with github / labels sections, a gate list and a language" in text
     assert "repos.e/f must be an object" in text
     assert "repos.plugins must be named owner/repo" in text  # it would never match
     assert len(problems) == 5  # the team's own fields are not reported again
     assert hga.config_problems(hga._merge(hga.DEFAULTS, {"repos": []}))[0].startswith("repos must be an object")
     assert hga.main(["doctor", "--repo", "a/b"]) == 1
     assert "MISSING] configuration · repos.a/b: labels.closing must be" in capsys.readouterr().out
+
+
+def test_repo_language_override(hga, tmp_path, capsys):
+    # #66: a repository's language is for its GitHub text; Slack and knowledge base notes keep the team's
+    c = hga._merge(hga.DEFAULTS, {"language": "hu", "repos": {"Acme/Tools": {"language": "en"}}})
+    assert hga.config_problems(c) == []
+    tools = hga.repo_config(c, "acme/tools")
+    assert (tools["language"], tools["team_language"]) == ("en", "hu")
+    web = hga.repo_config(c, "acme/web")
+    assert (web["language"], web["team_language"]) == ("hu", "hu")
+    assert c["language"] == "hu" and "team_language" not in c
+    for bad in ("", "  ", 5, None):
+        c = hga._merge(hga.DEFAULTS, {"language": "hu", "repos": {"acme/tools": {"language": bad}}})
+        assert hga.config_problems(c) == ['repos.acme/tools: language must be a language code, e.g. "en"'], bad
+    # HGA config --repo prints both; without --repo it is the team's, with no team_language
+    write(tmp_path / "kb" / "hga.config.json", {"language": "hu", "repos": {"acme/tools": {"language": "en"}}})
+    assert hga.main(["config", "--repo", "acme/tools"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["language"], out["team_language"]) == ("en", "hu")
+    assert hga.main(["config"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["language"] == "hu" and "team_language" not in out
 
 
 def test_repo_gate_list_in_the_config(hga, tmp_path, capsys):
