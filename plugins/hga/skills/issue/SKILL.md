@@ -416,8 +416,8 @@ complete), and do not wait for the merge either. Several claimed issues in one P
 
 **Low class:** ➖ if the run taught nothing new.
 
-- A lasting finding becomes a note in `notes/` per `hga:knowledge`, in `team_language` (frontmatter, `## Sources and verification`:
-  SHAs, commands, issue/PR URL, the claim's link). Without a merge it is no evidence of deployment. Commit with
+- A lasting finding becomes a note in `notes/` per `hga:knowledge`, in `team_language` (frontmatter,
+  `## Sources and verification`: SHAs, commands, issue/PR URL, the claim's link). Without a merge it is no evidence of deployment. Commit with
   `kb_commit.py`; the evidence is the SHA after the push (or the commit SHA if the knowledge base has no remote).
   `skipped` only if a push to an existing remote fails.
 - Where a lesson goes: a recurring workflow trap → one line in `workflow/<app>.md` (re-read it right before the

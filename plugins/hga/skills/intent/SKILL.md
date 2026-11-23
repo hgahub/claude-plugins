@@ -116,7 +116,8 @@ out bigger gets the standard gates.
 | 7 | Issue | created directly, not through `/hga:new-issue` (that needs an intent.md) |
 | 8 | Handoff | `/hga:issue` in this session, or the command for it |
 
-**The body** — the implementer's contract, in the triage's finalized structure (`language` from `HGA config --repo <owner/repo>`):
+**The body** — the implementer's contract, in the triage's finalized structure (`language` from
+`HGA config --repo <owner/repo>`):
 
 ```
 **Ref:** fast lane of /hga:intent · <date> · <author> · related: #… (why)
