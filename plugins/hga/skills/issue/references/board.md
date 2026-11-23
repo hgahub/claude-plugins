@@ -1,4 +1,4 @@
-# Steps 2 and 9 — the project board
+# Step 2 — the project board
 
 Read from `SKILL.md`, step 2, when `github.project` is not `null`. `HGA status-set` sets the board's Status field
 itself; this is what the board adds.
