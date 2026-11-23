@@ -126,7 +126,9 @@ not a writer, say so and ask whether to make a new one (the old link is then rep
    (`Artifact` `action: "delete"`, `url` = the dashboard, `path` = its asset id from the old `/_blob/<id>`).
 4. Leave the page alone, unless the user asked for a change or it lacks a chart or a behavior from section 6
    (such as the pause toggle; an older version of this skill wrote it): then `get` `files/index.html` (and
-   `dash/params` if a filter is missing), change only that, and run the type's check.
+   `dash/params` if a filter is missing), change only that, and run the type's check. A page that still draws
+   one bar per run in "Lead time per issue" or "Elapsed by section" lacks item 2's dot chart and item 4's
+   weekly bars: rewrite those two charts and the Runs table's section columns (item 9), nothing else.
 
 ## 6. The page
 
@@ -158,16 +160,23 @@ From top to bottom:
    total tokens, `api_cost_usd_est` total — labeled "API-price estimate (not the subscription cost)" — and
    median review rounds. The lead-time, time and token
    figures come from runs with a record (`outcome` not `aborted` / `open`).
-2. **Lead time per issue** — one bar per run (`repo#issue`, by start), length the lead time, colored by
-   `difficulty` (easy / medium / hard / not reported), with `active_s` as a thinner bar inside it; the tooltip
-   adds review wait, pauses, verb and review rounds.
+2. **Lead time per issue** — a dot chart on a time axis: one dot per run with a record (`outcome` not
+   `aborted` / `open`), x = `started_at`, y = the lead time (`lead`), colored by `difficulty` (easy / medium /
+   hard / not reported). Its height is fixed, never derived from the number of runs; the dots are partly
+   transparent, so overlapping ones stay readable. The tooltip: `repo#issue`, verb, the lead time without
+   pauses, the pauses (`pause_s`), the full wall time (`wall_s`), active time (`active_s`), review wait and
+   review rounds.
 3. **Solving speed** — per week of `date`: finished runs (bars; a `report_sent` run stacked on top in the
    warning color, so a report over open steps never reads as a closed run), aborted runs (a second, muted bar beside
    them), and the median lead time (line), so the trend shows whether issues get done faster and fewer runs
    die on the way.
-4. **Elapsed by section** — one stacked bar per run from the `kind=section` rows, Prepare → Build → Review →
-   Finish, in each section's lead time (its own `lead_s` or `wall_s`, after the mode); a toggle to show the
-   shares (100 %) instead.
+4. **Elapsed by section** — one stacked bar per week (Monday-based, on `date`) over the filtered runs that
+   have `kind=section` rows, Prepare → Build → Review → Finish. Each segment is the section's **average per
+   run** that week, in its lead time (its own `lead_s` or `wall_s`, after the mode), so the stack's height is
+   the week's average lead time (averages, not medians: medians would not add up). Every week from the first
+   to the last in the filter has a slot on the axis; an empty week stays empty. A toggle shows each week's
+   section shares (100 %) instead. The tooltip per week: the week, the number of runs, and each section's
+   average and share. Fixed height, as in item 2.
 5. **Tokens and estimated cost by section and model** — from the `kind=model` rows over the filtered period:
    one stacked bar per section, stacked by model, with a toggle between tokens (`total_tokens`, or split into
    input / output / cache write / cache read) and `api_cost_usd_est`. The cost view's axis title says "API-price
@@ -185,9 +194,10 @@ From top to bottom:
    `five_hour_start_at`/`_pct` to `five_hour_end_at`/`_pct`, colored by repository; the subtitle says it is the
    whole account's usage (all sessions, parallel ones included), context for the period, not the issue's cost.
    Runs without both snapshots are left out, and the chart says how many.
-9. **Runs** — a table of the filtered `kind=run` rows (run, repo, issue, start, outcome, lead time, pauses,
-   active, difficulty, risk, n/a steps, rounds, tokens, cost estimate), newest first, keyed on `run`; aborted runs stand
-   out.
+9. **Runs** — a table of the filtered `kind=run` rows (run, repo, issue, start, outcome, lead time, Prepare,
+   Build, Review, Finish, pauses, active, difficulty, risk, n/a steps, rounds, tokens, cost estimate), newest
+   first, keyed on `run`; aborted runs stand out. The four section columns are the run's section lead time
+   (from its `kind=section` rows, after the mode), `—` when the run has no section row.
 
 A filter that leaves no rows shows "No runs in this period" in each chart, not an empty axis.
 
