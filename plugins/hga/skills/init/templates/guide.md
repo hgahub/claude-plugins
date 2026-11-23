@@ -100,7 +100,8 @@ Claude stops and asks before anything that leaves your machine or cannot be undo
 - `/hga:init check` — checks the prerequisites and the setup, and offers to repair what it finds.
 - `/hga:dashboard` — your dashboard on claude.ai of how the runs went (lead time, sections, tokens, an API-price
   cost estimate, review rounds), by repository and period; `/hga:dashboard refresh` brings in the newest runs.
-- The panes: `/issue-pane`, `/triage-pane`, `/intent-pane` show or hide them; the skills work without them.
+- The panes: `/issue-pane`, `/triage-pane`, `/intent-pane` show or hide them; the skills work without them,
+  except `/hga:issue`, which stops at step 0 when the panes' hooks module is not loaded.
 
 ## Sources and verification
 
