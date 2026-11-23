@@ -63,7 +63,8 @@ while an intent is running.
 > The panes are experimental: they are built on Claude Code's mod API (early access, it may change from release to
 > release), and [versioning](#versioning-and-stability) does not cover them. Checked
 > with Claude Code 2.1.325 and 2.1.309 (desktop app) and 2.1.314 (CLI), see [Compatibility](#compatibility). The skills work
-> without the panes.
+> without the panes, except [`/hga:issue`](skills/issue/SKILL.md): it needs the panes' hooks module (its
+> `mcp__hga__step` tool) and stops at step 0 without it.
 
 ## Install
 
@@ -109,7 +110,7 @@ instead. **not tested**: nobody has checked it yet.
 | [`/hga:triage`](skills/triage/SKILL.md) branches A–C | works | works | not tested |
 | [`/hga:issue`](skills/issue/SKILL.md) | works | works | not tested |
 | [`/hga:knowledge`](skills/knowledge/SKILL.md) | works | works | not tested |
-| [Panes and progress band](#the-panes) | not tested — the `mcp__hga__*` tools load, the display was not checked | works | not tested |
+| [Panes and progress band](#the-panes) (`/hga:issue` needs their hooks module) | not tested — the `mcp__hga__*` tools load, the display was not checked | works | not tested |
 | `/hga:triage` parallel launch (branch D) | degraded — no session tools: prints the prompt to start the implementation by hand | works | not tested |
 | Live test, built-in browser | not available — the live test uses Claude in Chrome if the session has it | works | not tested |
 | Live test, Claude in Chrome | not tested — `claude -p` loads no Chrome tools (`claude --chrome` enables them) | works | not tested |
@@ -141,7 +142,7 @@ a major version.
 
 **Experimental, not covered:** the [panes](#the-panes), the progress band and anything else built on Claude Code's
 mod API. They may break or change with a Claude Code release, whatever this plugin's version; the skills work
-without them.
+without them, except `/hga:issue`, which stops at step 0 when the panes' hooks module is not loaded.
 
 **A breaking change brings** a major version, a migration note in its release PR and the release notes, and a
 `/hga:init check` (doctor) that detects the old format and offers the migration — for the configuration files,
@@ -340,7 +341,9 @@ report problems as issues.
 
 **Experimental.** The panes and the progress band run on Claude Code's mod API, which is in early access: a Claude
 Code release can change or break them regardless of this plugin's version, and they are not covered by its
-[versioning](#versioning-and-stability). The skills work without them.
+[versioning](#versioning-and-stability). The skills work without them, except [`/hga:issue`](skills/issue/SKILL.md): its
+step gates and metrics record live in the issue pane's `mcp__hga__step` tool, so without the hooks module it
+stops at step 0, before the claim.
 
 ### Issue pane
 
