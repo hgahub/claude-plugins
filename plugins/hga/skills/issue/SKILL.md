@@ -90,14 +90,22 @@ reason) · ➖ not applicable (only where "Risk class" says so; the evidence is 
 Show the table after the PR, before the report (items 0–11 — the report's checklist line is made from it), and
 after the report (with item 12). It does not go into the PR description.
 
-**Side pane — mandatory, at every step.** If the session has `mcp__hga__step`, each of steps 0–12 gets two calls:
+**Side pane — mandatory, at every step.** Each of steps 0–12 gets two `mcp__hga__step` calls:
 `in_progress` **in the same message as the step's first action**, and `done` (one line of evidence), `skipped`
 (reason) or `not_applicable` (the `Risk:` line) with its last action. Parameters: `issue` = `owner/repo#n` (the
 main issue), `step`, `verb` = the claim verb. The first call is step
 0's `in_progress` with `started_at` = the `HGA now` timestamp. The pane is the maintainer's live view; a step
 completed later (e.g. a live test after merge) still gets its `done`. **Gate:** before each showing of the table,
 compare the pane's `N/13 done` with it and make the missing calls first; **the report does not go out until the
-pane shows steps 0–11.** Without the tool, skip the pane.
+pane shows steps 0–11.**
+
+**Without `mcp__hga__step`, stop at step 0, before the claim.** The tool is the only enforcement of the machine
+checks and of the closed checklist, and the metrics record is made from its state file: a run without it has no
+gates and no record. If the session has no `mcp__hga__step` (a deferred tool counts — load it first), do not
+claim, set no status and create no worktree: tell the user that the step gates and the metrics record are
+unavailable in this session because the panes' hooks module did not load, that they can check it with
+`/issue-pane` (it responds when the module is loaded) or by looking for `mcp__hga__step` in the session's tools,
+and stop.
 
 ## Risk class — which gates apply
 
@@ -158,6 +166,7 @@ and report say "not applicable (low)" or "(quick)". Step 4 precedes the class: i
 ## 0. Start
 
 1. `HGA now` — note it: time and tokens are measured from it. Pane: step 0 `in_progress` with this `started_at`.
+   No `mcp__hga__step` in the session: stop here, as "Side pane" says.
 2. `HGA config --repo <owner/repo>`. Check that the `code-review` skill is in the session's skill list (step 8 needs it); if not,
    stop before the claim and tell the user (`claude update`, new session). Do not substitute another review.
 3. `HGA repo-check <owner/repo>`. Starting in a worktree is fine. On a mismatch (exit 4), do not claim: tell the
@@ -207,7 +216,7 @@ read-back. `Verdict: later` on a resumed run: withdraw as below and stop.
    repos/<owner>/<repo>/issues/comments/<id>`, remove your assignment only if the winner is another account,
    tell the user and stop. Exit 4: your comment is missing — post it and read back again.
 
-**Run marker** (only with `mcp__hga__step`; needs step 0's pane call): `HGA metrics-start <owner/repo> <n>`
+**Run marker** (needs step 0's pane call): `HGA metrics-start <owner/repo> <n>`
 prints the marker's path; commit only that file:
 
 ```bash

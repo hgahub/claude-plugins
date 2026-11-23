@@ -502,6 +502,14 @@ def test_init_templates_write_the_configuration_schema(hga):
     assert '`{"schema": 1, "language": …, "timezone": …}`' in skill  # quick's team file
 
 
+def test_issue_skill_has_no_path_without_the_step_tool():
+    # #88: without mcp__hga__step there is no evidence gate, no closure rule and no metrics record
+    skill = (SCRIPTS / "issue" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Without the tool, skip the pane" not in skill
+    assert "only with `mcp__hga__step`" not in skill
+    assert "**Without `mcp__hga__step`, stop at step 0, before the claim.**" in skill
+
+
 def test_config_problems_defaults_are_clean(hga):
     assert hga.config_problems(hga.load_config()) == []
 
