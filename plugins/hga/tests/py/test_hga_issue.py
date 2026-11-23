@@ -366,6 +366,21 @@ def test_meta_on_a_user_owned_repository_is_na_and_setting_is_a_no_op(hga, monke
     assert "Type: — · Priority: — · Effort: —" in capsys.readouterr().out
 
 
+def test_meta_without_issue_fields_setting_priority_is_a_no_op(hga, monkeypatch, capsys):
+    def gql(q, **v):
+        if "issueFieldValues" in q:
+            raise RuntimeError("Field 'issueFieldValues' doesn't exist")
+        assert "repository(" in q, "no organization lookup, no mutation"
+        issue = {"id": "I", "title": "t", "issueType": {"name": "Bug"}, "projectItems": {"nodes": []}}
+        return {"repository": {"owner": {"__typename": "Organization"}, "issue": issue}}
+
+    monkeypatch.setattr(hga, "gql", gql)
+    assert hga.main(["meta", "acme/app", "1", "--priority", "Low"]) == 0
+    out, err = capsys.readouterr()
+    assert "Type: Bug · Priority: n/a · Effort: n/a" in out
+    assert "issue fields are not available for acme" in err and "--priority not set" in err
+
+
 def test_cli_config_and_now(hga, capsys):
     assert hga.main(["config"]) == 0
     assert json.loads(capsys.readouterr().out)["review"]["provider"] == "local"

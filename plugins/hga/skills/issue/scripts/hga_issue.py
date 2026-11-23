@@ -2410,10 +2410,19 @@ def cmd_meta(a) -> int:
     project = project_name(a)
     names = cfg()["github"]["fields"]
     want: dict[str, str] = {}
-    if (a.type or a.priority or a.effort) and not issue["org"]:
-        unset = ", ".join(f"--{k}" for k in ("type", "priority", "effort") if getattr(a, k))
-        print(f"{owner} is not an organization: Type, Priority and Effort are n/a — {unset} not set", file=sys.stderr)
-    elif a.type or a.priority or a.effort:
+    # Fields meta_line reports as n/a: setting one is a no-op with a note, not a failure.
+    if not issue["org"]:
+        na, why = ("type", "priority", "effort"), f"{owner} is not an organization: Type, Priority and Effort are n/a"
+    elif issue.get("issueFieldValues") is None:
+        na, why = ("priority", "effort"), f"issue fields are not available for {owner}: Priority and Effort are n/a"
+    else:
+        na, why = (), ""
+    unset = [f"--{k}" for k in na if getattr(a, k)]
+    if unset:
+        print(f"{why} — {', '.join(unset)} not set", file=sys.stderr)
+        for k in na:
+            setattr(a, k, None)
+    if a.type or a.priority or a.effort:
         try:
             org = gql(ORG_META_Q, owner=owner).get("organization")
         except RuntimeError:
