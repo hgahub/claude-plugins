@@ -32,8 +32,10 @@ questions" instead of holding up the work.
 - **The author's words are sacred.** The "Intent" section is a verbatim quote; if you misunderstood, the author
   corrects it, you do not rewrite it.
 - **Measured and inferred apart.** An inference is marked "(inference)", as in the knowledge base.
-- **Settings:** `HGA config` once at the start (`HGA config --repo <owner/repo>` once the repository is known) — `language` (the intent's text; the `##` headings and the
-  scenario keywords stay English, the gate looks for them), `knowledge_dir`, `github.project`.
+- **Settings:** `HGA config` once at the start (`HGA config --repo <owner/repo>` once the repository is known) —
+  `team_language` (the intent's text — a knowledge base page; without `--repo` it is `language`; the `##`
+  headings and the scenario keywords stay English, the gate looks for them), `language` of the repository's view
+  (the issue body), `knowledge_dir`, `github.project`.
 - **Helper scripts:** `ICHK` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/intent/scripts/intent_check.py"`;
   `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"` (`python` on Windows). Spell them
   out in every Bash call — a shell variable does not split in zsh.
@@ -114,7 +116,7 @@ out bigger gets the standard gates.
 | 7 | Issue | created directly, not through `/hga:new-issue` (that needs an intent.md) |
 | 8 | Handoff | `/hga:issue` in this session, or the command for it |
 
-**The body** — the implementer's contract, in the triage's finalized structure (`language` from `HGA config`):
+**The body** — the implementer's contract, in the triage's finalized structure (`language` from `HGA config --repo <owner/repo>`):
 
 ```
 **Ref:** fast lane of /hga:intent · <date> · <author> · related: #… (why)

@@ -13,7 +13,9 @@ Makes a GitHub issue from an accepted intent.md. It goes on the board untriaged 
 - `HGA` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/issue/scripts/hga_issue.py"`,
   `ICHK` = `python3 "${CLAUDE_PLUGIN_ROOT}/skills/intent/scripts/intent_check.py"` (`python` on Windows). Spell
   them out in every Bash call — a shell variable does not split in zsh.
-- `K` = `knowledge_dir` from `HGA config` (default `~/.hga/knowledge`); `language` there is the issue's language.
+- `K` = `knowledge_dir` from `HGA config` (default `~/.hga/knowledge`). Once step 1 names the repository,
+  `HGA config --repo <owner/repo>` with the intent's `repo`: its `language` is the issue's language (a
+  repository may set its own); the intent stays in `team_language`.
 
 ## Steps
 

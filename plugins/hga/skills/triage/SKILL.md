@@ -28,9 +28,9 @@ or when you stop it.
 - **Preparation, not implementation.** No claim, the status stays Todo, no code is committed. The claim and
   every later step belong to the launched `hga:issue` session.
 - **Settings:** `HGA config --repo <owner/repo>` once at the start (the repository's view: its `repos` entry
-  may override `github` and `labels`) — `language` (everything written to GitHub and the knowledge
-  base), `github.project` (board or labels), `slack`, `parallel.max_per_repo`, `parallel.usage_ceiling_pct`,
-  `labels.closing`, `knowledge_dir`.
+  may override `github`, `labels` and `language`) — `language` (everything written to GitHub: bodies,
+  comments), `team_language` (the knowledge base note), `github.project` (board or labels), `slack`,
+  `parallel.max_per_repo`, `parallel.usage_ceiling_pct`, `labels.closing`, `knowledge_dir`.
 - **One triage session per repository** (`HGA repo-check`). The launched implementation starts in its own
   app-made worktree (D.3), and `hga:issue`'s step 3 does the work in a `../<repo>-<n>` worktree opened from the
   main checkout — neither touches the triage session's folder.

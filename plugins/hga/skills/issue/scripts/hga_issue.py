@@ -264,6 +264,9 @@ REPO_SECTIONS = ("github", "labels")
 # A repository's required gate commands (`repos.<owner/repo>.gate`): HGA evidence --step 5 wants a passing run of
 # each on the worktree's HEAD and files. A list, not a section: it replaces, never merges.
 REPO_LISTS = ("gate",)
+# A repository's own `language`, for the text written to GitHub; Slack and knowledge base notes keep the team's
+# (`team_language` in the view). A value, not a section: it replaces.
+REPO_VALUES = ("language",)
 
 
 def repo_entry(entries: object, repo: str) -> dict:
@@ -277,12 +280,17 @@ def repo_entry(entries: object, repo: str) -> dict:
 
 
 def repo_config(c: dict, repo: str) -> dict:
-    """The configuration as a repository sees it: its `repos` entry's sections merged over the team's."""
+    """The configuration as a repository sees it: its `repos` entry's sections merged over the team's, its own
+    `language` if it has one, and the team's as `team_language`."""
     over = repo_entry(c.get("repos"), repo)
     view = _merge(c, {k: over[k] for k in REPO_SECTIONS if isinstance(over.get(k), dict)})
     for k in REPO_LISTS:
         if isinstance(over.get(k), list):
             view[k] = list(over[k])
+    for k in REPO_VALUES:
+        if k in over:
+            view[k] = over[k]
+    view["team_language"] = c.get("language")
     return view
 
 
@@ -407,8 +415,9 @@ def config_problems(c: dict) -> list[str]:
         if "/" not in repo.strip("/"):
             out.append(f"repos.{repo} must be named owner/repo")
         elif not isinstance(over, dict) or not all(
-                (k in REPO_SECTIONS and isinstance(v, dict)) or k in REPO_LISTS for k, v in over.items()):
-            out.append(f"repos.{repo} must be an object with github / labels sections and a gate list")
+                (k in REPO_SECTIONS and isinstance(v, dict)) or k in REPO_LISTS + REPO_VALUES
+                for k, v in over.items()):
+            out.append(f"repos.{repo} must be an object with github / labels sections, a gate list and a language")
         elif "gate" in over and not _commands(over["gate"]):
             out.append(f"repos.{repo}.gate must be a list of commands, e.g. [\"npm test\", \"npm run build\"]")
         else:
