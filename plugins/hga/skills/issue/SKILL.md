@@ -192,29 +192,9 @@ comments of the last 24 h). Exit 5 (`taken`): **do not start** — tell the user
 over). Exit 0: note `Session:` and `Read back from:`. `Verdict: yours` (a resumed run): skip the post and
 read-back. `Verdict: later` on a resumed run: withdraw as below and stop.
 
-**With Slack:**
+**With Slack:** read `${CLAUDE_SKILL_DIR}/references/claim-slack.md` when `slack` is not `null`.
 
-1. `slack_read_channel` on `slack.channel_id` with `oldest` = `HGA midnight`. Someone else claimed it today →
-   tell the user and stop.
-2. Post one line:
-   ```
-   <your name or agent name> · <repo> · #142 https://github.com/acme/web-app/issues/142 · fix · session <tag>
-   ```
-   Verb: `implement` / `fix` / `verify` / `re-verify` (a verification adds the head SHA). Each issue in the same
-   PR gets its own line.
-3. Read back with `oldest` = `Read back from`. Of the claims on the same issue, the smallest `ts` wins. If it is
-   not yours, reply in your thread `withdrawn — earlier claim: <link>`, tell the user and stop.
-4. The `message_ts` is the thread for every further message.
-
-**Without Slack:**
-
-1. `gh issue edit <n> --repo <owner/repo> --add-assignee @me`, then the comment
-   `Claimed · fix · <your name or agent name> · session <tag>`.
-2. Read back: `HGA claim-check <owner/repo> <n> --verb <verb> --since <Read back from>`. Exit 0 (`first`): go on.
-   Exit 5 (`later`): edit your comment (id on the `Your claim:` line) to
-   `Withdrawn · fix · <name> · session <tag> — earlier claim: <url>` via `gh api -X PATCH
-   repos/<owner>/<repo>/issues/comments/<id>`, remove your assignment only if the winner is another account,
-   tell the user and stop. Exit 4: your comment is missing — post it and read back again.
+**Without Slack:** read `${CLAUDE_SKILL_DIR}/references/claim-github.md` when `slack` is `null`.
 
 **Run marker** (needs step 0's pane call): `HGA metrics-start <owner/repo> <n>`
 prints the marker's path; commit only that file:
@@ -228,7 +208,7 @@ If it fails, note it in step 1's evidence and go on — it never blocks the work
 ## 2. In Progress
 
 `HGA status-set <owner/repo> <n> "In Progress"` — it sets the board status or label, removes the triage label, and
-reads back. If the issue is not on the board, `HGA track <owner/repo> <n>` first.
+reads back. Read `${CLAUDE_SKILL_DIR}/references/board.md` when `github.project` is not `null`.
 
 ## 3. Worktree
 
@@ -251,8 +231,8 @@ Branch prefix: `fix/` / `feat/` / `perf/`. Run the repo's install step in the wo
 If the user asks for it, or a decision is a real coin toss, and a decision skill is installed (e.g. `typesafe`),
 use it: at most three rounds; low confidence means the question lacks a consequence — re-ask rather than take
 the winner. Otherwise ask with `AskUserQuestion`. Scope: start from the acceptance criteria; a sibling bug fixed
-by **the same mechanism** fits if tested, everything else is a follow-up. With a `high` class the maintainer
-decides (see "Risk class").
+by **the same mechanism** fits if tested, everything else is a follow-up. With a `high` class, read
+`${CLAUDE_SKILL_DIR}/references/high-risk.md`.
 
 ## 5. Build and automated tests
 
@@ -268,51 +248,14 @@ decides (see "Risk class").
   configuration (`HGA config --repo`), `evidence --step 5` names a required command that did not run; a command
   that cannot start (exit 127) is not recorded — spell its words out (a shell variable does not split in zsh).
 - **Then:** `HGA risk … --worktree …` ("Risk class", point 2). **low:** no new cases or base proof required
-  (`new cases: n/a (low)`); steps 4 (if nothing was decided) and 6 become ➖. **high:** every new test needs its
-  base failure; no new test means the step is not done.
+  (`new cases: n/a (low)`); steps 4 (if nothing was decided) and 6 become ➖. **high:** read
+  `${CLAUDE_SKILL_DIR}/references/high-risk.md`.
 - **Last action:** `HGA evidence <owner/repo> <n> --step 5 --worktree ../<repo>-<n>`. After a fix round (6.5) the
   step is open again: gate, then `evidence` again before its `done`.
 
 ## 6. Live user test
 
-**Low class:** ➖, nothing starts. **High class:** wherever this section allows a skip, ask the maintainer instead.
-
-1. **Start** with `preview_start`, using a temporary entry in the session folder's `.claude/launch.json` (note
-   whether the file and folder existed: step 10 restores exactly that) and the command from the workflow page, on
-   a separate port. For Python apps the helper runs the worktree's code with the main checkout's `.env`:
-   ```json
-   {
-     "name": "<app>-<n>-live",
-     "runtimeExecutable": "uv",
-     "runtimeArgs": ["run", "--project", "<REPOS>/<repo>-<n>", "python",
-       "${CLAUDE_SKILL_DIR}/scripts/run_worktree.py",
-       "--main", "<REPOS>/<repo>", "--worktree", "<REPOS>/<repo>-<n>", "--port", "<port>",
-       "--env", "<KEY>=<value>", "--abs-env", "<keys holding relative paths>"],
-     "port": <port>
-   }
-   ```
-   **The server must run the worktree's code:** `preview_start` runs in the main checkout, so a plain
-   `npm run dev` silently serves the unfixed code. Point the command at the worktree, and make the first live
-   evidence prove it (an import path in the log, or a response the fix changed).
-
-   **If `preview_start` is declined:** in an interactive session a person declined — ask (Bash start, they start
-   it, or skip). In an unattended run (scheduled, or launched by the triage) the app declined by itself — start the
-   same command with Bash in the background, wait for the port, and use the process output as the server log. Skip
-   only if both paths fail, with both errors as evidence.
-2. **Browser:** `live_test.browser` first, the other if it is not in the session — equal, no ⚠️ for falling
-   back. Follow the issue's **"What we measured"** steps in the UI.
-3. **Evidence:** state via `javascript_tool` (the workflow page lists the state objects), the server log, and
-   screenshots. Read transient UI (toasts) from the DOM. In Chrome a JS evaluation times out at 45 s: wait ≤40 s
-   per call.
-4. **Afterwards:** note console errors caused by the changed code; stop the server, close the tab, confirm the
-   port no longer listens.
-5. **On failure, back to step 5** (pane: step 5 `in_progress` again): regression test if automatable, fix, gate,
-   commit, and repeat the live test **from the beginning**. At most 3 rounds, then ask the maintainer before the PR.
-6. **Verdict** by the "Acceptance criteria": **`PASSED`** (every UI-checkable criterion holds, no new console
-   error), **`FAILED`** (still failing after round 3), **`NOT VERIFIED`** (the app did not start). Below it, one
-   line per criterion: `C<i> ✅ / ❌ — what you did, what you saw`; non-UI criteria are `—`. Only `PASSED` can be
-   `done` on the pane (`PASSED · Chrome · C1–C4 ✅`); the others are `skipped`. The verdict leads the PR's "Live
-   user test" section and is in the report.
+**Low class:** ➖, nothing starts. Read `${CLAUDE_SKILL_DIR}/references/live-test.md` when the class is not `low`.
 
 ## 7. Commit and PR
 
@@ -333,8 +276,7 @@ decides (see "Risk class").
      result, fix rounds
   7. **Review** — filled in after step 8: round · commit · fix; or the maintainer's closing with the follow-up link
   8. **Not part of this PR (follow-up)** — the follow-up issues' links (7a)
-  9. **Risk** — step 5's `Risk:` line; for **high** also **Rollback**: how to undo it after the merge, and what a
-     revert alone does not undo
+  9. **Risk** — step 5's `Risk:` line; for **high**, read `${CLAUDE_SKILL_DIR}/references/high-risk.md`
 - **Read the link back:** `gh pr view <pr> --repo <owner/repo> --json closingIssuesReferences` lists the issue (with
   `labels.closing`: nothing). Fix the body and re-read if wrong.
 - **Machine check:** `HGA evidence <owner/repo> <n> --step 7 --worktree ../<repo>-<n> --pr <pr>`, with `--partial`
@@ -343,15 +285,7 @@ decides (see "Risk class").
 
 ## 7a. Follow-up issues — as GitHub issues, tracked
 
-1. Verify the claim on the current default branch (`git grep … origin/<default-branch>`), with file:line; record
-   live-only findings as measurements (date, environment, data). If earlier text overstated it, fix that too.
-2. Duplicate search (`--state all`); a related but different bug is linked as "related".
-3. Body: a `**Ref:** #<n> / PR #<pr>` line, `## The bug`, `## What we measured`, `## Why it hurts`,
-   `## Direction of the fix`, `## Acceptance criteria` (numbered, with the regression test). Label `bug` or what
-   fits.
-4. Never quote secrets or real people's data — describe what leaked and how much.
-5. `HGA track <owner/repo> <n>` → `Status: Todo · issue: OPEN`.
-6. Link it in the PR's "Not part of this PR", the report and the knowledge note.
+Read `${CLAUDE_SKILL_DIR}/references/follow-ups.md` when a finding is to become a follow-up issue.
 
 ## 8. Review
 
@@ -367,23 +301,12 @@ decides (see "Risk class").
    With `local` as provider this **is** the review: repeat after each fix round until nothing significant, with
    the round limit of point 4. A low class's or the quick track's single round is the whole review
    (`--review-rounds 1`).
-2. **Bot** (standard and high, not quick): `HGA review-request <owner/repo> <pr>`, ~20 s after a push (too early fails with
-   "ref does not exist"). Then in the background: `HGA review-wait <owner/repo> <pr> --issue <n> --timeout-min 30`
-   — exit 0 = 👍, 1 = findings (`severity · path:line · id · title`), 2 = timeout, 3 = the review failed. Only a
-   bot review of the exact head commit counts; a clean one is recorded for step 8's machine check. Copilot and Greptile support is newer; if the output looks wrong, check the API
-   and say so in the report.
-3. **Findings** (`gh api repos/<o>/<r>/pulls/<pr>/comments`): fix real ones, and **before the next round fix the
-   siblings** (same bug in other consumers, same pattern elsewhere). Gate, commit `fix(#n): …`, push, reply to
-   every comment (`…/comments/<id>/replies`: what was fixed in which commit, or why not), request again.
-4. **Round limit — closing is the maintainer's decision.** Ask with `AskUserQuestion` before the next fixes when
-   `review-wait` reports round `review.ask_after_rounds` (default 5), or from round 3 a round finds only minor
-   findings in earlier rounds' fixes. Give rounds, findings per round, severities, and since when they stopped
-   shrinking. Options: "Close with a follow-up issue (Recommended)", "Fix this round, then close", "Continue until
-   👍". (A PR that changes a test suite or measuring tool is the exception — its rounds can surface real bugs; say
-   so.)
-5. **Closing, if decided:** open findings into a follow-up issue (7a), each comment answered with its link; still
-   fix severe findings and regressions, noting that no bot reviewed that fix; fill in the PR's "Review"; take
-   round counts from `review-wait` or the API, not memory.
+2. **Bot** (standard and high, not quick): read `${CLAUDE_SKILL_DIR}/references/review-bot.md` when
+   `review.provider` is not `local`.
+3. **Findings** of the bot: in the same file.
+4. **Round limit — closing is the maintainer's decision:** read `${CLAUDE_SKILL_DIR}/references/review-rounds.md`
+   when a round ended with findings and the class's review is not a single round (low, quick).
+5. **Closing, if decided:** in the same file.
 6. **Then:** `HGA risk … --pr …` ("Risk class", point 3); a risen track's gates come before step 9 — a quick
    change that grew past small gets its bot round now.
 7. **Last action:** `HGA evidence <owner/repo> <n> --step 8 --pr <pr>` — the head is the one step 7's record or the
@@ -468,12 +391,4 @@ Finally show the whole checklist with item 12.
 
 ## After the merge (when the user says so)
 
-1. `gh pr view <pr> --repo <owner/repo> --json state,mergedAt,mergeCommit`: expected `MERGED`. Then `HGA status-set <owner/repo> <n> Done`
-   (each issue of the PR; without a board it keeps `labels.in_review`) and `HGA status …`: issue
-   `CLOSED (COMPLETED)` + Done. Still open although the PR covered it whole: `gh issue close <n> --repo <owner/repo> --reason
-   completed --comment "Done in #<pr> (<merge-sha>)"` and read back. `Ref #<n>` leaves it open. **With
-   `labels.closing`:** expected `OPEN` + Done (without a board: `In Review`, the label stays); leave it to the
-   maintainer.
-2. Delete the remote branch if GitHub did not (`git push origin --delete <branch>`).
-3. A dated line in the knowledge note: merge SHA, follow-up issues, the report's link (still no deployment proof).
-4. Follow-ups not yet filed: file them now as in 7a, checked on the merged default branch.
+Read `${CLAUDE_SKILL_DIR}/references/after-merge.md` when the user says the PR was merged.

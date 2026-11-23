@@ -1,4 +1,5 @@
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -508,6 +509,14 @@ def test_issue_skill_has_no_path_without_the_step_tool():
     assert "Without the tool, skip the pane" not in skill
     assert "only with `mcp__hga__step`" not in skill
     assert "**Without `mcp__hga__step`, stop at step 0, before the claim.**" in skill
+
+
+def test_issue_skill_references_resolve():
+    # #29: every reference the core points to exists, and every reference file has a pointer
+    issue = SCRIPTS / "issue"
+    core = (issue / "SKILL.md").read_text(encoding="utf-8")
+    named = set(re.findall(r"\$\{CLAUDE_SKILL_DIR\}/references/([\w-]+\.md)", core))
+    assert named == {f.name for f in (issue / "references").glob("*.md")}
 
 
 def test_config_problems_defaults_are_clean(hga):
