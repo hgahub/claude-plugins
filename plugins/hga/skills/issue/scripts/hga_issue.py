@@ -72,7 +72,8 @@ Subcommands (GitHub calls go through the `gh` CLI; standard library only):
       it only sets the status labels.
   meta <owner/repo> <n> [--type T] [--priority P] [--effort E] [--iteration current|<name>]
       The issue type, the Priority and Effort issue fields and the board iteration: sets the given ones,
-      then prints them in one line. Fields that do not exist for the owner are reported as n/a.
+      then prints them in one line. Fields that do not exist for the owner are reported as n/a (Type, Priority
+      and Effort on a repository owned by a user account); setting one is a no-op with a note on stderr.
       Exit code 4 if something did not take effect.
   review-request <owner/repo> <pr> [--provider P]
       Asks the configured review bot for a review (codex: `@codex review` comment; copilot: adds
@@ -2327,7 +2328,7 @@ def cmd_evidence(a) -> int:
 # --- issue metadata: type, Priority / Effort, iteration ------------------------------------------
 
 META_Q = """
-query($owner:String!,$name:String!,$num:Int!,$field:String!){repository(owner:$owner,name:$name){issue(number:$num){
+query($owner:String!,$name:String!,$num:Int!,$field:String!){repository(owner:$owner,name:$name){owner{__typename} issue(number:$num){
   id title issueType{name}
   issueFieldValues(first:20){nodes{... on IssueFieldSingleSelectValue{name field{... on IssueFieldSingleSelect{name}}}}}
   projectItems(first:10){nodes{id project{id title}
@@ -2336,7 +2337,7 @@ query($owner:String!,$name:String!,$num:Int!,$field:String!){repository(owner:$o
 """
 
 META_BASIC_Q = """
-query($owner:String!,$name:String!,$num:Int!,$field:String!){repository(owner:$owner,name:$name){issue(number:$num){
+query($owner:String!,$name:String!,$num:Int!,$field:String!){repository(owner:$owner,name:$name){owner{__typename} issue(number:$num){
   id title issueType{name}
   projectItems(first:10){nodes{id project{id title}
     fieldValueByName(name:$field){... on ProjectV2ItemFieldIterationValue{title iterationId}}}}
@@ -2361,23 +2362,27 @@ query($pid:ID!,$field:String!){node(id:$pid){... on ProjectV2{field(name:$field)
 
 
 def issue_meta(repo: str, num: int) -> dict:
-    """The issue with its type, issue fields and iteration; issue fields are optional (not every owner has them)."""
+    """The issue with its type, issue fields and iteration; issue fields are optional (not every owner has them).
+    `org` says whether the owner is an organization: only organizations have issue types and issue fields."""
     owner, name = split_repo(repo)
     field = cfg()["github"]["fields"]["iteration"]
     try:
-        issue = gql(META_Q, owner=owner, name=name, num=num, field=field)["repository"]["issue"]
+        repository = gql(META_Q, owner=owner, name=name, num=num, field=field)["repository"]
+        issue = repository["issue"]
     except RuntimeError:
-        issue = gql(META_BASIC_Q, owner=owner, name=name, num=num, field=field)["repository"]["issue"]
+        repository = gql(META_BASIC_Q, owner=owner, name=name, num=num, field=field)["repository"]
+        issue = repository["issue"]
         if issue is not None:
             issue["issueFieldValues"] = None
     if issue is None:
         raise SystemExit(f"no such issue: {repo}#{num}")
+    issue["org"] = repository["owner"]["__typename"] == "Organization"
     return issue
 
 
 def meta_line(repo: str, num: int, issue: dict, project: str | None) -> dict[str, str]:
     names = cfg()["github"]["fields"]
-    if issue.get("issueFieldValues") is None:
+    if not issue["org"] or issue.get("issueFieldValues") is None:
         fields: dict = {}
         no_fields = True
     else:
@@ -2389,7 +2394,7 @@ def meta_line(repo: str, num: int, issue: dict, project: str | None) -> dict[str
     item = next((n for n in issue["projectItems"]["nodes"] if n["project"]["title"] == project), None) if project else None
     it = (item or {}).get("fieldValueByName") or {}
     got = {
-        "type": (issue.get("issueType") or {}).get("name") or "—",
+        "type": "n/a" if not issue["org"] else (issue.get("issueType") or {}).get("name") or "—",
         "priority": "n/a" if no_fields else fields.get(names["priority"]) or "—",
         "effort": "n/a" if no_fields else fields.get(names["effort"]) or "—",
         "iteration": "n/a" if not project else it.get("title") or ("—" if item else "not on the board"),
@@ -2414,6 +2419,18 @@ def cmd_meta(a) -> int:
     project = project_name(a)
     names = cfg()["github"]["fields"]
     want: dict[str, str] = {}
+    # Fields meta_line reports as n/a: setting one is a no-op with a note, not a failure.
+    if not issue["org"]:
+        na, why = ("type", "priority", "effort"), f"{owner} is not an organization: Type, Priority and Effort are n/a"
+    elif issue.get("issueFieldValues") is None:
+        na, why = ("priority", "effort"), f"issue fields are not available for {owner}: Priority and Effort are n/a"
+    else:
+        na, why = (), ""
+    unset = [f"--{k}" for k in na if getattr(a, k)]
+    if unset:
+        print(f"{why} — {', '.join(unset)} not set", file=sys.stderr)
+        for k in na:
+            setattr(a, k, None)
     if a.type or a.priority or a.effort:
         try:
             org = gql(ORG_META_Q, owner=owner).get("organization")
