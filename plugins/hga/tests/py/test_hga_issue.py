@@ -516,7 +516,8 @@ def test_issue_skill_references_resolve():
     issue = SCRIPTS / "issue"
     core = (issue / "SKILL.md").read_text(encoding="utf-8")
     named = set(re.findall(r"\$\{CLAUDE_SKILL_DIR\}/references/([\w-]+\.md)", core))
-    assert named == {f.name for f in (issue / "references").glob("*.md")}
+    assert named, "the core reads no reference file"
+    assert named =={f.name for f in (issue / "references").glob("*.md")}
 
 
 def test_config_problems_defaults_are_clean(hga):
