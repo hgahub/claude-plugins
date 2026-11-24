@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc -p plugins/hga",
-    "test:py": "python3 -m pytest plugins/hga/tests/py -q"
+    "test:py": "python3 -m pytest tests/py -q"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Use when a GitHub issue is to be assessed, prepared for implementation, picked next, or handed to a parallel /hga:issue session — the step before /hga:issue. Branches — the five questions ("assess issue #N", "vet issue #N", "run the five questions"), finalizing the issue into an implementable brief ("finalize #N", "make it ready for implementation"), choosing the next issue ("which issue next?", "when can #N start?", or no issue given), and launching the implementation session. Works for any GitHub repository.
+description: "Use when a GitHub issue is to be assessed, prepared for implementation, picked next, or handed to a parallel /hga:issue session — the step before /hga:issue. Branches — the five questions (\"assess issue #N\", \"vet issue #N\", \"run the five questions\"), finalizing the issue into an implementable brief (\"finalize #N\", \"make it ready for implementation\"), choosing the next issue (\"which issue next?\", \"when can #N start?\", or no issue given), and launching the implementation session. Works for any GitHub repository."
 user-invocable: true
 argument-hint: "[issue URL | owner/repo#number] — empty: the next issue, in continuous mode"
 ---

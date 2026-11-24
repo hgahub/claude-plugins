@@ -105,8 +105,8 @@ async function home($: EngineInterface): Promise<string | null> {
 }
 
 async function stateDir($: EngineInterface): Promise<string | null> {
-  const h = await home($)
-  return h ? `${h}/.claude/hga/intent` : null
+  const dir = await home($)
+  return dir ? `${dir}/.claude/hga/intent` : null
 }
 
 // As on the issue pane: every report writes the state, one file per intent. On error it is silently skipped:

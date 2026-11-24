@@ -43,7 +43,7 @@ jobs:
       - run: python -m pip install pytest tzdata
       - name: Check plugin and marketplace versions
         run: python scripts/version.py
-      - run: python -m pytest plugins/hga/tests/py -q
+      - run: python -m pytest tests/py -q
 
   plugin:
     name: Plugin validate, pane tests and type check

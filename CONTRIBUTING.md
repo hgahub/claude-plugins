@@ -20,7 +20,7 @@ python3 scripts/version.py                    # plugin and marketplace versions 
 claude plugin validate .
 claude plugin validate plugins/hga
 claude plugin test plugins/hga                # the panes' tests
-python3 -m pytest plugins/hga/tests/py        # the scripts' tests
+python3 -m pytest tests/py                    # the scripts' tests
 scripts/plugin-types.sh                       # the plugin's types (.claude-plugin/types, tsconfig.json)
 npm run typecheck
 ```

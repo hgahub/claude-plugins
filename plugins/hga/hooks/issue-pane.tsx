@@ -136,9 +136,9 @@ function canonical(v: unknown): string {
 export function digest(issue: string, step: number, entry: Record<string, unknown>): string {
   const { digest: _d, ...body } = entry
   const text = canonical({ ...body, issue, step })
-  let h = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
-  return `fnv1a32:${h.toString(16).padStart(8, '0')}`
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0
+  return `fnv1a32:${hash.toString(16).padStart(8, '0')}`
 }
 
 // Why a done of a machine-checked step (VERIFIED) is not accepted, or null if its record passes: the record that

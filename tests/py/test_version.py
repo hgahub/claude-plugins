@@ -11,7 +11,7 @@ import textwrap
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[2]
 version = runpy.run_path(str(ROOT / "scripts/version.py"))
 
 
