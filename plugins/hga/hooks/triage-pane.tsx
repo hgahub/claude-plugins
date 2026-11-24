@@ -131,7 +131,7 @@ const occupies = (f: Running, t: number) => alive(f, t) && !closed(f)
 const numberOf = (f: Running) => Number(f.issue.split('#').pop())
 // The clock of a reported or stalled issue stops at the last report.
 const elapsed = (f: Running, t: number) => (alive(f, t) ? Math.max(t, f.updatedAt) : f.updatedAt) - f.startedAt
-const isHidden = (f: Running, h: Record<string, number>) => h[f.issue] !== undefined && f.updatedAt <= h[f.issue]!
+const isHidden = (f: Running, hidden: Record<string, number>) => hidden[f.issue] !== undefined && f.updatedAt <= hidden[f.issue]!
 
 export function duration(ms: number): string {
   const min = Math.max(0, Math.floor(ms / 60_000))
@@ -190,11 +190,11 @@ async function helper($: EngineInterface, args: string[], timeoutMs: number) {
 // The issue pane's state files for this repository's issues: unfinished ones for a week, finished ones for a day.
 async function loadRunning($: EngineInterface): Promise<void> {
   const r = await read($, repo)
-  const h = await home($)
+  const homeDir = await home($)
   const t = await $.clock.now()
   await update($, now, () => t)
-  if (r === null || h === null) return
-  const dir = `${h}/.claude/hga/issue`
+  if (r === null || homeDir === null) return
+  const dir = `${homeDir}/.claude/hga/issue`
   const list: Running[] = []
   try {
     if (await $.fs.exists(dir)) {

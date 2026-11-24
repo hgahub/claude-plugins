@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parents[2] / "skills"
+SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "hga" / "skills"
 
 
 def load(name: str, rel: str):
