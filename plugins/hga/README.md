@@ -117,7 +117,8 @@ instead. **not tested**: nobody has checked it yet.
 | [`/hga:dashboard`](skills/dashboard/SKILL.md) | works | works | not tested |
 | Slack claims and reports (with a Slack MCP connector) | works | works | not tested |
 
-Checked on Windows 11, Claude Code 2.1.314 (CLI) and 2.1.309 (desktop app), 2026-10-30. On Windows the skills
+Checked on Windows 11, Claude Code 2.1.314 (CLI) and 2.1.309 (desktop app), 2026-10-30; the CLI there (2.1.332,
+2026-11-25) ran the plugin's validation and pane tests again. On Windows the skills
 run `python` instead of `python3`, and a named time zone (`timezone`) needs `pip install tzdata`. On macOS 27,
 Claude Code 2.1.325 (desktop app), 2026-11-18: `/hga:issue` end to end (four runs), `/hga:knowledge` and the issue
 pane work; the CLI there (2.1.327, 2026-11-24) ran the plugin's validation and pane tests, its `claude -p` live start was not
