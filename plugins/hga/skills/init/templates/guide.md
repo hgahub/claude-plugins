@@ -54,7 +54,7 @@ small, clear request → /hga:intent (fast lane) ───────→ /hga:i
 
 | Setting | Value | What it means for you |
 |---|---|---|
-| Knowledge base | `{{KNOWLEDGE_DIR}}` | Notes, intents and app pages live here. |
+| Knowledge base | per machine: `~/.hga/knowledge` by default, set by `knowledge_dir` in `~/.claude/hga/config.json` | Notes, intents and app pages live here. |
 | [remote] Shared copy | `{{REMOTE}}` | The team shares it with git; the skills pull before they read and push what they write. |
 | [local only] Shared copy | none | Only this machine has it; `/hga:init` can add a remote later. |
 | Language | `{{LANGUAGE}}` | Commits, PRs, issues, comments and notes are written in this language. |

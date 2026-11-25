@@ -128,7 +128,7 @@ def test_default_root_follows_the_machine_config(tmp_path, monkeypatch):
 
 
 GUIDE = Path(__file__).resolve().parents[2] / "plugins" / "hga" / "skills" / "init" / "templates" / "guide.md"
-GUIDE_FIELDS = {"DATE", "KNOWLEDGE_DIR", "REMOTE", "LANGUAGE", "PROJECT", "LABEL_IN_PROGRESS", "LABEL_IN_REVIEW",
+GUIDE_FIELDS = {"DATE", "REMOTE", "LANGUAGE", "PROJECT", "LABEL_IN_PROGRESS", "LABEL_IN_REVIEW",
                 "SLACK_CHANNEL", "REVIEW_PROVIDER", "ASK_AFTER_ROUNDS", "MAX_PER_REPO", "USAGE_CEILING_PCT",
                 "RISK_HIGH_PATHS", "RISK_HIGH_LABEL", "RISK_LOW_PATHS", "RISK_REPO_OVERRIDES", "CLOSING_LABEL", "BROWSER",
                 "REPO_OVERRIDES"}
