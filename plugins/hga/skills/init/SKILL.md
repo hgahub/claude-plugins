@@ -123,7 +123,10 @@ Otherwise start from `$INIT/templates/hga.config.json` and ask:
    e.g. an English-only repository — gets its own `language`: `"repos": {"acme/tools": {"language": "en"}}`;
    Slack and knowledge base notes stay in the team's language (`team_language` in the repository's view).
 5. **Slack:** "No Slack — claims and reports as GitHub comments (Recommended without a Slack connector)", or a
-   channel. For a channel, find it with the Slack tools (`slack_search_channels`), confirm the name, and store
+   channel. Say in the question why it matters: the claim tells the team who took which issue, so two people (or
+   two parallel sessions) do not start the same one, and the final report lands where the team already reads.
+   Without Slack nothing is lost: the same claim and report go to the issue as GitHub comments, which only those
+   watching the issue see. For a channel, find it with the Slack tools (`slack_search_channels`), confirm the name, and store
    `{"channel": "#name", "channel_id": "C…"}`. Read one message from it (`slack_read_channel`, limit 1) to prove
    access; if that fails, say so and store nothing.
 6. **Review provider:** "Local code-review only (Recommended)", "Codex", "Copilot", "Greptile". A bot reviews in
@@ -179,6 +182,9 @@ error from its output — on another host it is usually the user's credentials, 
 - **Standing permission for the Slack claim** (only with Slack): show `$INIT/templates/claude-md-snippet.md`
   filled in with the channel, and ask whether to append it to `~/.claude/CLAUDE.md`. It lets `/hga:issue` post
   the claim and the final report in that channel without asking each time; everything else still needs approval.
+  Say in the question what a no means: Slack stays on, but every `/hga:issue` run stops twice for an approval —
+  before the claim and before the report — so an unattended run waits at its first step. A yes suits someone who
+  starts runs and leaves them; a no suits someone who wants to see each message before it is posted.
   Append it only on an explicit yes, and never edit other parts of the file.
 - **Triage labels** in repositories the user names: `ready-for-agent`, `ready-for-human`, `needs-info`, the
   status labels (`in-progress`, `in-review`, without a board), and the closing label (with `labels.closing`). `HGA triage-state` and `HGA status-set` also create
