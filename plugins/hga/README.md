@@ -6,10 +6,20 @@ One Claude Code plugin with seven skills, three live panes and a progress band. 
 reviewed PR, **[`/hga:knowledge`](skills/knowledge/SKILL.md)** keeps what was learned on the way, **[`/hga:dashboard`](skills/dashboard/SKILL.md)** shows how the runs
 went, and **[`/hga:init`](skills/init/SKILL.md)** sets everything up.
 
+```mermaid
+flowchart LR
+  init["/hga:init<br/>setup"] -.-> intent
+  intent["/hga:intent<br/>idea → intent.md"] --> newissue["/hga:new-issue<br/>GitHub issue"]
+  newissue --> triage["/hga:triage<br/>assess · finalize · launch"]
+  triage --> issue["/hga:issue<br/>13 steps → reviewed PR"]
+  intent -. "fast lane: small and clear" .-> issue
+  issue --> kb[("Knowledge base")]
+  knowledge["/hga:knowledge"] <--> kb
+  kb --> dash["/hga:dashboard"]
 ```
-/hga:intent → /hga:new-issue → /hga:triage → /hga:issue
-/hga:intent (fast lane: small and clear) ────→ /hga:issue
-```
+
+The full process, with the 13 steps of `/hga:issue`, the nine stations of `/hga:intent` and the four branches of
+`/hga:triage`: [development process diagram](docs/development-process.png).
 
 **Where to start:**
 
